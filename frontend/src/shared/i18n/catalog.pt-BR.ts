@@ -647,7 +647,7 @@ export const ptBR = {
   'photoOwner.fileTooLarge': 'A foto precisa ter até 5 MB.',
   'photoOwner.fileType': 'Envie uma foto em JPEG, PNG ou WebP.',
   'photoOwner.fileUnreadable': 'Não foi possível ler este arquivo. Escolha a foto de novo.',
-  'photoOwner.uploadInterrupted': 'O envio foi interrompido. Escolha a foto e tente de novo.',
+  'photoOwner.uploadInterrupted': 'O envio foi interrompido. Tente de novo.',
   'photoOwner.pendingLimit': 'Você atingiu o limite de fotos em análise. Aguarde o resultado ou exclua uma foto.',
   'photoOwner.queueFull': 'A fila de análise está cheia. Tente de novo mais tarde.',
   'photoOwner.uncertain': 'Não foi possível confirmar o resultado. Repetir o mesmo pedido não duplica a ação.',

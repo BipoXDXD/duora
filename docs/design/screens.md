@@ -162,8 +162,8 @@ em [system.md](system.md); critérios de acessibilidade, em [accessibility.md](a
 - **Propósito:** `/account/photos`. A pessoa envia fotos, acompanha a análise e exclui as próprias. Só ela vê esta
   lista; a tela não mostra imagem, não escolhe foto do perfil e não expõe nada a terceiros (API-P04, ADR-0050).
 - **Gate:** o mesmo do upload. Com `Media:Review` ausente, `GET /me/photos` responde 503 `MEDIA_UPLOADS_DISABLED` e a
-  tela mostra só o aviso de indisponível. Envio e exclusão aparecem depois de a lista responder 200; não há flag no
-  frontend.
+  tela mostra só o aviso de indisponível. Com resultado incerto, o formulário ou o painel da exclusão fica junto do
+  aviso, para não perder a chave. Envio e exclusão aparecem depois de a lista responder 200; não há flag no frontend.
 - **Ações:** "Enviar foto" (API-M01, JPEG, PNG ou WebP até 5 MiB, recusa local antes de gastar envio); "Excluir foto"
   (API-M03), que primeiro lê estado e ETag em API-M02 e pede confirmação sobre esse estado; "Ler estado atual".
 - **Estados:** carregando; indisponível; erro com "Ler estado atual"; vazio; em análise ("Em análise; ainda não aparece
@@ -174,6 +174,8 @@ em [system.md](system.md); critérios de acessibilidade, em [accessibility.md](a
   excluem (`PhotoUploadPolicy`, `PhotoOwnerAccess`). `PendingEmail` e `DeletionPending` não enviam nem excluem: a guarda
   responde 403 no DELETE, e a tela não oferece o botão.
 - **Exclusão:** o painel fica fora da lista, uma exclusão por vez, para a intenção sobreviver a releitura e paginação.
+  Com resultado incerto, "Ler estado atual da foto" relê API-M02: `Deleted` conclui a exclusão, e qualquer outro estado
+  pede nova confirmação, com chave nova. O envio incerto não tem saída equivalente: só repetir o mesmo pedido.
 - **Foco:** quando o controle focado some, o foco vai ao painel da exclusão, ao título "Suas fotos" ou ao aviso de
   indisponível.
 - **Saída da página:** com envio em curso ou resultado incerto, o navegador pede confirmação (`beforeunload`). A

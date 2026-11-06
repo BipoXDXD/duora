@@ -25,6 +25,8 @@ export interface ReviewCommand<Intent> {
   readonly submit: (next: Intent) => void
   readonly retry: () => void
   readonly reset: () => void
+  /** Ends an uncertain intent after another read proved its outcome; the next submit is a new intent. */
+  readonly conclude: () => void
 }
 
 export function useReviewCommand<Intent>(options: {
@@ -85,6 +87,14 @@ export function useReviewCommand<Intent>(options: {
     }
   }
 
+  function clear(): void {
+    if (inFlight.current) return
+    setIntent(null)
+    setError(null)
+    setConfirmed(false)
+    setRepeating(false)
+  }
+
   return {
     intent,
     busy,
@@ -101,12 +111,8 @@ export function useReviewCommand<Intent>(options: {
       }
     },
     reset: (): void => {
-      if (!uncertain && !inFlight.current) {
-        setIntent(null)
-        setError(null)
-        setConfirmed(false)
-        setRepeating(false)
-      }
+      if (!uncertain) clear()
     },
+    conclude: clear,
   }
 }

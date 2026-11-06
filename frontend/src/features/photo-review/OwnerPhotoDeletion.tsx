@@ -3,7 +3,7 @@ import { useQuery } from '@tanstack/react-query'
 import { useEffect, useId, useRef, useState } from 'react'
 import { useI18n } from '@/shared/i18n/i18n-context'
 import { Button } from '@/shared/ui/button'
-import { isOwnerPhotoOutcomeUncertain } from './owner-photo-failure'
+import { isDeletionOutcomeUncertain } from './owner-photo-failure'
 import { OwnerPhotoFailure } from './OwnerPhotoFailure'
 import { photoStateMessage } from './owner-photo-presentation'
 import { deleteOwnerPhoto, fetchOwnerPhotoVersion, type PhotoDeletionIntent } from './photo-review-api'
@@ -15,6 +15,9 @@ import { useLeaveWarning } from './use-leave-warning'
  *
  * A lista não traz ETag: a versão vem de API-M02 antes de perguntar, para que a confirmação valha para o estado que
  * a pessoa leu. Se a foto mudar depois disso, o DELETE responde 412 e nada acontece.
+ *
+ * A exclusão incerta tem saída: reler M02. `Deleted` prova que ela aconteceu; qualquer outro estado prova que não, e
+ * a pessoa confirma de novo. Se o pedido antigo ainda chegar ao servidor, a versão avança e a confirmação nova dá 412.
  */
 export function OwnerPhotoDeletion({
   userId,
@@ -37,6 +40,7 @@ export function OwnerPhotoDeletion({
   const { t } = useI18n()
   const titleId = useId()
   const panel = useRef<HTMLDivElement>(null)
+  const verifying = useRef(false)
   const privateOperation = usePrivateOperation()
   const [epoch, setEpoch] = useState(0)
   const version = useQuery({
@@ -47,7 +51,7 @@ export function OwnerPhotoDeletion({
   })
   const command = useReviewCommand<PhotoDeletionIntent>({
     send: deleteOwnerPhoto,
-    isUncertain: isOwnerPhotoOutcomeUncertain,
+    isUncertain: isDeletionOutcomeUncertain,
     onConfirmed: onDeleted,
     onFailure: (error) => {
       onFailure(error)
@@ -59,11 +63,18 @@ export function OwnerPhotoDeletion({
   useLeaveWarning(pending)
   useEffect(() => {
     if (version.error === null) return
+    verifying.current = false
     onFailure(version.error)
     if (reviewHttpStatus(version.error) === 404) onGone()
   }, [version.error, onFailure, onGone])
   useEffect(() => {
-    if (current?.status === 'Deleted' || (closed && !pending)) onGone()
+    if (current === undefined || !verifying.current) return
+    verifying.current = false
+    if (current.status === 'Deleted') onDeleted()
+    else command.conclude()
+  }, [current, command, onDeleted])
+  useEffect(() => {
+    if (!pending && (current?.status === 'Deleted' || closed)) onGone()
   }, [current, closed, pending, onGone])
   useEffect(() => {
     panel.current?.focus()
@@ -89,6 +100,7 @@ export function OwnerPhotoDeletion({
       <DeletionActions
         command={command}
         canConfirm={current !== undefined}
+        reading={version.isFetching}
         onConfirm={() => {
           if (current === undefined) return
           focusPanel()
@@ -97,6 +109,11 @@ export function OwnerPhotoDeletion({
         onRetry={() => {
           focusPanel()
           command.retry()
+        }}
+        onVerify={() => {
+          focusPanel()
+          verifying.current = true
+          setEpoch((value) => value + 1)
         }}
         onReread={() => {
           focusPanel()
@@ -112,15 +129,19 @@ export function OwnerPhotoDeletion({
 function DeletionActions({
   command,
   canConfirm,
+  reading,
   onConfirm,
   onRetry,
+  onVerify,
   onReread,
   onKeep,
 }: {
   readonly command: ReviewCommand<PhotoDeletionIntent>
   readonly canConfirm: boolean
+  readonly reading: boolean
   readonly onConfirm: () => void
   readonly onRetry: () => void
+  readonly onVerify: () => void
   readonly onReread: () => void
   readonly onKeep: () => void
 }): React.JSX.Element {
@@ -133,7 +154,16 @@ function DeletionActions({
           {t(command.busy ? 'photoOwner.deleting' : 'photoOwner.confirm')}
         </Button>
       ) : null}
-      {command.uncertain ? <Button onClick={onRetry}>{t('photoReview.retrySame')}</Button> : null}
+      {command.uncertain ? (
+        <>
+          <Button aria-disabled={reading} onClick={reading ? undefined : onRetry}>
+            {t('photoReview.retrySame')}
+          </Button>
+          <Button variant="secondary" aria-disabled={reading} onClick={reading ? undefined : onVerify}>
+            {t('photoOwner.rereadPhoto')}
+          </Button>
+        </>
+      ) : null}
       {refused ? (
         <Button variant="secondary" onClick={onReread}>
           {t('photoOwner.rereadPhoto')}

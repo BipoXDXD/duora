@@ -134,8 +134,13 @@ function OwnerPhotos({
         </Alert>
       ) : null}
       {photos.isPending && !opened ? <p role="status">{t('photoOwner.loading')}</p> : null}
-      {opened && UPLOADING_STATUSES.has(status) ? (
-        <OwnerPhotoUpload key={uploads} closed={closed} onUploaded={onUploaded} onFailure={reactToFailure} />
+      {opened ? (
+        <OwnerPhotoUpload
+          key={uploads}
+          available={!closed && UPLOADING_STATUSES.has(status)}
+          onUploaded={onUploaded}
+          onFailure={reactToFailure}
+        />
       ) : null}
       {opened && !closed && !UPLOADING_STATUSES.has(status) ? <p>{t('photoOwner.accountCannotUpload')}</p> : null}
       {deleting === null ? null : (

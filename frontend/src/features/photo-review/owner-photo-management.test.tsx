@@ -4,6 +4,7 @@ import { focusManager, QueryClientProvider } from '@tanstack/react-query'
 import { screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { delay, http, HttpResponse } from 'msw'
+import { useState } from 'react'
 import { MemoryRouter } from 'react-router'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { AccountContext } from '@/features/session/account-context'
@@ -336,11 +337,7 @@ describe('envio', () => {
     ['conta restrita', () => problem(403, 'ACCOUNT_RESTRICTED'), 'Esta conta não pode enviar fotos agora.'],
     ['arquivo grande na borda', () => problem(413, 'PAYLOAD_TOO_LARGE'), 'A foto precisa ter até 5 MB.'],
     ['tipo recusado', () => problem(415, 'UNSUPPORTED_MEDIA_TYPE'), 'Envie uma foto em JPEG, PNG ou WebP.'],
-    [
-      'envio interrompido',
-      () => problem(400, 'UPLOAD_INCOMPLETE'),
-      'O envio foi interrompido. Escolha a foto e tente de novo.',
-    ],
+    ['envio interrompido', () => problem(400, 'UPLOAD_INCOMPLETE'), 'O envio foi interrompido. Tente de novo.'],
   ])('recusa definitiva (%s) explica e permite escolher outra foto com chave nova', async (_name, refusal, message) => {
     useList()
     const posts = usePosts(refusal, accepted)
@@ -832,11 +829,16 @@ describe('o resultado incerto sobrevive às releituras da lista', () => {
 
 describe('recusa na repetição', () => {
   it.each([
-    ['rate limit', () => problem(429, 'TOO_MANY_REQUESTS', { 'Retry-After': '30' })],
+    ['rate limit', () => problem(429, 'RATE_LIMITED', { 'Retry-After': '30' })],
     ['conta restrita', () => problem(403, 'ACCOUNT_RESTRICTED')],
     ['gate fechado', () => problem(503, 'MEDIA_UPLOADS_DISABLED')],
     ['corpo recusado na borda', () => problem(413, 'PAYLOAD_TOO_LARGE')],
-  ])('%s vem antes da consulta da chave: o envio continua incerto', async (_name, refusal) => {
+    // ReplayAsync responde o mesmo 400 com a foto já gravada: o corpo incompleto não diz nada sobre a chave.
+    ['corpo incompleto', () => problem(400, 'UPLOAD_INCOMPLETE')],
+    // O 404 só é conclusivo no DELETE; a rota de envio não localiza recurso nenhum.
+    ['404 fora do contrato', () => problem(404, 'NOT_FOUND')],
+    ['412 fora do contrato', () => problem(412, 'PRECONDITION_FAILED')],
+  ])('%s não prova nada sobre a chave: o envio continua incerto', async (_name, refusal) => {
     useList()
     const posts = usePosts(serverError, refusal, accepted)
     mount()
@@ -850,34 +852,40 @@ describe('recusa na repetição', () => {
     await repeatAndExpectSameUpload(posts, 3)
   })
 
-  it.each([
-    [
-      'limite de pendentes',
-      () => problem(429, 'UPLOAD_PENDING_LIMIT'),
-      'Você atingiu o limite de fotos em análise. Aguarde o resultado ou exclua uma foto.',
-    ],
-    [
-      'envio interrompido',
-      () => problem(400, 'UPLOAD_INCOMPLETE'),
-      'O envio foi interrompido. Escolha a foto e tente de novo.',
-    ],
-  ])('%s passou pela chave: encerra a intenção', async (_name, refusal, message) => {
+  it('limite de pendentes passou pela chave: encerra a intenção', async () => {
     useList()
-    const posts = usePosts(serverError, refusal, accepted)
+    const posts = usePosts(serverError, () => problem(429, 'UPLOAD_PENDING_LIMIT'), accepted)
     mount()
 
     await sendFile()
     await userEvent.click(await repeatButton())
 
-    expect(await screen.findByText(message)).toBeVisible()
+    expect(
+      await screen.findByText('Você atingiu o limite de fotos em análise. Aguarde o resultado ou exclua uma foto.'),
+    ).toBeVisible()
     expect(screen.queryByRole('button', { name: 'Repetir o mesmo pedido' })).not.toBeInTheDocument()
     await sendFile()
     await screen.findByText('Foto recebida e enviada para análise.')
     expect(posts[2]?.key).not.toBe(posts[0]?.key)
   })
 
+  it('exclusão: 404 na repetição prova que a foto não existe e fecha o painel', async () => {
+    useList(stored)
+    useStatus()
+    useDeletes(serverError, () => problem(404, 'NOT_FOUND'))
+    mount()
+
+    await askToDelete()
+    await confirmDeletion()
+    await userEvent.click(await repeatButton())
+
+    await waitFor(() => {
+      expect(screen.queryByRole('group')).not.toBeInTheDocument()
+    })
+  })
+
   it.each([
-    ['rate limit', () => problem(429, 'TOO_MANY_REQUESTS', { 'Retry-After': '30' })],
+    ['rate limit', () => problem(429, 'RATE_LIMITED', { 'Retry-After': '30' })],
     ['conta sem permissão', () => problem(403, 'FORBIDDEN')],
     ['gate fechado', () => problem(503, 'MEDIA_UPLOADS_DISABLED')],
   ])('exclusão: %s não encerra a incerteza', async (_name, refusal) => {
@@ -1229,5 +1237,199 @@ describe('nome acessível', () => {
     const button = await screen.findByRole('button', { name: `Excluir foto ${PHOTO}` })
     expect(button).toHaveTextContent('Excluir foto')
     expect(button).toHaveAccessibleName(expect.stringContaining('Excluir foto'))
+  })
+})
+
+describe('saída segura da exclusão incerta', () => {
+  const REREAD = 'Ler estado atual da foto'
+
+  function useStatusSequence(...answers: readonly (() => Response)[]): void {
+    let reads = 0
+    server.use(
+      http.get(`${PHOTOS}/${PHOTO}/status`, () => {
+        reads += 1
+        const answer = answers[Math.min(reads, answers.length) - 1]
+        if (answer === undefined) throw new Error('status sem resposta definida no teste')
+        return answer()
+      }),
+    )
+  }
+
+  const statusOf = (status: string, eTag: string) => () =>
+    HttpResponse.json({ photoId: PHOTO, status, rejectionCode: null }, { headers: { ETag: eTag } })
+
+  it('M02 em Deleted encerra a incerteza como exclusão concluída', async () => {
+    let reads = 0
+    server.use(
+      http.get(PHOTOS, () => {
+        reads += 1
+        return reads === 1 ? listing(stored) : listing()
+      }),
+    )
+    useStatusSequence(statusOf('AwaitingReview', TAG_V1), statusOf('Deleted', TAG_V2))
+    const deletes = useDeletes(serverError)
+    mount()
+
+    await askToDelete()
+    await confirmDeletion()
+    await repeatButton()
+    await userEvent.click(screen.getByRole('button', { name: REREAD }))
+
+    await expectFocusedNotice('Foto excluída. A remoção dos arquivos termina em seguida.')
+    expect(screen.queryByRole('group')).not.toBeInTheDocument()
+    expect(deletes).toHaveLength(1)
+    expect(leavingIsWarned()).toBe(false)
+  })
+
+  it('versão igual em M02 libera nova confirmação, com chave nova', async () => {
+    useList(stored)
+    useStatusSequence(statusOf('AwaitingReview', TAG_V1))
+    const deletes = useDeletes(serverError, deleted)
+    mount()
+
+    await askToDelete()
+    await confirmDeletion()
+    await repeatButton()
+    await userEvent.click(screen.getByRole('button', { name: REREAD }))
+
+    await screen.findByRole('button', { name: 'Confirmar exclusão' })
+    expect(screen.queryByRole('button', { name: 'Repetir o mesmo pedido' })).not.toBeInTheDocument()
+    expect(screen.getByRole('group', { name: 'Excluir esta foto? Não dá para desfazer.' })).toHaveFocus()
+    expect(leavingIsWarned()).toBe(false)
+    await confirmDeletion()
+
+    await screen.findByText('Foto excluída. A remoção dos arquivos termina em seguida.')
+    expect(deletes.map((sent) => sent.ifMatch)).toEqual([TAG_V1, TAG_V1])
+    expect(deletes[0]?.key).not.toBe(deletes[1]?.key)
+  })
+
+  it('versão diferente em M02, sem Deleted, pede confirmação do estado novo', async () => {
+    useList(stored)
+    useStatusSequence(statusOf('AwaitingReview', TAG_V1), statusOf('Approved', TAG_V2))
+    const deletes = useDeletes(serverError, deleted)
+    mount()
+
+    await askToDelete()
+    await confirmDeletion()
+    await repeatButton()
+    await userEvent.click(screen.getByRole('button', { name: REREAD }))
+
+    expect(await screen.findByText('Estado atual: Aprovada')).toBeVisible()
+    await confirmDeletion()
+    await screen.findByText('Foto excluída. A remoção dos arquivos termina em seguida.')
+    expect(deletes[1]?.ifMatch).toBe(TAG_V2)
+  })
+
+  it('M02 indisponível mantém a incerteza e a repetição', async () => {
+    useList(stored)
+    useStatusSequence(statusOf('AwaitingReview', TAG_V1), serverError)
+    const deletes = useDeletes(serverError, deleted)
+    mount()
+
+    await askToDelete()
+    await confirmDeletion()
+    await repeatButton()
+    await userEvent.click(screen.getByRole('button', { name: REREAD }))
+
+    await waitFor(() => {
+      expect(screen.getAllByRole('alert')).toHaveLength(2)
+    })
+    await userEvent.click(await repeatButton())
+    await screen.findByText('Foto excluída. A remoção dos arquivos termina em seguida.')
+    expect(deletes[1]).toEqual(deletes[0])
+  })
+
+  it('a saída também funciona com o gate fechado', async () => {
+    let open = true
+    server.use(http.get(PHOTOS, () => (open ? listing(stored) : problem(503, 'MEDIA_UPLOADS_DISABLED'))))
+    useStatusSequence(statusOf('AwaitingReview', TAG_V1), statusOf('Deleted', TAG_V2))
+    useDeletes(serverError, () => {
+      open = false
+      return problem(503, 'MEDIA_UPLOADS_DISABLED')
+    })
+    mount()
+
+    await askToDelete()
+    await confirmDeletion()
+    await userEvent.click(await repeatButton())
+    await screen.findByText('As fotos ainda não estão disponíveis no Duora.')
+    await userEvent.click(await screen.findByRole('button', { name: REREAD }))
+
+    await screen.findByText('Foto excluída. A remoção dos arquivos termina em seguida.')
+    expect(screen.queryByRole('group')).not.toBeInTheDocument()
+  })
+
+  it('o envio incerto continua sem desistência: decisão do dono', async () => {
+    useList()
+    usePosts(serverError)
+    mount()
+
+    await sendFile()
+    await repeatButton()
+
+    expect(screen.queryByRole('button', { name: /desistir|cancelar/i })).not.toBeInTheDocument()
+  })
+})
+
+describe('mudança do status da conta com pedido pendente', () => {
+  function mountChangeable() {
+    const me = installTestMe({
+      id: 'dddddddd-dddd-4ddd-8ddd-dddddddddddd',
+      email: 'owner@example.test',
+      status: 'Active',
+      emailConfirmed: true,
+      mfaEnabled: false,
+      roles: ['participant'],
+    })
+    function Harness(): React.JSX.Element {
+      const [status, setStatus] = useState<AccountStatus>('Active')
+      return (
+        <AccountContext value={{ ...me, status }}>
+          <button
+            type="button"
+            data-testid="restrict"
+            onClick={() => {
+              setStatus('Restricted')
+            }}
+          />
+          <PrivateOperationProvider owner={me.owner}>
+            <MemoryRouter>
+              <PhotoReviewOwnerIndex />
+            </MemoryRouter>
+          </PrivateOperationProvider>
+        </AccountContext>
+      )
+    }
+    renderWithI18n(
+      <QueryClientProvider client={createTestQueryClient()}>
+        <Harness />
+      </QueryClientProvider>,
+    )
+    return {
+      restrict: () => userEvent.click(screen.getByTestId('restrict')),
+    }
+  }
+
+  it('conta restrita com envio incerto mantém o formulário e a mesma chave', async () => {
+    useList()
+    const posts = usePosts(serverError, accepted)
+    const account = mountChangeable()
+
+    await sendFile()
+    await repeatButton()
+    await account.restrict()
+
+    expect(screen.getByText('Esta conta não pode enviar fotos agora.')).toBeVisible()
+    await repeatAndExpectSameUpload(posts)
+  })
+
+  it('conta restrita sem pedido pendente perde o formulário', async () => {
+    useList()
+    const account = mountChangeable()
+
+    await screen.findByLabelText('Foto')
+    await account.restrict()
+
+    expect(screen.queryByLabelText('Foto')).not.toBeInTheDocument()
   })
 })

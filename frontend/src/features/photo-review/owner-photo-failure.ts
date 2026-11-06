@@ -10,15 +10,15 @@ const KEY_REUSED = 'IDEMPOTENCY_KEY_REUSED'
 const DEFINITIVE_STATUSES: ReadonlySet<number> = new Set([400, 401, 403, 404, 409, 411, 412, 413, 415, 428, 429])
 
 /**
- * Respostas produzidas depois de o servidor consultar a chave: só elas dizem algo sobre a tentativa incerta anterior.
- * Gate, autorização, rate limit e validação de headers vêm antes da consulta e não provam nada sobre ela.
+ * Respostas que dizem algo sobre uma tentativa incerta anterior da mesma chave. Gate, autorização, rate limit e
+ * validação de headers vêm antes de o servidor consultar a chave. `UPLOAD_INCOMPLETE` também não entra: a repetição
+ * lê o corpo de novo e responde o mesmo 400 mesmo com a foto já gravada.
  */
-const CONCLUSIVE_ON_REPEAT: ReadonlySet<string> = new Set([
+const UPLOAD_CONCLUSIVE_CODES: ReadonlySet<string> = new Set([KEY_REUSED, 'UPLOAD_PENDING_LIMIT'])
+const DELETION_CONCLUSIVE_CODES: ReadonlySet<string> = new Set([
   KEY_REUSED,
   'PHOTO_DELETE_STATE_CONFLICT',
   'PRECONDITION_FAILED',
-  'UPLOAD_INCOMPLETE',
-  'UPLOAD_PENDING_LIMIT',
 ])
 
 const PROBLEM_MESSAGES: Readonly<Record<string, PlainMessageKey>> = {
@@ -50,11 +50,22 @@ export function isUploadsDisabled(error: unknown): boolean {
 }
 
 /** Rede, 5xx e resposta fora do contrato podem ter produzido efeito; só a mesma chave pode repetir o pedido. */
-export function isOwnerPhotoOutcomeUncertain(error: unknown, repeating: boolean): boolean {
+function isFirstAttemptUncertain(error: unknown): boolean {
+  return !isUploadsDisabled(error) && !DEFINITIVE_STATUSES.has(reviewHttpStatus(error) ?? 0)
+}
+
+export function isUploadOutcomeUncertain(error: unknown, repeating: boolean): boolean {
   const code = problemCode(error)
   if (code === REQUEST_IN_PROGRESS) return true
-  if (repeating) return reviewHttpStatus(error) !== 404 && !CONCLUSIVE_ON_REPEAT.has(code ?? '')
-  return code !== UPLOADS_DISABLED && !DEFINITIVE_STATUSES.has(reviewHttpStatus(error) ?? 0)
+  return repeating ? !UPLOAD_CONCLUSIVE_CODES.has(code ?? '') : isFirstAttemptUncertain(error)
+}
+
+/** No DELETE, o 404 vem depois da consulta do recibo: a exclusão confirmada teria respondido 204. */
+export function isDeletionOutcomeUncertain(error: unknown, repeating: boolean): boolean {
+  const code = problemCode(error)
+  if (code === REQUEST_IN_PROGRESS) return true
+  if (!repeating) return isFirstAttemptUncertain(error)
+  return reviewHttpStatus(error) !== 404 && !DELETION_CONCLUSIVE_CODES.has(code ?? '')
 }
 
 /** A foto saiu (404), o gate fechou ou a chave já tem outro desfecho: a lista em tela deixou de valer. */

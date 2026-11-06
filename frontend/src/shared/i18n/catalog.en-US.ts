@@ -637,7 +637,7 @@ export const en = {
   'photoOwner.fileTooLarge': 'The photo must be 5 MB or smaller.',
   'photoOwner.fileType': 'Upload a JPEG, PNG or WebP photo.',
   'photoOwner.fileUnreadable': 'This file could not be read. Choose the photo again.',
-  'photoOwner.uploadInterrupted': 'The upload was interrupted. Choose the photo and try again.',
+  'photoOwner.uploadInterrupted': 'The upload was interrupted. Try again.',
   'photoOwner.pendingLimit': 'You reached the limit of photos in review. Wait for the result or delete a photo.',
   'photoOwner.queueFull': 'The review queue is full. Try again later.',
   'photoOwner.uncertain':

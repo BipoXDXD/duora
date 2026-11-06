@@ -3,7 +3,7 @@ import type { PlainMessageKey } from '@/shared/i18n/catalog'
 import { useI18n } from '@/shared/i18n/i18n-context'
 import { Button } from '@/shared/ui/button'
 import { TextField } from '@/shared/ui/form-fields'
-import { isOwnerPhotoOutcomeUncertain } from './owner-photo-failure'
+import { isUploadOutcomeUncertain } from './owner-photo-failure'
 import { OwnerPhotoFailure } from './OwnerPhotoFailure'
 import { checkPhotoFile, PHOTO_FILE_ACCEPT, readPhotoFile, type PhotoFileRefusal } from './owner-photo-file'
 import { uploadOwnerPhoto, type PhotoUploadIntent } from './photo-review-api'
@@ -22,14 +22,14 @@ const REFUSALS: Readonly<Record<LocalRefusal, PlainMessageKey>> = {
 
 /**
  * A intenção (chave e bytes) vive aqui e só aqui: quem monta este componente o mantém montado durante as releituras
- * da lista. Com o gate fechado (`closed`) ele some, mas segura uma intenção ainda incerta.
+ * da lista. Sem `available` (gate fechado ou conta que não envia) ele some, mas segura um pedido ainda pendente.
  */
 export function OwnerPhotoUpload({
-  closed,
+  available,
   onUploaded,
   onFailure,
 }: {
-  readonly closed: boolean
+  readonly available: boolean
   readonly onUploaded: () => void
   readonly onFailure: (error: unknown) => void
 }): React.JSX.Element | null {
@@ -40,7 +40,7 @@ export function OwnerPhotoUpload({
   const [refusal, setRefusal] = useState<LocalRefusal | null>(null)
   const command = useReviewCommand<PhotoUploadIntent>({
     send: uploadOwnerPhoto,
-    isUncertain: isOwnerPhotoOutcomeUncertain,
+    isUncertain: isUploadOutcomeUncertain,
     onConfirmed: onUploaded,
     onFailure,
   })
@@ -77,7 +77,7 @@ export function OwnerPhotoUpload({
     else command.submit({ key: crypto.randomUUID(), photo: result.photo })
   }
 
-  if (closed && !pending) return null
+  if (!available && !pending) return null
   return (
     <form
       ref={form}
