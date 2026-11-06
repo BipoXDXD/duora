@@ -143,6 +143,7 @@ class RuntimeContinuityLabTests(unittest.TestCase):
                           "first_failed_v2_current_v1_app_recovery_preserved_floor", "pinnedComposePolicy", "receiverVersionedLinkPolicy",
                           "historical_v1_application_qualified", "legacy_schema_upgraded_preserving_history"]:
                 self.assertTrue(report[field], field)
+            self.assertTrue(report["postgresSwap"]["photoStable"])
             self.assertEqual(report["qualificationOrdinal"], trial)
             self.assertEqual(report["qualificationTrial"]["ordinal"], trial)
             self.assertEqual(report["qualificationTrial"]["load"]["workers"], int(trial == 3))

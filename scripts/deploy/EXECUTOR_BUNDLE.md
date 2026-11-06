@@ -17,6 +17,7 @@ The candidate bundle has this closed inventory:
 | Bundle member | Purpose |
 | --- | --- |
 | `duora_deploy.py` | Existing executor, adapted to preserve qualified database/backup runtime |
+| `postgres_swap.py` | Administrative PostgreSQL digest swap and the primitives the executor shares with it |
 | `reconcile_payload.py` | Bounded binary capture and authenticated stopped-image SQL extraction |
 | `runtime_guard.py` | Read-only runtime identity, contract and drift checks |
 | `install_executor.py` | The single reviewed static installer; no deployment entry point |

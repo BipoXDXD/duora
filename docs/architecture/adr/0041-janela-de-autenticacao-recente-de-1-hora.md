@@ -49,3 +49,11 @@ administrativa 15 min ociosa / 8 h absoluta; normal 30 min / 12 h.
 - `ReauthenticationTests`, `MfaEnrollmentTests`, `MfaLoginTests`, `AdminBootstrapTests`,
   `RoutesCatalogPublicationTests`: expiram a prova com `StepUpClock`, que mantém a sessão viva até a janela vencer.
 - `PhotoReviewAccessTests`: TOTP de exatamente 1 h autoriza Decide/Appeal/Preserve; além dela, não.
+
+## Nota de 05/11/2026: capacidade `Appeal` removida
+
+Correção de referência, sem decisão nova. O texto aceito acima não foi alterado. A linha de `PhotoReviewAccessTests` na
+seção "Compliance" cita `Decide/Appeal/Preserve`, mas a capacidade `Appeal` deixou de existir com a remoção do recurso
+de fotos (decisão de 28/10/2026, [ADR-0035](0035-revisao-humana-de-fotos.md)). Hoje a janela de 1 h é testada para
+`Decide` e `Preserve` (`CriticalAuthorizationRequiresRecentTotpAndNotOnlyRecoveryCode` e
+`CriticalAuthorizationAcceptsTotpProvedExactlyAWindowAgo`, em `PhotoReviewAccessTests`).
