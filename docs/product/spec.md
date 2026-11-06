@@ -35,7 +35,7 @@ O Duora organiza encontros entre duas pessoas adultas em eventos com rodadas e e
 | Capacidade | Base obrigatória | Fora da primeira entrega |
 |---|---|---|
 | Conta | Cadastro, confirmação de e-mail, login, recuperação, gestão de sessões e exclusão | Servidor OAuth próprio; múltiplos provedores sociais simultâneos |
-| Perfil | Nome de exibição, faixa etária pública, região aproximada, descrição curta, fotos aprovadas e preferências privadas | Geolocalização precisa, importação de redes sociais e enriquecimento de dados |
+| Perfil | Nome de exibição, região aproximada, descrição curta, fotos aprovadas e preferências privadas | Geolocalização precisa, importação de redes sociais e enriquecimento de dados |
 | Eventos | Publicação administrativa, inscrição, fila de espera, check-in, rodadas e cancelamento | Marketplace de organizadores e eventos de terceiros |
 | Pareamento | Elegibilidade bilateral, bloqueios, não repetição no evento, justiça de espera e rastreabilidade técnica | Ranking de atratividade, inferência de orientação e recomendação por processamento externo |
 | Experiências | Um jogo completo na primeira fatia; segundo jogo antes da expansão do piloto; cenários e personagens ilustrados, trilha, ambiente e vozes pré-geradas com transcrição, 3D renderizado offline e, por experiência, 3D em tempo real com fallback 2D ([ADR-0027](../architecture/adr/0027-midia-das-experiencias-cenario-audio-e-3d.md)) | Vídeo, scripts arbitrários, TTS ao vivo e qualquer geração ao vivo no caminho crítico |
@@ -947,7 +947,7 @@ A implementação deve ser revisada à luz da LGPD, das regras aplicáveis do Ma
 
 | Tipo de dado | Tratamento padrão | Evitar |
 |---|---|---|
-| Perfil exibido | Nome de exibição, faixa etária e região aproximada | Data de nascimento integral e localização precisa para outras pessoas |
+| Perfil exibido | Nome de exibição e região aproximada | Data de nascimento, idade ou faixa etária (não coletadas; [decisões de 29/10/2026](decisions-2026-10-29.md), item 1) e localização precisa para outras pessoas |
 | Preferências | Uso estritamente necessário à elegibilidade | Telemetria comportamental com preferências identificáveis |
 | Verificação etária | Resultado mínimo, validade e referência do procedimento | Documento ou biometria brutos no banco do Duora sem necessidade justificada |
 | Conversas | Acesso só por contexto autorizado; criptografia em trânsito e proteção de armazenamento | Analytics de conteúdo e promessa de E2EE inexistente |

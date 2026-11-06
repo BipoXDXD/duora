@@ -94,7 +94,7 @@ detalhar este modelo. Todas **Proposta — confirmar**.
 | D9 | Não repetir par no evento | `events.pairings` carrega `event_id` (consistente com a rodada por FK composta) e `UNIQUE (event_id, user_low, user_high)` | Checar repetição só no algoritmo: check-then-insert sem constraint |
 | D10 | Uma conexão por par para sempre | `UNIQUE (user_low, user_high)` em `social.connections` vale também para conexões encerradas (reconexão fora do MVP, spec 7.1); o pareamento exclui pares com conexão `Ended` ou `Blocked` | Unicidade só de conexão ativa: permitiria reconexão implícita, que a spec deixa fora do MVP |
 | D11 | Sequência de mensagens | `social.conversations.next_sequence bigint`, incrementado sob o lock da conversa no envio | `SEQUENCE` global ou `max(sequence)+1`: a primeira não é por conversa; a segunda é read-modify-write |
-| D12 | Data de nascimento (**superada em 29/10/2026:** não há `birth_date`; [decisões de 29/10](../product/decisions-2026-10-29.md), item 1) | `identity.users.birth_date date` (classe P3), nunca exposta; o perfil guarda só a faixa etária derivada | Só faixa etária autodeclarada: a faixa precisa ser recalculada com o tempo e conferida com a verificação etária |
+| D12 | Data de nascimento (**superada em 29/10/2026:** não há `birth_date` nem `age_band`; [decisões de 29/10](../product/decisions-2026-10-29.md), item 1) | `identity.users.birth_date date` (classe P3), nunca exposta; o perfil guarda só a faixa etária derivada | Só faixa etária autodeclarada: a faixa precisa ser recalculada com o tempo e conferida com a verificação etária |
 | D13 | Conta privilegiada separada (**Accepted**, 2026-10-15) | Trigger de atribuição: conta com papel privilegiado não tem papel `participant` ([auth.md](../security/auth.md#papéis-e-contas)) | Elevação de sessão de participante |
 
 ## Schema `identity`
@@ -278,7 +278,6 @@ erDiagram
     profiles {
         uuid user_id PK
         text display_name
-        text age_band
         text country_code FK
         text subdivision_code FK
         bigint version
@@ -296,20 +295,19 @@ erDiagram
 
 ### profiles.profiles
 
-- **Colunas:** `user_id uuid`; `display_name text` (≤ 40); `age_band text` (faixas fechadas, ex. `18-24`,
-  `25-34`; origem em aberto, ver "Implementado" abaixo); `country_code text` e `subdivision_code text` (localização aproximada e
+- **Colunas:** `user_id uuid`; `display_name text` (≤ 40); `country_code text` e `subdivision_code text` (localização aproximada e
   opcional: país ISO 3166-1 e subdivisão ISO 3166-2 do catálogo, ADR-0030); `bio text` (≤ 500); `updated_at`;
   `version bigint` (`ETag` de API-P01/P02).
-- **Constraints:** PK e FK `user_id` → `identity.users` `RESTRICT`; `CHECK` de tamanhos e de `age_band`; FKs de
+- **Constraints:** PK e FK `user_id` → `identity.users` `RESTRICT`; `CHECK` de tamanhos; FKs de
   localização para o catálogo e `CHECK` de país quando há subdivisão.
 - **Classe:** P2 (perfil exibido a contextos legítimos, spec 12.1).
 - **Implementado (migração `Profiles`):** `user_id`, `display_name text null` (1 a 40), `bio text null` (1 a 500),
   `version bigint` (`CHECK version >= 1`; a linha só nasce na primeira gravação, e o perfil sem linha é lido como
   versão 0) e `updated_at`, com `CHECK` de tamanho por `char_length` e FK `RESTRICT`. O texto é gravado em NFC,
-  sem Cc, Cf, Zl, Zp nem surrogate solto (`ProfileText`). `age_band` **ainda não existe**, e não há `birth_date` para derivá-la: a origem
-  em data de nascimento (D12) foi descartada pela decisão de 29/10/2026 (issue #9 item 7; [data-map](../privacy/data-map.md#lacunas),
-  lacuna 3). Se o perfil exibirá faixa etária e de onde viria o dado (spec.md, escopo do Perfil na linha 38 e "Perfil exibido"
-  na linha 950) **segue em aberto, decisão do dono**.
+  sem Cc, Cf, Zl, Zp nem surrogate solto (`ProfileText`). O perfil não tem `age_band` nem há `birth_date`: nenhuma data de
+  nascimento, idade ou faixa etária é coletada ([24/10](../product/decisions-2026-10-24.md), item 3; [29/10](../product/decisions-2026-10-29.md), item 1;
+  [ADR-0029](../architecture/adr/0029-confirmacao-email-presenca-sem-idade.md); issue #9 item 7; [data-map](../privacy/data-map.md#lacunas), lacuna 3).
+  `PATCH /me/profile` recusa `ageBand` com 400, como campo desconhecido (`OwnProfileTests.UnknownOrRepeatedFieldIs400AndWritesNothing`).
 - **Expansão para revisão (issue #78, [ADR-0030](../architecture/adr/0030-profile-country-subdivision.md)):**
   `country_code text null` referencia `profiles.countries(code)`; `subdivision_code text null` participa da FK
   composta para `profiles.subdivisions(country_code, code)` (MATCH SIMPLE). CHECK exige país quando há subdivisão;
