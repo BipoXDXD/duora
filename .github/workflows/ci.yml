@@ -66,22 +66,20 @@ jobs:
         run: dotnet format backend/Duora.slnx --verify-no-changes --no-restore
 
       # Unidade, arquitetura e integração; Testcontainers usa o Docker do runner (PostgreSQL 18 real).
-      # Telemetria para separar travamento de lentidão antes do corte do job:
-      # - O maior sucesso medido levou 35m17s e o pré-teste até 4m18s; 2120s é o teto que mantém esse sucesso.
-      # - --timeout só encerra teste que honra cancelamento. Teste que o ignora mantém o processo vivo e sem TRX;
-      #   o `timeout` externo encerra esse caso e o .diag em Trace identifica o teste: InProgress sem resultado.
-      # - Sob `dotnet test`, a saída de --long-running não chega ao log, ao TRX nem ao .diag (xUnit 4.0.2).
+      # Sem limite interno: quem corta é o timeout-minutes do job. O maior verde levou 35m58s aqui e 39m57s no job.
+      # O TRX só é gravado no fim do módulo e não existe no corte; o .diag em Trace identifica o teste que ficou
+      # em andamento (InProgress sem resultado).
       - name: Testes
         run: |
           results="$RUNNER_TEMP/backend-test-results"
-          timeout --kill-after=10s 2135s dotnet test --solution backend/Duora.slnx --no-build \
-            --output Detailed \
+          dotnet test --solution backend/Duora.slnx --no-build \
             --report-xunit-trx --results-directory "$results" \
-            --long-running 120 --timeout 2120s \
             --diagnostic --diagnostic-verbosity Trace --diagnostic-output-directory "$results"
 
+      # Só em falha ou corte: nada de verde sobe para um repositório público. O upload não muda o veredito do job.
       - name: Preservar telemetria dos testes
-        if: ${{ always() }}
+        if: ${{ failure() || cancelled() }}
+        continue-on-error: true
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: backend-test-telemetry-${{ github.run_attempt }}
