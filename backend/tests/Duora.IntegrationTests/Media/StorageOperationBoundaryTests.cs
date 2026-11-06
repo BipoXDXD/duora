@@ -78,6 +78,33 @@ public sealed class StorageOperationBoundaryTests
             errors.ToString());
     }
 
+    [Theory]
+    [InlineData(typeof(NotSupportedException))]
+    [InlineData(typeof(IOException))]
+    [InlineData(typeof(ObjectDisposedException))]
+    public async Task ABrokenLogDoesNotCostTheClientItsDenialNorEscapes(Type logFailure)
+    {
+        using var stream = new MemoryStream();
+        await using var errors = new BrokenWriter(logFailure);
+
+        await StorageOperationBoundary.RunAsync(stream, errors, _ => throw new InvalidCastException(PrivateText), Ct);
+
+        Assert.Equal("denied", await ReplyAsync(stream));
+    }
+
+    [Fact]
+    public async Task ABrokenLogAndALostReplyTogetherStillEndTheConnectionQuietly()
+    {
+        await using var stream = new UnwritableStream(new IOException());
+        await using var errors = new BrokenWriter(typeof(IOException));
+
+        var run = StorageOperationBoundary.RunAsync(
+            stream, errors, _ => throw new InvalidCastException(PrivateText), Ct);
+
+        await run;
+        Assert.True(run.IsCompletedSuccessfully);
+    }
+
     [Fact]
     public async Task ACancelledCallerReachesTheOperationAndTheClientIsStillDenied()
     {
@@ -121,6 +148,12 @@ public sealed class StorageOperationBoundaryTests
     {
         await Task.Yield();
         throw failure;
+    }
+
+    private sealed class BrokenWriter(Type failure) : StringWriter
+    {
+        public override void WriteLine(string? value) =>
+            throw (Exception)Activator.CreateInstance(failure, PrivateText)!;
     }
 
     private sealed class UnwritableStream(Exception failure) : MemoryStream

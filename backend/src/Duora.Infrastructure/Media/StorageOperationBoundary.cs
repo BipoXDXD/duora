@@ -10,7 +10,10 @@ internal static class StorageOperationBoundary
     private static readonly TimeSpan OperationBudget = TimeSpan.FromSeconds(30);
     private static readonly TimeSpan ReplyBudget = TimeSpan.FromSeconds(1);
 
-    /// <summary>Never throws: the accept loop discards finished tasks, so an escaped failure leaves no trace.</summary>
+    /// <summary>
+    /// A failed operation ends here: the accept loop discards finished tasks, so nothing it raises may escape. The
+    /// client is denied before the log is written, because a broken log must not cost it the reply.
+    /// </summary>
     internal static async Task RunAsync(Stream stream, TextWriter errors, Func<CancellationToken, Task> operation,
         CancellationToken cancellationToken)
     {
@@ -22,8 +25,8 @@ internal static class StorageOperationBoundary
         }
         catch (Exception error)
         {
-            errors.WriteLine(Describe(error));
-            await SendDenialAsync(stream, errors);
+            var replyError = await SendDenialAsync(stream);
+            Record(errors, error, replyError);
         }
     }
 
@@ -35,16 +38,33 @@ internal static class StorageOperationBoundary
         or JsonException or OperationCanceledException or UnauthorizedAccessException or ArgumentException
         or SocketException or FormatException or NpgsqlException or InvalidOperationException;
 
-    private static async Task SendDenialAsync(Stream stream, TextWriter errors)
+    private static async Task<Exception?> SendDenialAsync(Stream stream)
     {
         try
         {
             using var replyBudget = new CancellationTokenSource(ReplyBudget);
             await PrivateGenerationWire.WriteAsync(stream, new PrivateGenerationReply("denied"), replyBudget.Token);
+            return null;
         }
         catch (Exception replyError)
         {
-            errors.WriteLine($"STORAGE_REPLY_LOST {replyError.GetType().Name}");
+            return replyError;
+        }
+    }
+
+    private static void Record(TextWriter errors, Exception error, Exception? replyError)
+    {
+        try
+        {
+            errors.WriteLine(Describe(error));
+            if (replyError is not null)
+            {
+                errors.WriteLine($"STORAGE_REPLY_LOST {replyError.GetType().Name}");
+            }
+        }
+        catch (Exception)
+        {
+            // This writer is the host's only channel: a failure to write to it has nowhere else to go.
         }
     }
 }
