@@ -535,7 +535,7 @@ exit 0, com o `--abort` de volta ao digest antigo e deploy seguinte aceito:
 ```bash
 hostname > /etc/duora-swap-disposable-host   # só num host que existe para isso
 python3 scripts/deploy/postgres_swap_bench.py --mode unhealthy
-python3 scripts/deploy/postgres_swap_bench.py --mode matrix      # 36 min
+python3 scripts/deploy/postgres_swap_bench.py --mode matrix      # 40 min
 ```
 
 A matriz mata o comando com SIGKILL em 18 pontos, com filho vivo: as 7 fases até o commit, cada uma resolvida por `--resume`
