@@ -160,7 +160,13 @@ public sealed class MfaLoginTests : IAsyncDisposable
         // produção (30 s, explícito para não depender do padrão) e a espera não pode ser o que decide.
         var settings = LoginLimits();
         settings["Identity:AccountQueueTimeout"] = "00:00:30";
-        await using var factory = new DuoraWebFactory(_postgres.ConnectionString) { Time = _time, Settings = settings };
+        // Custo real: a verificação do hash fica dentro da janela da corrida, e um hash rápido a estreitaria.
+        await using var factory = new DuoraWebFactory(_postgres.ConnectionString)
+        {
+            Time = _time,
+            Settings = settings,
+            RealPasswordHashCost = true,
+        };
         var scenario = new IdentityScenario(_postgres, factory);
         var account = await scenario.CreateConfirmedAccountAsync();
         EnabledMfa mfa;
