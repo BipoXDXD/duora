@@ -250,6 +250,8 @@ def validate_recipe(root: Path) -> None:
             raise ValueError("PostgreSQL recipe reads inputs outside the closed inventory")
         elif command == "COPY":
             tokens = shlex.split(value)
+            if tokens != value.split():
+                raise ValueError("PostgreSQL COPY must use plain words, without quotes or escapes")
             while tokens and tokens[0].startswith("--"):
                 if not re.fullmatch(r"--chmod=[0-7]{3,4}", tokens.pop(0)):
                     raise ValueError("Unsupported PostgreSQL COPY option")

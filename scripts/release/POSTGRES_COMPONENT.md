@@ -11,8 +11,8 @@ bits and build-context policy. It refuses mutable bases, unsupported build args,
 external COPY inputs, symbolic links, unknown metadata and unexpected platforms.
 It also refuses recipe text whose instruction boundaries BuildKit could read
 differently: parser directives, heredocs, control or invisible characters
-(including CR, so the recipe is LF only), and a continuation token that does not
-follow whitespace.
+(including CR, so the recipe is LF only), a continuation token that does not
+follow whitespace, and COPY words that carry quotes or escapes.
 The composite action verifies the successful source run and its exact retained
 native artifact through authenticated GitHub APIs. A sparse checkout of the
 source commit must produce the same fingerprint as the current inputs. Registry
