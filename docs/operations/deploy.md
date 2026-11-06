@@ -528,8 +528,9 @@ diferente. O lab não acompanha o lock: ele sai sempre do digest legado de `runt
 o PITR no sentido contrário só o drill cobre.
 
 **O que é prova manual, fora de qualquer gate.** `postgres_swap_bench.py --mode matrix` e `--mode unhealthy` não rodam em
-workflow nenhum. Última execução: 05/11/2026, commit `15893687`, arm64, em `docker:dind` isolado com o marcador de host
-descartável, sobre `feat/postgres-swap-lab`:
+workflow nenhum. Última execução em arm64, em `docker:dind` isolado com o marcador de host descartável, sobre
+`feat/postgres-swap-lab`: `matrix` em 06/11/2026, commit `df2e343f`, 18 de 18; `unhealthy` em 05/11/2026, commit `15893687`,
+sem rodada depois disso:
 
 ```bash
 hostname > /etc/duora-swap-disposable-host   # só num host que existe para isso
