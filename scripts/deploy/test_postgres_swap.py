@@ -1625,6 +1625,27 @@ class ProductionWiringTests(unittest.TestCase):
                 if not allowed:
                     self.assertIn("Direct administrative root", stderr)
 
+    def test_main_reports_a_body_os_error_as_a_system_error_not_as_a_busy_window(self) -> None:
+        manifest = self.state / "manifest.json"
+        manifest.write_text(json.dumps(source_manifest()))
+        self.paths.host_env.write_text("DUORA_IMAGE_PREFIX=" + PREFIX + "\n")
+        ingress = self.state / "ingress"
+        (ingress / "duora").mkdir(parents=True)
+        for lock in (ingress / "host.lock", ingress / "duora/release.lock", self.state / ".deploy.lock"):
+            lock.touch(mode=0o600)
+        real_locks = deploy.recovery_administrative_locks
+        stderr = io.StringIO()
+        with patch.object(deploy, "_require_recovery_administrator"), \
+                patch.object(deploy, "_recovery_root_read", side_effect=lambda path: path.read_bytes()), \
+                patch.object(deploy, "recovery_administrative_locks", lambda paths: real_locks(paths, ingress=ingress)), \
+                patch.object(swap, "postgres_swap_entry", side_effect=OSError(28, "No space left on device")), \
+                contextlib.redirect_stderr(stderr):
+            code = deploy.main(["--manifest", str(manifest), "--compose-file", str(self.paths.compose_file),
+                                "--host-env", str(self.paths.host_env), "--state-dir", str(self.state),
+                                "--swap-postgres-component", "--target-postgres", NEW_REF, "--resume"])
+        self.assertEqual(code, 1)
+        self.assertEqual(stderr.getvalue(), "[duora-deploy] ERRO de sistema: [Errno 28] No space left on device\n")
+
     def test_main_runs_the_swap_in_own_group_with_the_administrative_lease(self) -> None:
         manifest = self.state / "manifest.json"
         manifest.write_text(json.dumps(source_manifest()))
