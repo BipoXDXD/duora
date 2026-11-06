@@ -365,3 +365,27 @@ fora da política e sem mais infraestrutura no piloto.
   migração.
 - **Dependências:** o check `supply-chain` barra licença fora da allowlist; Hangfire ou Quartz só entram com ADR
   novo.
+
+## Adendo (2026-11-06): a parada do worker cancela e recupera pelo lease
+
+O item 12 descreve uma drenagem que o código não faz; este adendo registra o comportamento real, sem mudar a
+decisão acima. No `SIGTERM` o token de parada cancela o trabalho em curso, que propaga em vez de terminar: ver
+`TransactionalEmailDispatcher.DeliverAsync` e `ParticipationJobService`. Nada volta a `Pending` na parada: o job ou
+a entrega em curso e o resto do lote já tomado ficam `InFlight` até o lease vencer, quando o próximo claim os
+retoma. Os testes de integração fixam isso, entre eles
+`WorkerShutdownLeavesAnUnacknowledgedLeaseAndTheNextWorkerRecovers`, `ShutdownDuringDeletionKeepsTheLeaseForRecovery`
+e `InterruptedWorkersReachTerminalFailureWithoutAnotherSend`.
+
+Consequências: a tentativa contada no claim não é devolvida, então cada parada que pega um item gasta uma tentativa
+dele, inclusive nos que ainda esperavam no lote; com teto de tentativas, interrupções repetidas levam a entrega a
+`Failed` sem novo envio (`InterruptedWorkersReachTerminalFailureWithoutAnotherSend`); a retomada atrasa até o
+vencimento do lease; envio cancelado depois do aceite remoto pode gerar outra cópia, o que a entrega at-least-once já
+admite. O critério "Shutdown" da Compliance e a parte de "Prazo do item e lease restante" sobre devolver o item e o
+resto do lote a `Pending` não têm teste, porque descrevem uma devolução que não existe. A referência do item 3 ("como
+no shutdown") tem a mesma ressalva em `ops.jobs`: nenhum claim dessa tabela toma mais de um job por vez.
+
+O prazo de shutdown do item 12 passa a ser 25 s no `WorkerHost`, abaixo dos 30 s do `stop_grace_period` da referência
+revisada `compose.prod.yml`, e `ShutdownMarginTests` barra divergência com ela. A produção usa
+`/opt/duora/compose.coolify.json`, fora desse teste; lido na VPS, `StopTimeout` é 30 em `duora-web-1` e
+`duora-worker-1`. O prazo é teto, não tempo de drenagem: em 21 paradas reais o máximo foi 0,9 s, sem SIGKILL.
+Implementar a drenagem do item 12 é mudança de comportamento e fica para decisão própria.

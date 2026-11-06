@@ -34,6 +34,7 @@
 
   <ItemGroup>
     <!-- Os testes de integração sobem a app pelo mesmo DuoraWebApp do Program. -->
+    <InternalsVisibleTo Include="Duora.ArchitectureTests" />
     <InternalsVisibleTo Include="Duora.IntegrationTests" />
   </ItemGroup>
 </Project>

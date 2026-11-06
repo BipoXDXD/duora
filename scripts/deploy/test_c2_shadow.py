@@ -188,10 +188,12 @@ class SeedTests(unittest.TestCase):
 class FakeRunner:
     def __init__(self, responses: dict[str, list[str]] | None = None) -> None:
         self.commands: list[list[str]] = []
-        self.responses = responses or {}
+        self.stdins: list[str | None] = []
+        self.responses = {"count(*) from identity.selfie_verifications": ["1008"], **(responses or {})}
 
     def __call__(self, argv, *, stdin=None, check=True, timeout=0) -> str:
         self.commands.append(list(argv))
+        self.stdins.append(stdin)
         for marker, outputs in self.responses.items():
             if marker in " ".join(argv) and outputs:
                 return outputs.pop(0) if len(outputs) > 1 else outputs[0]
@@ -230,6 +232,95 @@ class RestoreRehearsalTests(unittest.TestCase):
         self.assertTrue(joined[-1].endswith("full --compose-project duora-c2 --state-dir "
                                             f"{layout.state} --skip-egress-check"))
         self.assertFalse(any(" duora_pgdata" in c or "--project-name duora " in c for c in joined))
+
+
+class FixtureCheckFailsOn(FakeRunner):
+    """O psql termina com erro (ON_ERROR_STOP) na conferência de número `failing_call`, contando a partir de 1."""
+
+    def __init__(self, failing_call: int, responses: dict[str, list[str]]) -> None:
+        super().__init__(responses)
+        self._failing_call = failing_call
+        self._checks = 0
+
+    def __call__(self, argv, *, stdin=None, check=True, timeout=0) -> str:
+        if stdin == shadow.SELFIE_CHECK_FILE.read_text(encoding="utf-8"):
+            self._checks += 1
+            if self._checks == self._failing_call:
+                self.commands.append(list(argv))
+                self.stdins.append(stdin)
+                raise shadow.ShadowError("selfie restore fixture: missing row")
+        return super().__call__(argv, stdin=stdin, check=check, timeout=timeout)
+
+
+class SelfieRestoreFixtureTests(unittest.TestCase):
+    RESPONSES = {"returning extract": [str(1000.0 + i) for i in range(200)], "pg_is_in_recovery": ["t", "f"],
+                 "max(at)": ["1060.0"]}
+
+    def setUp(self) -> None:
+        directory = tempfile.TemporaryDirectory()
+        self.addCleanup(directory.cleanup)
+        self.layout = shadow.Layout(Path(directory.name))
+        self.layout.state.mkdir()
+
+    def _rehearse(self, runner: FakeRunner) -> dict[str, float]:
+        now = [1000.0]
+
+        def sleep(seconds: float) -> None:
+            now[0] += seconds
+
+        return shadow.restore_rehearsal(self.layout, runner, lambda: now[0], sleep, final_full=False)
+
+    def _responses(self) -> dict[str, list[str]]:
+        return {marker: list(outputs) for marker, outputs in self.RESPONSES.items()}
+
+    def _check_positions(self, runner: FakeRunner) -> list[int]:
+        check = shadow.SELFIE_CHECK_FILE.read_text(encoding="utf-8")
+        return [index for index, stdin in enumerate(runner.stdins) if stdin == check]
+
+    def test_seed_applies_the_selfie_fixture_with_errors_stopping_psql(self) -> None:
+        runner = FakeRunner()
+        shadow.seed(self.layout, 1, runner, events=1)
+        fixture = shadow.SELFIE_SEED_FILE.read_text(encoding="utf-8")
+        self.assertEqual(len(runner.stdins), 2)
+        self.assertEqual(runner.stdins[1], fixture)
+        self.assertEqual(runner.commands[1][-2:], ["--set", "ON_ERROR_STOP=1"])
+
+    def test_fixture_is_checked_before_the_loss_and_after_recovery_while_the_app_is_down(self) -> None:
+        runner = FakeRunner(self._responses())
+        self._rehearse(runner)
+        joined = [" ".join(command) for command in runner.commands]
+        before, after = self._check_positions(runner)
+        first_marker = next(i for i, c in enumerate(joined) if "returning extract" in c)
+        promoted = max(i for i, c in enumerate(joined) if "pg_is_in_recovery" in c)
+        app_up = next(i for i, c in enumerate(joined) if c.endswith("up --detach --wait web worker edge"))
+        self.assertLess(before, first_marker)
+        self.assertLess(promoted, after)
+        self.assertLess(after, app_up)
+        self.assertEqual(runner.commands[after][-2:], ["--set", "ON_ERROR_STOP=1"])
+
+    def test_broken_fixture_before_the_loss_stops_without_killing_the_database(self) -> None:
+        runner = FixtureCheckFailsOn(1, self._responses())
+        with self.assertRaises(shadow.ShadowError):
+            self._rehearse(runner)
+        self.assertFalse(any(command[:2] == ["docker", "kill"] for command in runner.commands))
+
+    def test_broken_fixture_after_recovery_keeps_the_app_down_and_saves_no_result(self) -> None:
+        runner = FixtureCheckFailsOn(2, self._responses())
+        with self.assertRaises(shadow.ShadowError):
+            self._rehearse(runner)
+        self.assertFalse((self.layout.state / "restore-rehearsal.json").exists())
+        self.assertFalse(any(" ".join(c).endswith("up --detach --wait web worker edge") for c in runner.commands))
+
+    def test_total_rows_lost_in_the_restore_stop_the_rehearsal(self) -> None:
+        responses = self._responses() | {"count(*) from identity.selfie_verifications": ["1008", "1007"]}
+        runner = FakeRunner(responses)
+        with self.assertRaisesRegex(shadow.ShadowError, "1008.*1007"):
+            self._rehearse(runner)
+        self.assertFalse(any(" ".join(c).endswith("up --detach --wait web worker edge") for c in runner.commands))
+
+    def test_result_reports_the_exact_rows_that_survived(self) -> None:
+        result = self._rehearse(FakeRunner(self._responses()))
+        self.assertEqual(result["selfie_rows"], 1008)
 
 
 class RehearsalSqlTests(unittest.TestCase):
