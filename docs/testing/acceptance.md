@@ -203,9 +203,9 @@ revisão nova decidida pelo mesmo moderador
 histórico (`OwnerHistoryMasksOtherOwnersWithTheSameNotFound`), HumanReview admitida em Production e recusada
 em Staging (`HumanReviewIngressPolicyTests`), allowlist de deploy `{"HumanReview"}` com inventário vazio
 (`test_duora_deploy.py`) e a migração expand que limpa rejeições antigas e recusa recurso existente
-(`PhotoReviewWithoutAppealsMigrationTests`). A matriz de autorização das rotas que restaram está em
+(`PhotoReviewApprovalTests`, arquivo `PhotoReviewWithoutAppealsMigrationTests.cs`). A matriz de autorização das rotas que restaram está em
 [media-review.md](../api/media-review.md#matriz-de-autorização-28102026); os resultados pertencem ao CI do PR.
-Cada célula dessa matriz tem teste HTTP com o upload ligado (`PhotoReviewAuthorizationMatrixTests` fecha as que só
+Cada célula dessa matriz tem teste HTTP com o upload ligado (`PhotoReviewApprovalTests`, arquivo `PhotoReviewAuthorizationMatrixTests.cs`, fecha as que só
 tinham o código como evidência). Isso não reclassifica T-01/T-03 e não substitui a revisão humana da autorização.
 
 **Decisões de 29/10/2026 (espera de 7 dias).** A espera da fila vence exatamente em 7 dias: 7 dias menos 1 tick
