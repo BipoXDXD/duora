@@ -6,6 +6,7 @@ using System.Net.Http.Headers;
 using System.Text;
 using Amazon.Runtime;
 using Duora.Core.Identity;
+using Duora.Infrastructure.Identity;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
 using Microsoft.Extensions.Hosting;
@@ -33,6 +34,8 @@ public sealed class SelfieSlowProviderTests(PostgresFixture postgres)
     private static readonly TimeSpan UntilNextTry = TimeSpan.FromSeconds(6);
 
     private const int MoreTriesThanTheAttemptAllows = 40;
+
+    private const string TransportCanary = "CANARY-mensagem-do-fornecedor";
 
     private static CancellationToken Ct => TestContext.Current.CancellationToken;
 
@@ -167,7 +170,8 @@ public sealed class SelfieSlowProviderTests(PostgresFixture postgres)
     {
         var provider = new FaultySelfieProvider(_time);
         var connection = await postgres.CreateMigratedDatabaseAsync(Ct);
-        await using var host = SelfieConcurrencyHarness.Host(connection, _time, provider);
+        var logs = new CapturingLoggerProvider();
+        await using var host = SelfieConcurrencyHarness.Host(connection, _time, provider, logs: logs);
         var scenario = new IdentityScenario(connection, host);
         var account = await scenario.CreateConfirmedAccountAsync();
         await SelfieConcurrencyHarness.RequestAsync(host, account.UserId, Ct);
@@ -185,6 +189,11 @@ public sealed class SelfieSlowProviderTests(PostgresFixture postgres)
         Assert.Equal(startFails ? "Pending|no-reference|no-feedback|open" : "Capturing|has-reference|no-feedback|open", await AttemptAsync(scenario));
         Assert.Equal($"Pending|ProviderUnavailable|{(startFails ? 1 : 2)}", await DeliveryAsync(scenario));
         await AssertNotReleasedAsync(scenario, host, account.UserId);
+        var trace = Assert.Single(logs.Entries, entry => entry.Category == typeof(SelfieVerificationDispatcher).FullName);
+        Assert.Equal(LogLevel.Warning, trace.Level);
+        Assert.Contains(failure, trace.Text, StringComparison.Ordinal);
+        Assert.DoesNotContain(TransportCanary, trace.Text, StringComparison.Ordinal);
+        Assert.Null(trace.Exception);
 
         provider.StartFault = provider.ReadFault = null;
         _time.Advance(UntilNextTry);
@@ -267,10 +276,44 @@ public sealed class SelfieSlowProviderTests(PostgresFixture postgres)
         var error = await logs.FirstWarningFrom(typeof(SelfieVerificationProviderService).FullName!).WaitAsync(CallCeiling, Ct);
         Assert.Equal(LogLevel.Error, error.Level);
         Assert.Contains(nameof(ArgumentNullException), error.Text, StringComparison.Ordinal);
+        Assert.Contains("FaultySelfieProvider", error.Text, StringComparison.Ordinal);
         Assert.Null(error.Exception);
         Assert.False(loop.ExecuteTask!.IsCompleted);
         Assert.False(workerHost.Services.GetRequiredService<IHostApplicationLifetime>().ApplicationStopping.IsCancellationRequested);
         await workerHost.StopAsync(Ct);
+    }
+
+    /// <summary>Parar o worker com a chamada em voo é rotina: nem erro no log, nem falha do fornecedor no rastro.</summary>
+    [Fact]
+    public async Task StoppingTheWorkerDuringAProviderCallLogsNoErrorAndNoProviderFailure()
+    {
+        var provider = new FaultySelfieProvider(_time);
+        var entered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        provider.StartFault = cancellationToken =>
+        {
+            entered.TrySetResult();
+            return Task.Delay(Timeout.Infinite, cancellationToken);
+        };
+        var connection = await postgres.CreateMigratedDatabaseAsync(Ct);
+        await using var web = SelfieConcurrencyHarness.Host(connection, _time, provider);
+        var scenario = new IdentityScenario(connection, web);
+        var account = await scenario.CreateConfirmedAccountAsync();
+        await SelfieConcurrencyHarness.RequestAsync(web, account.UserId, Ct);
+        var logs = new CapturingLoggerProvider();
+        using var workerHost = BuildWorker(connection, services =>
+        {
+            services.RemoveAll<ISelfieProvider>();
+            services.AddSingleton<ISelfieProvider>(provider);
+        }, logs);
+
+        await workerHost.StartAsync(Ct);
+        await entered.Task.WaitAsync(CallCeiling, Ct);
+        await workerHost.StopAsync(Ct);
+
+        Assert.DoesNotContain(logs.Entries, entry => entry.Level >= LogLevel.Error);
+        Assert.DoesNotContain(logs.Entries, entry => entry.Category == typeof(SelfieVerificationDispatcher).FullName);
+        Assert.Equal("Pending|no-reference|no-feedback|open", await AttemptAsync(scenario));
+        Assert.Equal("InFlight|-|1", await DeliveryAsync(scenario));
     }
 
     private static Task<HttpResponseMessage> Stall(CancellationToken cancellationToken) =>
@@ -286,8 +329,8 @@ public sealed class SelfieSlowProviderTests(PostgresFixture postgres)
         throw new TaskCanceledException("Tempo sintético esgotado.", new TimeoutException("Tempo sintético esgotado."));
 
     private static Exception TransportFailure(string name) => name == "IOException"
-        ? new IOException("Conexão sintética encerrada.")
-        : new TimeoutException("Tempo sintético esgotado.");
+        ? new IOException(TransportCanary)
+        : new TimeoutException(TransportCanary);
 
     private static Task<HttpResponseMessage> HealthySession(CancellationToken cancellationToken)
     {

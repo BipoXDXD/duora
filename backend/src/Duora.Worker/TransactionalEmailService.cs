@@ -40,7 +40,7 @@ internal sealed partial class TransactionalEmailService(
         }
         catch (Exception exception) when (exception is not OutOfMemoryException && !stoppingToken.IsCancellationRequested)
         {
-            LogUnexpectedFailure(logger, exception.GetType().Name);
+            LogUnexpectedFailure(logger, exception.GetType().Name, ExceptionFrames.Describe(exception));
             return 0;
         }
     }
@@ -48,6 +48,6 @@ internal sealed partial class TransactionalEmailService(
     [LoggerMessage(Level = LogLevel.Warning, Message = "Outbox de e-mail não processada; banco inacessível")]
     private static partial void LogDatabaseUnavailable(ILogger logger, Exception exception);
 
-    [LoggerMessage(Level = LogLevel.Error, Message = "Outbox de e-mail falhou de forma inesperada ({Cause}); a entrega volta quando o lease vencer")]
-    private static partial void LogUnexpectedFailure(ILogger logger, string cause);
+    [LoggerMessage(Level = LogLevel.Error, Message = "Outbox de e-mail falhou de forma inesperada ({Cause}); a entrega volta quando o lease vencer. Frames: {Frames}")]
+    private static partial void LogUnexpectedFailure(ILogger logger, string cause, string frames);
 }

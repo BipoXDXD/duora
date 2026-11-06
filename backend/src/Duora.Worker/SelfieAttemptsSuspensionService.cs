@@ -28,7 +28,7 @@ internal sealed partial class SelfieAttemptsSuspensionService(IServiceScopeFacto
             }
             catch (Exception exception) when (exception is not OutOfMemoryException && !stoppingToken.IsCancellationRequested)
             {
-                LogUnexpectedFailure(logger, exception.GetType().Name);
+                LogUnexpectedFailure(logger, exception.GetType().Name, ExceptionFrames.Describe(exception));
             }
 
             await Task.Delay(TimeSpan.FromSeconds(1), stoppingToken);
@@ -38,6 +38,6 @@ internal sealed partial class SelfieAttemptsSuspensionService(IServiceScopeFacto
     [LoggerMessage(Level = LogLevel.Warning, Message = "Selfie suspension queue unavailable; retrying without logging payloads.")]
     private static partial void DatabaseUnavailable(ILogger logger);
 
-    [LoggerMessage(Level = LogLevel.Error, Message = "Selfie suspension dispatch failed unexpectedly ({Cause}); the delivery returns when its lease expires.")]
-    private static partial void LogUnexpectedFailure(ILogger logger, string cause);
+    [LoggerMessage(Level = LogLevel.Error, Message = "Selfie suspension dispatch failed unexpectedly ({Cause}); the delivery returns when its lease expires. Frames: {Frames}")]
+    private static partial void LogUnexpectedFailure(ILogger logger, string cause, string frames);
 }

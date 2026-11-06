@@ -14,7 +14,7 @@ namespace Duora.IntegrationTests.Identity;
 internal static class SelfieConcurrencyHarness
 {
     public static DuoraWebFactory Host(string connection, FakeTimeProvider time, ISelfieProvider provider,
-        SelfieCommitFault? fault = null) => new(connection)
+        SelfieCommitFault? fault = null, Microsoft.Extensions.Logging.ILoggerProvider? logs = null) => new(connection, logs)
         {
             Time = time,
             Settings = SelfieTestSettings.Enabled("synthetic-policy"),

@@ -24,7 +24,7 @@ internal sealed partial class ExternalAuthFlowRetentionService(ExternalAuthFlowR
             }
             catch (Exception exception) when (exception is not OutOfMemoryException && !stoppingToken.IsCancellationRequested)
             {
-                LogUnexpectedFailure(logger, exception.GetType().Name);
+                LogUnexpectedFailure(logger, exception.GetType().Name, ExceptionFrames.Describe(exception));
             }
             await Task.Delay(TimeSpan.FromMinutes(1), time, stoppingToken);
         }
@@ -33,6 +33,6 @@ internal sealed partial class ExternalAuthFlowRetentionService(ExternalAuthFlowR
     [LoggerMessage(Level = LogLevel.Warning, Message = "External authentication expiry cleanup unavailable; retrying without extending proof validity.")]
     private static partial void CleanupUnavailable(ILogger logger);
 
-    [LoggerMessage(Level = LogLevel.Error, Message = "External authentication expiry cleanup failed unexpectedly ({Cause}); retrying in the next cycle.")]
-    private static partial void LogUnexpectedFailure(ILogger logger, string cause);
+    [LoggerMessage(Level = LogLevel.Error, Message = "External authentication expiry cleanup failed unexpectedly ({Cause}); retrying in the next cycle. Frames: {Frames}")]
+    private static partial void LogUnexpectedFailure(ILogger logger, string cause, string frames);
 }
