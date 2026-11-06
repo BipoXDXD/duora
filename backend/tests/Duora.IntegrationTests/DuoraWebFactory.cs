@@ -2,11 +2,13 @@ using System.Globalization;
 using Duora.Core.Identity;
 using Duora.IntegrationTests.Identity;
 using Microsoft.AspNetCore.Hosting;
+using Microsoft.AspNetCore.Identity;
 using Microsoft.AspNetCore.Mvc.Testing;
 using Microsoft.AspNetCore.TestHost;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
+using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 
 namespace Duora.IntegrationTests;
@@ -21,6 +23,10 @@ public sealed class DuoraWebFactory(string connectionString, ILoggerProvider? lo
 {
     /// <summary>Mesma origem do cliente de teste (https://localhost), como a SPA servida pelo próprio domínio.</summary>
     public const string PublicOrigin = "https://localhost";
+
+    // Mesmo PBKDF2 da produção, com o custo mínimo: cada conta de teste custava 15 derivações, metade do tempo do cenário.
+    // PasswordHashCostTests prende o custo real na composição de produção.
+    private const int FastPasswordHashIterations = 1;
 
     public string Origin { get; init; } = PublicOrigin;
 
@@ -46,6 +52,9 @@ public sealed class DuoraWebFactory(string connectionString, ILoggerProvider? lo
     public LegalPublication? LegalDocuments { get; init; } = SyntheticLegalPublication.Default;
 
     public string EnvironmentName { get; init; } = "Testing";
+
+    /// <summary>Mantém o custo de produção do PBKDF2, para o teste que afirma justamente esse custo.</summary>
+    public bool RealPasswordHashCost { get; init; }
 
     /// <summary>Troca pontual de serviços (contadores, interceptadores); nunca de banco ou de regra.</summary>
     public Action<IServiceCollection>? TestServices { get; init; }
@@ -116,6 +125,12 @@ public sealed class DuoraWebFactory(string connectionString, ILoggerProvider? lo
             });
         }
 
+        if (!RealPasswordHashCost)
+        {
+            builder.ConfigureTestServices(services => services.Configure<PasswordHasherOptions>(
+                options => options.IterationCount = FastPasswordHashIterations));
+        }
+
         if (Time is not null)
         {
             builder.ConfigureTestServices(services => services.AddSingleton(Time));
@@ -130,6 +145,15 @@ public sealed class DuoraWebFactory(string connectionString, ILoggerProvider? lo
         {
             builder.ConfigureLogging(logging => logging.AddProvider(logs));
         }
+    }
+
+    protected override IHost CreateHost(IHostBuilder builder)
+    {
+        // Um host vive um teste: observar os appsettings custava cerca de 60 ms por host e nunca era usado. Vai como
+        // configuração de host porque WebApplication.CreateBuilder lê a opção antes do ConfigureWebHost acima.
+        builder.ConfigureHostConfiguration(configuration => configuration.AddInMemoryCollection(
+            new Dictionary<string, string?> { ["hostBuilder:reloadConfigOnChange"] = "false" }));
+        return base.CreateHost(builder);
     }
 
     public override async ValueTask DisposeAsync()
