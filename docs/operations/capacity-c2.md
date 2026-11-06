@@ -163,37 +163,74 @@ só em janela autorizada pelo responsável, com `prepare` e `up` feitos como no 
 
 ```sh
 cd /opt/duora-c2/src
-sudo python3 scripts/deploy/c2_shadow.py swap-rehearsal \
+sudo systemd-run --unit=duora-c2-swap --collect --service-type=exec --working-directory="$PWD" \
+  --property=KillMode=mixed --property=TimeoutStopSec=900 \
+  python3 scripts/deploy/c2_shadow.py swap-rehearsal \
   --target ghcr.io/bipoxdxd/duora-postgres@sha256:b5103bfd8ac7832915eed8170ffd0bcb94d9bca834cbd659114fa25606f0434e \
   --fill-mib 1024
-sudo python3 scripts/deploy/c2_shadow.py swap-abort   # só se o comando acima morrer no meio
+sudo journalctl --unit=duora-c2-swap --follow
+sudo systemctl stop duora-c2-swap                       # interrompe e volta sozinho à origem
+sudo python3 scripts/deploy/c2_shadow.py swap-abort     # só se o processo tiver morrido sem voltar
+sudo python3 scripts/deploy/c2_shadow.py down           # ao fim da janela, depois de copiar as evidências
 ```
 
-Em ordem: pull do alvo, dados sintéticos em `c2.swap_ballast`, espera do arquivamento, parada de worker e web, foto
-(`SWAP_PHOTO_SQL`, a mesma do executor) e `pgbackrest check`. Depois recria com o alvo, confere digest, foto, volume e
-`check`, repete de volta para o digest de origem e religa a aplicação. O resultado fica em
-`/var/lib/duora-c2/state/swap-rehearsal.json`, com os tempos de cada etapa nos dois sentidos. `databaseDownSeconds` é o
-número que substitui a estimativa.
+O `systemd-run` desliga o ensaio da sessão SSH: uma queda do túnel não interrompe a troca no meio. O digest alvo é o amd64 da
+imagem construída na run 42073873377 do GitHub Actions. O `TimeoutStopSec` dá 15 min para a volta depois de um `stop`.
 
-Falha depois do pull volta sozinha ao digest de origem, no mesmo volume, e registra `aborted` e o erro. Um processo morto
-por SIGKILL não volta sozinho: rode `swap-abort`. Nunca há `down` nem remoção de volume.
+Em ordem: pull do alvo, dados sintéticos em `c2.swap_ballast`, espera do arquivamento, parada de worker e web, foto e
+`pgbackrest check`. Depois recria com o alvo, confere digest, foto, volume e `check`, repete de volta para o digest de origem
+e religa a aplicação. A foto junta `SWAP_PHOTO_SQL` e `SWAP_COMPATIBILITY_SQL`, as mesmas consultas do executor, com a contagem
+e o md5 do lastro; ela aceita mudança de versão menor, mas não de major, catálogo, colação ou conteúdo. O resultado fica em
+`/var/lib/duora-c2/state/swap-rehearsal.json`.
+
+**O que cada tempo mede.** Nenhum deles é a indisponibilidade da produção.
+
+| Campo | Mede | Não inclui |
+| --- | --- | --- |
+| `databaseDownSeconds` (em `forward` e `back`) | Do pedido de parada do postgres ao fim do `up --wait`, com a parada e a subida do backup e a espera do healthcheck | Parada da aplicação, conferências, `verify` e reabertura |
+| `stopApplicationSeconds` | Parada de worker e web | |
+| `reopenApplicationSeconds` | Subida de web, worker e edge até o healthcheck | |
+| `applicationDownSeconds` | Da parada de web e worker à reabertura, com **ida e volta** e conferências | A espera e o `verify` da operação real |
+
+Para estimar a queda de uma troca só, some `stopApplicationSeconds`, os tempos de `forward` e
+`reopenApplicationSeconds`. O WAL do fast shutdown vai ao MinIO local, não ao B2, e o volume de buffers sujos depende do tempo
+de arquivamento; um `stopPostgresSeconds` perto de 60 s sugere SIGKILL, e não parada limpa.
+
+**Falhas.** Até a primeira parada, uma falha deixa o sombra de pé na origem, com `aborted` e o erro no JSON; o que ficou de
+lastro é trocado pelo próximo preenchimento. Depois dela, um erro, `OSError`, SIGHUP, SIGTERM ou SIGINT volta ao digest de
+origem no mesmo volume, com os sinais blindados durante a volta. O SIGKILL não volta: use `swap-abort`, que recria, confere
+digest, foto (se houver `state/swap-baseline.json`) e `check`, só então religa a aplicação e registra tudo em
+`state/swap-abort.json`. Se a conferência falhar, a aplicação fica parada de propósito. Repetir o ensaio fora da origem é
+recusado com o pedido de `swap-abort`. Nunca há `down` nem remoção de volume no ensaio.
 
 **Guardas, antes de qualquer efeito.** Só o digest alvo revisado no código, só com o sombra no digest de origem (`d32f8c44`),
-projeto validado por `c2_probe.validate_project`, raiz com nome `duora-c2`, e o Compose precisa resolver para o projeto e o
-volume do sombra. O comando não usa o executor, o receiver, `/etc/duora` nem `/var/lib/duora`.
+projeto validado por `c2_probe.validate_project`, raiz com nome `duora-c2`. O `docker compose config` precisa resolver para o
+projeto e o volume do sombra, com a imagem de origem em postgres e backup, todo bind mount e todo segredo dentro da raiz e toda
+porta em loopback. Os containers precisam estar de fato na origem, conferidos pelo id da imagem. Os comandos rodam com ambiente
+mínimo, sem herdar `DUORA_*`, `DOCKER_HOST`, `DOCKER_CONTEXT` nem `COMPOSE_*` do root, e um lock em `state/.swap.lock` faz
+os subcomandos se excluírem. O comando não usa o executor, o receiver, `/etc/duora` nem `/var/lib/duora`.
+
+**Recursos.** O início exige ao menos 1 GiB de `MemAvailable`, PSI `some avg10` de até 40 em CPU, memória e IO, e que o uso de
+disco fique abaixo de 85% contando a reserva, com o `DockerRootDir` no mesmo filesystem da raiz. Entre lotes e antes de cada
+sentido, ele repete a conta com piso de 512 MiB e, se passar de um limite, para sem parar serviços ou volta à origem. O PSI é
+uma leitura pontual de 10 s, mais rígida que os 60 s do guarda da janela. O preenchimento roda com `--cpus 0.5` e
+`--cpu-shares 256`, com um intervalo de 1 s entre lotes, e devolve os limites ao terminar. O MinIO tem teto de 768 MiB e meia
+CPU no overlay.
 
 **Dados.** O banco sombra nasce pequeno, e copiar a produção é proibido. `--fill-mib` grava dados sintéticos sem compressão
-até 8192 MiB, em lotes de 64 MiB, pedindo três vezes esse tamanho mais 4 GiB livres. O resultado traz o tamanho real em
-`databaseSizeMib`. Ajuste o valor ao tamanho da produção na hora da janela.
+até 2048 MiB, em lotes de 64 MiB, reservando três vezes esse tamanho mais 4 GiB, e troca o lastro de um ensaio anterior. O
+resultado traz o tamanho real em `databaseSizeMib`. Em 28/10 a produção tinha 11 MB.
 
 **Reserva (estimativa, não medida).** Fora o `prepare` e o `up`, de 10 a 15 min: pull de 1 a 3, preenchimento de 1 GiB de 2 a
-4, arquivamento até 10 no pior caso, cada sentido de 1 a 2, e `down`. Reserve 45 min. Para fazer também o `restore-rehearsal`
-na mesma janela, rode um `full` antes dele: o ensaio da troca não grava backup.
+4, arquivamento até 10 no pior caso, cada sentido de 1 a 2, e `down`. Reserve 45 min. Com a CPU reduzida, o preenchimento pode
+passar disso. Para fazer também o `restore-rehearsal` na mesma janela, rode um `full` antes dele: o ensaio da troca não grava
+backup.
 
-**Memória e disco.** Os limites do sombra somam 5,3 GiB (postgres 2 GiB, web 1,5, worker 1, backup 0,5, edge 0,1) mais o
-MinIO, sem limite. Worker e web ficam parados durante a troca, e o uso esperado é de 2 a 3 GiB. Disco: 7 GiB livres para
-`--fill-mib 1024`, mais a imagem alvo, de que boa parte das camadas já está no host. Fora o que este ensaio exige, valem
-os guardas e a regra de um comando pesado por vez da janela.
+**Memória e disco.** Os limites do sombra somam 5,1 GiB (postgres 2 GiB, web 1,5, worker 1, backup 0,5, edge 0,1), mais 0,75 do
+MinIO. Worker e web ficam parados durante a troca, com uso esperado de 2 a 3 GiB, mas o pico é no preenchimento, com tudo de pé.
+Disco: 7 GiB para `--fill-mib 1024`, mais a imagem alvo, de que boa parte das camadas já está no host. Vale a regra de um comando
+pesado por vez da janela. Os demais guardas da janela C2 (por exemplo os alertas externos) continuam sendo acompanhados pelo
+responsável: este comando só aplica os de memória, disco e PSI listados acima.
 
 **O que não prova.** O protocolo do executor (journal, fence, commit, ressela e `--resume`), que o laboratório cobre; o
 receiver, Coolify e observer; o B2, porque o repositório é o MinIO local; a aplicação rodando no digest alvo, já que web e

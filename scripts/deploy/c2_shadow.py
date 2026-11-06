@@ -10,7 +10,8 @@ túnel SSH. Imagens: só as chaves DUORA_*_IMAGE do env da release corrente são
     python3 c2_shadow.py up
     python3 c2_shadow.py media-fixture --mib 2048
     python3 c2_shadow.py restore-rehearsal [--no-final-full]
-    python3 c2_shadow.py swap-rehearsal --target <digest revisado> --fill-mib 1024
+    systemd-run --unit=duora-c2-swap --collect --service-type=exec --property=KillMode=mixed \\
+        --property=TimeoutStopSec=900 python3 c2_shadow.py swap-rehearsal --target <digest revisado> --fill-mib 1024
     python3 c2_shadow.py swap-abort
     python3 c2_shadow.py down
 """
@@ -18,23 +19,26 @@ from __future__ import annotations
 
 import argparse
 import base64
+import fcntl
 import hashlib
 import json
 import os
 import secrets
 import shutil
+import signal
 import subprocess
 import sys
 import time
 import uuid
-from collections.abc import Callable, Sequence
+from collections.abc import Callable, Iterator, Sequence
+from contextlib import contextmanager, nullcontext
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 import c2_probe
 import duora_secrets
-from postgres_swap import SWAP_PHOTO_SQL
+from postgres_swap import SWAP_COMPATIBILITY_SQL, SWAP_COMPATIBLE_FIELDS, SWAP_PHOTO_SQL
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 COMPOSE_FILE = REPO_ROOT / "infra" / "compose" / "compose.prod.yml"
@@ -71,6 +75,9 @@ MARKER_SECONDS = 120
 OUTAGE_AFTER_SECONDS = 90
 WAIT_SECONDS = 600
 COMMAND_TIMEOUT_SECONDS = 3600
+# Mesmo ambiente de postgres_swap.py: variável do root (DUORA_*_DIR, DOCKER_HOST, DOCKER_CONTEXT, COMPOSE_*) venceria o
+# --env-file e poderia apontar o Compose para a produção.
+RUNNER_ENVIRONMENT = {"PATH": "/usr/bin:/bin", "LC_ALL": "C"}
 
 
 class ShadowError(RuntimeError):
@@ -83,7 +90,8 @@ Runner = Callable[..., str]
 def default_runner(argv: Sequence[str], *, stdin: str | None = None, check: bool = True,
                    timeout: int = COMMAND_TIMEOUT_SECONDS) -> str:
     print("[c2-shadow] " + " ".join(argv[:8]) + (" ..." if len(argv) > 8 else ""), flush=True)
-    result = subprocess.run(list(argv), input=stdin, capture_output=True, text=True, timeout=timeout, check=False)
+    result = subprocess.run(list(argv), input=stdin, capture_output=True, text=True, timeout=timeout, check=False,
+                            env=RUNNER_ENVIRONMENT)
     if check and result.returncode != 0:
         raise ShadowError(f"{' '.join(argv[:4])} terminou com código {result.returncode}: {result.stderr[-2000:]}")
     return result.stdout
@@ -434,26 +442,108 @@ def down(layout: Layout, run: Runner = default_runner) -> None:
 # pull a partir da VPS. Não usa o executor: ele fixa o projeto `duora`, e aqui nada pode alcançar a produção.
 
 SWAP_SOURCE_IMAGE = "ghcr.io/bipoxdxd/duora-postgres@sha256:d32f8c4408e804bf8b57583c6fdfb8935380e6326bcc7ccb7397b1f386ada06c"
+# Digest amd64 da imagem construída na run 42073873377 do GitHub Actions.
 SWAP_TARGET_IMAGE = "ghcr.io/bipoxdxd/duora-postgres@sha256:b5103bfd8ac7832915eed8170ffd0bcb94d9bca834cbd659114fa25606f0434e"
-SWAP_MAX_FILL_MIB = 8192
+# A produção tinha 11 MB em 28/10: 2 GiB já são duas centenas de vezes isso, sem pressionar os outros apps da VPS.
+SWAP_MAX_FILL_MIB = 2048
 SWAP_FILL_BATCH_MIB = 64
 # Cada linha são 100 md5 (3,2 KiB) com storage external, sem compressão. O TOAST ocupa cerca de 30% a mais: 16000 linhas
 # dão perto de 64 MiB no disco, medido em PostgreSQL 18.
 SWAP_FILL_ROWS = 16000
 SWAP_FILL_MD5_PER_ROW = 100
+SWAP_FILL_CPUS = "0.5"
+SWAP_FILL_CPU_SHARES = 256
+SWAP_FILL_PAUSE_SECONDS = 1
 # Tabela, WAL no pg_wal e a cópia cifrada no MinIO, mais a imagem alvo e folga.
 SWAP_DISK_FACTOR = 3
 SWAP_DISK_MARGIN_MIB = 4096
 SWAP_ARCHIVE_POLL_SECONDS = 2
+# Guardas MEM_LOW, DISK e OTHER_APPS_PSI de docs/operations/capacity-c2.md; o ensaio começa com folga sobre o piso.
+SWAP_MIN_AVAILABLE_MIB = 1024
+SWAP_MEMORY_FLOOR_MIB = 512
+SWAP_MAX_DISK_PERCENT = 85
+SWAP_MAX_PRESSURE = 40.0
+SWAP_LOOPBACK = ("127.0.0.1", "::1")
+SWAP_CONTAINERS = (f"{PROJECT}-postgres-1", f"{PROJECT}-backup-1")
+SWAP_FAILURES = (ShadowError, c2_probe.CommandRefused, subprocess.TimeoutExpired, OSError, ValueError, KeyError)
 
 
-def _free_mib(path: Path) -> int:
-    return shutil.disk_usage(path).free // (1024 * 1024)
+def _memory_available_mib(meminfo: Path = Path("/proc/meminfo")) -> int:
+    for line in meminfo.read_text(encoding="utf-8").splitlines():
+        if line.startswith("MemAvailable:"):
+            return int(line.split()[1]) // 1024
+    raise ShadowError(f"MemAvailable ausente em {meminfo}")
+
+
+def _pressure_avg10(directory: Path = Path("/proc/pressure")) -> float:
+    """O maior `some avg10` entre CPU, memória e IO."""
+    lines = [(directory / name).read_text(encoding="utf-8").splitlines()[0] for name in ("cpu", "memory", "io")]
+    return max(float(line.split()[1].removeprefix("avg10=")) for line in lines)
+
+
+def _disk_mib(path: Path) -> tuple[int, int]:
+    usage = shutil.disk_usage(path)
+    return usage.total // (1024 * 1024), usage.free // (1024 * 1024)
+
+
+def _device(path: Path) -> int:
+    return path.stat().st_dev
+
+
+@dataclass(frozen=True)
+class SwapResources:
+    available_mib: Callable[[], int]
+    pressure: Callable[[], float]
+    disk_mib: Callable[[Path], tuple[int, int]]
+    device: Callable[[Path], int]
+
+
+HOST_RESOURCES = SwapResources(_memory_available_mib, _pressure_avg10, _disk_mib, _device)
+
+
+def _swap_write(path: Path, content: dict) -> None:
+    path.write_text(json.dumps(content, indent=2) + "\n", encoding="utf-8")
+
+
+@contextmanager
+def _swap_lock(layout: Layout) -> Iterator[None]:
+    """Sem espera: dois subcomandos no mesmo sombra disputariam os mesmos containers."""
+    descriptor = os.open(layout.state / ".swap.lock", os.O_CREAT | os.O_RDWR, 0o600)
+    try:
+        try:
+            fcntl.flock(descriptor, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except BlockingIOError as error:
+            raise ShadowError("outro subcomando do sombra está em execução") from error
+        yield
+    finally:
+        os.close(descriptor)
+
+
+@contextmanager
+def _swap_signals() -> Iterator[Callable[[], None]]:
+    """SIGHUP, SIGTERM e SIGINT viram erro para o ensaio voltar à origem; o rollback chama a blindagem devolvida."""
+    def interrupt(number: int, _frame: object) -> None:
+        raise ShadowError(f"interrompido pelo sinal {signal.Signals(number).name}")
+
+    numbers = (signal.SIGHUP, signal.SIGTERM, signal.SIGINT)
+    previous = {number: signal.signal(number, interrupt) for number in numbers}
+
+    def shield() -> None:
+        # Handler vazio, não SIG_IGN: o ignorado seria herdado pelos filhos docker.
+        for number in numbers:
+            signal.signal(number, lambda _number, _frame: None)
+
+    try:
+        yield shield
+    finally:
+        for number, handler in previous.items():
+            signal.signal(number, handler)
 
 
 def _swap_guard(layout: Layout, run: Runner) -> list[str]:
     """Antes de qualquer efeito: só o sombra, no digest esperado, com o Compose resolvendo para os nomes do sombra."""
-    if not layout.root.resolve().name.startswith(PROJECT):
+    root = layout.root.resolve()
+    if not root.name.startswith(PROJECT):
         raise ShadowError(f"não ensaio em {layout.root}: fora do padrão {PROJECT}")
     compose = compose_command(layout)
     images = dict(line.split("=", 1) for line in layout.env_file.read_text(encoding="utf-8").splitlines() if "=" in line)
@@ -462,7 +552,54 @@ def _swap_guard(layout: Layout, run: Runner) -> list[str]:
     config = json.loads(run([*compose, "config", "--format", "json"]))
     if config["name"] != PROJECT or config["volumes"]["pgdata"]["name"] != PROJECT + "_pgdata":
         raise ShadowError("o Compose não resolve para o projeto e o volume do sombra")
+    _swap_require_confined(config, root)
     return compose
+
+
+def _swap_require_confined(config: dict, root: Path) -> None:
+    services = config["services"]
+    if {services[name]["image"] for name in ("postgres", "backup")} != {SWAP_SOURCE_IMAGE}:
+        raise ShadowError("o Compose não resolve postgres e backup para o digest de origem")
+    sources = [volume["source"] for service in services.values() for volume in service.get("volumes", [])
+               if volume["type"] == "bind"]
+    sources += [item["file"] for section in ("secrets", "configs") for item in config.get(section, {}).values()
+                if "file" in item]
+    outside = sorted(source for source in sources if not Path(source).resolve().is_relative_to(root))
+    if outside:
+        raise ShadowError(f"o Compose monta caminhos fora de {root}: {outside}")
+    exposed = [port.get("host_ip") for service in services.values() for port in service.get("ports", [])]
+    if any(address not in SWAP_LOOPBACK for address in exposed):
+        raise ShadowError(f"o Compose publica portas fora do loopback: {exposed}")
+
+
+def _swap_require_running(run: Runner, image: str) -> None:
+    """Confere o id real, não só a referência pedida: uma tag ou um pull trocado apareceriam aqui."""
+    expected = run(["docker", "image", "inspect", "--format", "{{.Id}}", image]).strip()
+    running = run(["docker", "inspect", "--format", "{{.Config.Image}} {{.Image}}", *SWAP_CONTAINERS]).splitlines()
+    if {tuple(line.split()) for line in running} != {(image, expected)}:
+        raise ShadowError(f"containers fora do digest esperado ({image}): {sorted(running)}; "
+                          "depois de um ensaio morto, rode swap-abort")
+
+
+def _swap_require_resources(resources: SwapResources, path: Path, *, memory_mib: int, disk_needed_mib: int) -> None:
+    available = resources.available_mib()
+    if available < memory_mib:
+        raise ShadowError(f"memória disponível: {available} MiB, abaixo de {memory_mib} MiB")
+    total, free = resources.disk_mib(path)
+    if (total - free + disk_needed_mib) * 100 >= total * SWAP_MAX_DISK_PERCENT:
+        raise ShadowError(f"disco de {path} chegaria a {SWAP_MAX_DISK_PERCENT}% com mais {disk_needed_mib} MiB")
+    pressure = resources.pressure()
+    if pressure > SWAP_MAX_PRESSURE:
+        raise ShadowError(f"PSI {pressure} acima de {SWAP_MAX_PRESSURE}")
+
+
+def _swap_preflight(layout: Layout, fill_mib: int, run: Runner, resources: SwapResources) -> Path:
+    docker_root = Path(run(["docker", "info", "--format", "{{.DockerRootDir}}"]).strip())
+    if resources.device(layout.root) != resources.device(docker_root):
+        raise ShadowError(f"{docker_root} e {layout.root} em filesystems diferentes: a conta de disco não valeria")
+    _swap_require_resources(resources, docker_root, memory_mib=SWAP_MIN_AVAILABLE_MIB,
+                            disk_needed_mib=fill_mib * SWAP_DISK_FACTOR + SWAP_DISK_MARGIN_MIB)
+    return docker_root
 
 
 def _swap_compose(layout: Layout, image: str) -> list[str]:
@@ -473,12 +610,20 @@ def _swap_compose(layout: Layout, image: str) -> list[str]:
     return [*compose_command(layout), "--env-file", str(path)]
 
 
-def _swap_fill(run: Runner, compose: list[str], fill_mib: int) -> None:
-    _sql(run, compose, "create table if not exists c2.swap_ballast(id bigserial primary key, payload text not null); "
-                       "alter table c2.swap_ballast alter column payload set storage external")
+def _swap_fill(run: Runner, compose: list[str], fill_mib: int, between_batches: Callable[[], None],
+               sleep: Callable[[float], None]) -> None:
+    _sql(run, compose, "truncate c2.swap_ballast")
     row = (f"(select string_agg(md5(random()::text||g::text||i::text),'') from generate_series(1,{SWAP_FILL_MD5_PER_ROW}) i)")
-    for _ in range(-(-fill_mib // SWAP_FILL_BATCH_MIB)):
-        _sql(run, compose, f"insert into c2.swap_ballast(payload) select {row} from generate_series(1,{SWAP_FILL_ROWS}) g")
+    limits = run(["docker", "inspect", "--format", "{{.HostConfig.NanoCpus}} {{.HostConfig.CpuShares}}", SWAP_CONTAINERS[0]])
+    nano_cpus, cpu_shares = limits.split()
+    run(["docker", "update", "--cpus", SWAP_FILL_CPUS, "--cpu-shares", str(SWAP_FILL_CPU_SHARES), SWAP_CONTAINERS[0]])
+    try:
+        for _ in range(-(-fill_mib // SWAP_FILL_BATCH_MIB)):
+            between_batches()
+            _sql(run, compose, f"insert into c2.swap_ballast(payload) select {row} from generate_series(1,{SWAP_FILL_ROWS}) g")
+            sleep(SWAP_FILL_PAUSE_SECONDS)
+    finally:
+        run(["docker", "update", "--cpus", f"{int(nano_cpus) / 1e9:g}", "--cpu-shares", cpu_shares, SWAP_CONTAINERS[0]])
 
 
 def _swap_wait_archived(run: Runner, compose: list[str], clock: Callable[[], float], sleep: Callable[[float], None]) -> None:
@@ -508,81 +653,170 @@ def _swap_recreate(layout: Layout, image: str, run: Runner, clock: Callable[[], 
             "databaseDownSeconds": round(moments[4] - moments[0], 1)}
 
 
-def _swap_photo(run: Runner, compose: list[str]) -> dict:
-    return json.loads(_sql(run, compose, SWAP_PHOTO_SQL))
+def _swap_snapshot(run: Runner, compose: list[str]) -> dict:
+    """O que não pode mudar: identidade do banco, compatibilidade do binário e o conteúdo do lastro."""
+    live = json.loads(_sql(run, compose, SWAP_COMPATIBILITY_SQL))
+    if live["recorded"] != live["actual"]:
+        raise ShadowError(f"colação do binário ({live['actual']}) diverge da gravada no banco ({live['recorded']})")
+    ballast = _sql(run, compose, "select count(*)||':'||coalesce(md5(string_agg(digest,'')),'') from "
+                                 "(select md5(payload) digest from c2.swap_ballast order by id) rows")
+    return {"photo": json.loads(_sql(run, compose, SWAP_PHOTO_SQL)), "major": int(live["serverVersionNum"]) // 10000,
+            "compatibility": {key: live[key] for key in SWAP_COMPATIBLE_FIELDS}, "ballast": ballast}
 
 
 def _swap_volume(run: Runner) -> str:
     return run(["docker", "volume", "inspect", "--format", "{{.CreatedAt}}", PROJECT + "_pgdata"]).strip()
 
 
-def _swap_direction(layout: Layout, image: str, photo: dict, volume: str, run: Runner, clock: Callable[[], float]) -> dict[str, float]:
+def _swap_verify(run: Runner, compose: list[str], baseline: dict) -> None:
+    if _swap_snapshot(run, compose) != baseline["snapshot"]:
+        raise ShadowError("foto do banco mudou: identidade, timeline, head, ACL, colação ou lastro")
+    if _swap_volume(run) != baseline["volume"]:
+        raise ShadowError("volume de dados mudou de identidade")
+
+
+def _swap_direction(layout: Layout, image: str, baseline: dict, run: Runner, clock: Callable[[], float]) -> dict[str, float]:
     timing = _swap_recreate(layout, image, run, clock)
     compose = _swap_compose(layout, image)
-    running = set(run(["docker", "inspect", "--format", "{{.Config.Image}}", f"{PROJECT}-postgres-1",
-                       f"{PROJECT}-backup-1"]).split())
-    if running != {image}:
-        raise ShadowError(f"digest errado depois de recriar: {sorted(running)}")
-    if _swap_photo(run, compose) != photo:
-        raise ShadowError("foto do banco mudou: identidade, timeline, head, ACL ou colação")
-    if _swap_volume(run) != volume:
-        raise ShadowError("volume de dados mudou de identidade")
+    _swap_require_running(run, image)
+    _swap_verify(run, compose, baseline)
     started = clock()
     _swap_check(run, compose)
     timing["checkSeconds"] = round(clock() - started, 1)
     return timing
 
 
-def swap_abort(layout: Layout, run: Runner = default_runner) -> None:
-    """Volta ao digest de origem no mesmo volume e religa a aplicação; serve também depois de um ensaio morto."""
+def swap_abort(layout: Layout, run: Runner = default_runner) -> dict:
+    """Volta ao digest de origem no mesmo volume e confere antes de religar; serve também depois de um ensaio morto.
+
+    Se a conferência falhar, a aplicação fica parada de propósito: o relatório em swap-abort.json diz o motivo.
+    """
     _swap_guard(layout, run)
     compose = _swap_compose(layout, SWAP_SOURCE_IMAGE)
-    run([*compose, "stop", "worker"])
-    run([*compose, "stop", "web"])
-    _swap_recreate(layout, SWAP_SOURCE_IMAGE, run, time.monotonic)
-    run([*compose, "up", "--detach", "--wait", "--no-deps", "web", "worker", "edge"])
+    baseline_path = layout.state / "swap-baseline.json"
+    report: dict = {}
+    try:
+        run([*compose, "stop", "worker"])
+        run([*compose, "stop", "web"])
+        _swap_recreate(layout, SWAP_SOURCE_IMAGE, run, time.monotonic)
+        _swap_require_running(run, SWAP_SOURCE_IMAGE)
+        report["digest"] = SWAP_SOURCE_IMAGE
+        report["baselineCompared"] = baseline_path.exists()
+        if report["baselineCompared"]:
+            _swap_verify(run, compose, json.loads(baseline_path.read_text(encoding="utf-8")))
+        _swap_check(run, compose)
+        report["check"] = True
+        run([*compose, "up", "--detach", "--wait", "--no-deps", "web", "worker", "edge"])
+    except SWAP_FAILURES as error:
+        report["error"] = str(error)
+        raise ShadowError(f"abort sem confirmação, aplicação parada: {error}") from error
+    finally:
+        _swap_write(layout.state / "swap-abort.json", report)
+    return report
 
 
-def swap_rehearsal(layout: Layout, target: str, *, fill_mib: int, run: Runner = default_runner,
-                   clock: Callable[[], float] = time.monotonic, sleep: Callable[[float], None] = time.sleep,
-                   free_mib: Callable[[Path], int] = _free_mib) -> dict:
-    compose = _swap_guard(layout, run)
-    if target != SWAP_TARGET_IMAGE:
-        raise ShadowError("alvo fora da allowlist do ensaio")
-    if not 0 <= fill_mib <= SWAP_MAX_FILL_MIB:
-        raise ShadowError(f"--fill-mib fora de 0..{SWAP_MAX_FILL_MIB}")
-    needed = fill_mib * SWAP_DISK_FACTOR + SWAP_DISK_MARGIN_MIB
-    if free_mib(layout.root) < needed:
-        raise ShadowError(f"disco insuficiente: o ensaio pede {needed} MiB livres")
+def _swap_prepare(compose: list[str], target: str, fill_mib: int, result: dict, run: Runner, clock: Callable[[], float],
+                  sleep: Callable[[float], None], calm: Callable[[], None]) -> None:
+    """Tudo o que antecede a primeira parada: uma falha aqui deixa o sombra de pé, no digest de origem."""
     started = clock()
     run(["docker", "pull", "--quiet", target])
-    result: dict = {"source": SWAP_SOURCE_IMAGE, "target": target, "pullSeconds": round(clock() - started, 1)}
+    result["pullSeconds"] = round(clock() - started, 1)
+    _sql(run, compose, "create table if not exists c2.swap_ballast(id bigserial primary key, payload text not null); "
+                       "alter table c2.swap_ballast alter column payload set storage external")
     if fill_mib:
         started = clock()
-        _swap_fill(run, compose, fill_mib)
+        _swap_fill(run, compose, fill_mib, calm, sleep)
         result["fillSeconds"] = round(clock() - started, 1)
     result["databaseSizeMib"] = int(_sql(run, compose, "select pg_database_size(current_database())/1048576"))
     started = clock()
     _swap_wait_archived(run, compose, clock, sleep)
     result["archiveWaitSeconds"] = round(clock() - started, 1)
+
+
+def _swap_round_trip(layout: Layout, compose: list[str], target: str, result: dict, run: Runner, clock: Callable[[], float],
+                     calm: Callable[[], None]) -> None:
+    stopping = clock()
+    run([*compose, "stop", "worker"])
+    run([*compose, "stop", "web"])
+    result["stopApplicationSeconds"] = round(clock() - stopping, 1)
+    baseline = {"snapshot": _swap_snapshot(run, compose), "volume": _swap_volume(run)}
+    _swap_write(layout.state / "swap-baseline.json", baseline)
+    result["ballast"] = baseline["snapshot"]["ballast"]
+    _swap_check(run, compose)
+    calm()
+    result["forward"] = _swap_direction(layout, target, baseline, run, clock)
+    calm()
+    result["back"] = _swap_direction(layout, SWAP_SOURCE_IMAGE, baseline, run, clock)
+    reopening = clock()
+    run([*compose, "up", "--detach", "--wait", "--no-deps", "web", "worker", "edge"])
+    finished = clock()
+    result["reopenApplicationSeconds"] = round(finished - reopening, 1)
+    result["applicationDownSeconds"] = round(finished - stopping, 1)
+
+
+def swap_rehearsal(layout: Layout, target: str, *, fill_mib: int, run: Runner = default_runner,
+                   clock: Callable[[], float] = time.monotonic, sleep: Callable[[float], None] = time.sleep,
+                   resources: SwapResources = HOST_RESOURCES, shield: Callable[[], None] = lambda: None) -> dict:
+    compose = _swap_guard(layout, run)
+    if target != SWAP_TARGET_IMAGE:
+        raise ShadowError("alvo fora da allowlist do ensaio")
+    if not 0 <= fill_mib <= SWAP_MAX_FILL_MIB:
+        raise ShadowError(f"--fill-mib fora de 0..{SWAP_MAX_FILL_MIB}")
+    docker_root = _swap_preflight(layout, fill_mib, run, resources)
+    _swap_require_running(run, SWAP_SOURCE_IMAGE)
+    (layout.state / "swap-baseline.json").unlink(missing_ok=True)
+
+    def calm() -> None:
+        _swap_require_resources(resources, docker_root, memory_mib=SWAP_MEMORY_FLOOR_MIB, disk_needed_mib=0)
+
+    result: dict = {"source": SWAP_SOURCE_IMAGE, "target": target}
     evidence = layout.state / "swap-rehearsal.json"
     try:
-        run([*compose, "stop", "worker"])
-        run([*compose, "stop", "web"])
-        photo = _swap_photo(run, compose)
-        volume = _swap_volume(run)
-        _swap_check(run, compose)
-        result["forward"] = _swap_direction(layout, target, photo, volume, run, clock)
-        result["back"] = _swap_direction(layout, SWAP_SOURCE_IMAGE, photo, volume, run, clock)
-        run([*compose, "up", "--detach", "--wait", "--no-deps", "web", "worker", "edge"])
-    except (ShadowError, subprocess.TimeoutExpired, ValueError) as error:
+        _swap_prepare(compose, target, fill_mib, result, run, clock, sleep, calm)
+    except SWAP_FAILURES as error:
         result.update(aborted=True, error=str(error))
-        evidence.write_text(json.dumps(result, indent=2) + "\n", encoding="utf-8")
-        swap_abort(layout, run)
+        _swap_write(evidence, result)
+        raise ShadowError(f"ensaio parado antes de parar qualquer serviço: {error}") from error
+    try:
+        _swap_round_trip(layout, compose, target, result, run, clock, calm)
+    except SWAP_FAILURES as error:
+        shield()
+        result.update(aborted=True, error=str(error))
+        _swap_write(evidence, result)
+        try:
+            result["abort"] = swap_abort(layout, run)
+        finally:
+            result.setdefault("abort", {"error": "sem confirmação; ver swap-abort.json"})
+            _swap_write(evidence, result)
         raise ShadowError(f"ensaio abortado, de volta ao digest de origem: {error}") from error
     result["photoStable"] = True
-    evidence.write_text(json.dumps(result, indent=2) + "\n", encoding="utf-8")
+    _swap_write(evidence, result)
     return result
+
+
+LOCKED_COMMANDS = ("up", "media-fixture", "restore-rehearsal", "swap-rehearsal", "swap-abort", "down")
+
+
+def _run_command(args: argparse.Namespace, layout: Layout) -> None:
+    if args.command == "prepare":
+        prepare(layout, args.release_env)
+    elif args.command == "up":
+        up(layout, args.accounts)
+    elif args.command == "media-fixture":
+        media_fixture(layout, args.mib)
+    elif args.command == "restic-command":
+        print(restic_backup_command(layout))
+    elif args.command == "restore-rehearsal":
+        print(json.dumps(restore_rehearsal(layout, final_full=args.final_full), indent=2))
+    elif args.command == "swap-rehearsal":
+        with _swap_signals() as shield:
+            print(json.dumps(swap_rehearsal(layout, args.target, fill_mib=args.fill_mib, shield=shield), indent=2))
+    elif args.command == "swap-abort":
+        with _swap_signals() as shield:
+            shield()
+            print(json.dumps(swap_abort(layout), indent=2))
+    else:
+        down(layout)
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -610,23 +844,9 @@ def main(argv: list[str] | None = None) -> int:
         print("c2-shadow: rode como root (chown dos segredos e diretórios sintéticos)", file=sys.stderr)
         return 1
     try:
-        if args.command == "prepare":
-            prepare(layout, args.release_env)
-        elif args.command == "up":
-            up(layout, args.accounts)
-        elif args.command == "media-fixture":
-            media_fixture(layout, args.mib)
-        elif args.command == "restic-command":
-            print(restic_backup_command(layout))
-        elif args.command == "restore-rehearsal":
-            print(json.dumps(restore_rehearsal(layout, final_full=args.final_full), indent=2))
-        elif args.command == "swap-rehearsal":
-            print(json.dumps(swap_rehearsal(layout, args.target, fill_mib=args.fill_mib), indent=2))
-        elif args.command == "swap-abort":
-            swap_abort(layout)
-        else:
-            down(layout)
-    except (ShadowError, c2_probe.CommandRefused, OSError, ValueError) as error:
+        with _swap_lock(layout) if args.command in LOCKED_COMMANDS else nullcontext():
+            _run_command(args, layout)
+    except SWAP_FAILURES as error:
         print(f"c2-shadow: {error}", file=sys.stderr)
         return 1
     return 0
