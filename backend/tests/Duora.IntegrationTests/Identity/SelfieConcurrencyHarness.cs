@@ -13,8 +13,8 @@ namespace Duora.IntegrationTests.Identity;
 // Two independent hosts share only the PostgreSQL database, clock and simulated external system.
 internal static class SelfieConcurrencyHarness
 {
-    public static DuoraWebFactory Host(string connection, FakeTimeProvider time, SimulatedSelfieProvider provider,
-        SelfieCommitFault? fault = null) => new(connection)
+    public static DuoraWebFactory Host(string connection, FakeTimeProvider time, ISelfieProvider provider,
+        SelfieCommitFault? fault = null, Microsoft.Extensions.Logging.ILoggerProvider? logs = null) => new(connection, logs)
         {
             Time = time,
             Settings = SelfieTestSettings.Enabled("synthetic-policy"),

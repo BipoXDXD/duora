@@ -6,7 +6,7 @@ namespace Duora.Worker.Media;
 
 /// <summary>
 /// Laço do consumidor <c>media-processing</c>: um upload por vez (concorrência 1, spec 4.3), um escopo de DI por
-/// volta. Com o upload desligado (sem <c>Media:Review</c>), não consome nada. Banco fora do ar não derruba o worker.
+/// volta. Com o upload desligado (sem <c>Media:Review</c>), não consome nada. Banco fora do ar ou erro inesperado não derrubam o worker.
 /// </summary>
 internal sealed partial class MediaProcessingService(
     IServiceScopeFactory scopeFactory,
@@ -50,6 +50,11 @@ internal sealed partial class MediaProcessingService(
             LogDatabaseUnavailable(logger, exception);
             return 0;
         }
+        catch (Exception exception) when (exception is not OutOfMemoryException && !stoppingToken.IsCancellationRequested)
+        {
+            LogUnexpectedFailure(logger, exception.GetType().Name, ExceptionFrames.Describe(exception));
+            return 0;
+        }
     }
 
     [LoggerMessage(Level = LogLevel.Information, Message = "Upload de fotos desligado (sem Media:Review); fila de mídia não é consumida")]
@@ -57,4 +62,7 @@ internal sealed partial class MediaProcessingService(
 
     [LoggerMessage(Level = LogLevel.Warning, Message = "Fila de mídia não processada; banco inacessível")]
     private static partial void LogDatabaseUnavailable(ILogger logger, Exception exception);
+
+    [LoggerMessage(Level = LogLevel.Error, Message = "Fila de mídia falhou de forma inesperada ({Cause}); a entrega volta quando o lease vencer. Frames: {Frames}")]
+    private static partial void LogUnexpectedFailure(ILogger logger, string cause, string frames);
 }
