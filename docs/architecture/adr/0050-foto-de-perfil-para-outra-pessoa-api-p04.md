@@ -9,6 +9,8 @@
   repositório).
 - **Revisar quando:** o dono decidir D1 a D5; o módulo Connections for integrado (novo contexto de leitura); a
   política de privacidade ou a decisão sobre idade mudar; ou uma issue própria do P04 for aberta.
+- **Nota de 06/11/2026:** o dono aceitou as recomendações de D1 a D5. O status continua `Proposed`; ver
+  [Escolhas do dono](#nota-de-06112026-escolhas-do-dono).
 
 ## Legenda
 
@@ -175,6 +177,9 @@ opção A sobre a emenda e o custo principal da recomendação deixam de valer; 
 texto da spec, além das decisões. O alinhamento não escolhe entre A e B, porque nenhuma decisão registrada trata
 do rótulo fixo "18+". Esta nota não decide D1, D2, D4 nem D5, e o status deste ADR continua `Proposed`.
 
+**Nota posterior de 06/11/2026:** o dono escolheu A, sem faixa e sem rótulo; ver
+[Escolhas do dono](#nota-de-06112026-escolhas-do-dono).
+
 - **A. Sem faixa etária no P04.**
   - Prós: coerente com as decisões de 24/10 e 29/10 e com o ADR-0029; nenhum dado novo; nada que se pareça com
     verificação.
@@ -283,6 +288,27 @@ continua exigindo as escolhas do dono.
 | D3 | Faixa etária | A: sem faixa etária no P04 (`model.md:309-310` já diz que o campo não existe) |
 | D4 | Escopo | B: issue própria; a #173 fica com o que resta |
 | D5 | Como a foto é escolhida para o perfil | A: recurso próprio de seleção, com `If-Match` |
+
+### Nota de 06/11/2026: escolhas do dono
+
+Nota acrescentada; o texto acima não foi alterado. O dono aceitou as recomendações:
+
+| ID | Escolha do dono |
+|---|---|
+| D1 | B: sala `Active`, mais as 24 h da janela de decisão em `Completed` (responde à D1.1); conexão como acréscimo futuro, quando o Connections existir |
+| D2 | A: relação derivada no servidor, função única de autorização para P04 e M04, lista fechada de contextos e 404 uniforme |
+| D3 | A: sem faixa etária e sem rótulo "18+" no P04 |
+| D4 | B: issue própria para o P04 e a tela; a #173 fica com o que resta. A issue ainda não foi aberta |
+| D5 | A: recurso próprio de seleção, com `If-Match` próprio |
+
+**O ADR continua `Proposed`.** Registrar estas escolhas não basta para o `Accepted`, porque seguem com o dono:
+
+- o aceite do contrato e da migração;
+- o risco residual R (sem trilha de quem viu a foto);
+- se a política de privacidade cobre a exibição da foto à pessoa pareada (conflito 3).
+
+Os demais pontos de "Pontos que dependem do dono" não mudam. Esta nota não autoriza implementar a rota, migrar,
+criar flag nem ligar o upload (#69).
 
 ## Consequências
 
