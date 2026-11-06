@@ -188,6 +188,170 @@ class InstallationTests(unittest.TestCase):
             arbitrary.symlink_to(target)
             with self.assertRaises(installer.InstallError): installer.installation_context(self.paths, (arbitrary,))
 
+    def _swap_receiver(self):
+        receiver = installer._module(Path(__file__).resolve().parents[1] / "release/coolify/receiver.py", "swap_fence_receiver")
+        setattr(receiver, "STATE", self.paths.ingress)
+        return receiver
+
+    def _arm_swap(self, phase: str = "awaiting-reseal", *, commit: str = COMMIT, manifest: str | None = None) -> dict:
+        """Fence and journal in the exact shape duora_deploy writes; the entry was installed by the real apply."""
+        if not self.entry.is_symlink():
+            self.old_hash = self.invoke(apply=True)["executorSha256"]
+        journal = self.paths.state / "postgres-swap"
+        journal.mkdir(mode=0o700, exist_ok=True)
+        attempt = {"schema": 1, "kind": "postgres-component-swap", "swapId": "1" * 32,
+                   "executor": {"sourceCommit": commit, "manifestSha256": manifest or self.manifest_hash,
+                                "executorSha256": self.old_hash}}
+        raw = installer._json(attempt)
+        checksum = hashlib.sha256(raw).hexdigest()
+        for path, content in ((journal / "attempt.json", raw),
+                              (journal / "phase.json", installer._json({"phase": phase, "attemptSha256": checksum}))):
+            path.write_bytes(content)
+            path.chmod(0o600)
+        fence = self.paths.ingress / installer.SWAP_FENCE_DIRECTORY / "pending.json"
+        fence.parent.mkdir(mode=0o700, exist_ok=True)
+        fence.write_bytes(installer._json({"schema": 1, "project": "duora", "kind": "postgres-swap",
+                                           "swapId": "1" * 32, "attemptSha256": checksum}))
+        fence.chmod(0o600)
+        return attempt
+
+    def _idle(self, receiver) -> None:
+        installer.require_ingress_idle(receiver, self.paths, expected_commit=COMMIT, manifest_sha256=self.manifest_hash)
+
+    def test_swap_fence_is_exempt_only_in_reseal_phases_with_exact_source(self) -> None:
+        receiver = self._swap_receiver()
+        for phase in ("awaiting-reseal", "aborted-awaiting-reseal"):
+            with self.subTest(phase=phase):
+                self._arm_swap(phase)
+                self._idle(receiver)
+        for phase in ("journaled", "verify-backup", "quiesce", "swap-runtime", "verify-runtime", "reopen", "commit",
+                      "aborting", "closing", "unknown"):
+            with self.subTest(phase=phase):
+                self._arm_swap(phase)
+                with self.assertRaises(installer.InstallError): self._idle(receiver)
+
+    def test_swap_fence_without_exemption_still_blocks_the_real_receiver(self) -> None:
+        self._arm_swap()
+        with self.assertRaises(ValueError): self._swap_receiver().require_host_idle()
+
+    def test_swap_exemption_refuses_foreign_code_or_changed_journal(self) -> None:
+        receiver = self._swap_receiver()
+        with self.subTest("other source"):
+            self._arm_swap(commit="b" * 40)
+            with self.assertRaises(installer.InstallError): self._idle(receiver)
+        with self.subTest("other bundle"):
+            self._arm_swap(manifest="b" * 64)
+            with self.assertRaises(installer.InstallError): self._idle(receiver)
+        self._arm_swap()
+        journal = self.paths.state / "postgres-swap/attempt.json"
+        raw = journal.read_bytes()
+        with self.subTest("changed journal"):
+            journal.write_bytes(raw + b" ")
+            with self.assertRaises(installer.InstallError): self._idle(receiver)
+            journal.write_bytes(raw)
+        phase = self.paths.state / "postgres-swap/phase.json"
+        raw_phase = phase.read_bytes()
+        with self.subTest("phase of another attempt"):
+            phase.write_bytes(installer._json({"phase": "awaiting-reseal", "attemptSha256": "0" * 64}))
+            with self.assertRaises(installer.InstallError): self._idle(receiver)
+            phase.write_bytes(raw_phase)
+        with self.subTest("active entry is another executor"):
+            target = self.entry.resolve()
+            self.entry.unlink()
+            self.entry.write_text("foreign executor\n")
+            with self.assertRaises(installer.InstallError): self._idle(receiver)
+            self.entry.unlink()
+            self.entry.symlink_to(target)
+        fence = self.paths.ingress / installer.SWAP_FENCE_DIRECTORY / "pending.json"
+        original = fence.read_bytes()
+        for label, content in (("unknown key", b'{"schema":1}\n'), ("other kind", original.replace(b"postgres-swap", b"other-swap"))):
+            with self.subTest(label):
+                fence.write_bytes(content)
+                with self.assertRaises(installer.InstallError): self._idle(receiver)
+        fence.write_bytes(original)
+        (self.paths.state / "postgres-swap/attempt.json").unlink()
+        with self.assertRaises(installer.InstallError): self._idle(receiver)
+
+    def test_swap_exemption_keeps_checking_other_projects_and_global_intents(self) -> None:
+        receiver = self._swap_receiver()
+        self._arm_swap()
+        foreign = self.paths.ingress / "stillon"
+        foreign.mkdir()
+        (foreign / "pending.json").write_text("{}")
+        with self.assertRaises(ValueError): self._idle(receiver)
+        (foreign / "pending.json").unlink()
+        (self.paths.ingress / "duora/pending.json").write_text("{}")
+        with self.assertRaises(ValueError): self._idle(receiver)
+        (self.paths.ingress / "duora/pending.json").unlink()
+        (self.paths.ingress / "pending.json").write_text("{}")
+        with self.assertRaises(ValueError): self._idle(receiver)
+
+    def test_reseal_applies_with_swap_fence_including_post_activation_gate(self) -> None:
+        receiver = self._swap_receiver()
+        self._arm_swap()
+        self.inventory["profile"]["services"]["postgres"]["id"] = "9" * 64
+        self.inventory["inventorySha256"] = guard.digest({"profile": self.inventory["profile"], "audit": self.inventory["audit"]})
+        fence = self.paths.ingress / installer.SWAP_FENCE_DIRECTORY / "pending.json"
+        original = fence.read_bytes()
+        result = self.invoke(apply=True, idle=lambda: self._idle(receiver))
+        self.assertEqual(result["status"], "installed")
+        self.assertEqual(json.loads((self.paths.state / guard.BASELINE_NAME).read_text()), self.inventory["profile"])
+        self.assertEqual(fence.read_bytes(), original)
+
+    def test_reseal_failure_recovers_own_attempt_under_the_swap_fence(self) -> None:
+        receiver = self._swap_receiver()
+        self._arm_swap()
+        sealed = (self.paths.state / guard.BASELINE_NAME).read_bytes()
+        changed = json.loads(json.dumps(self.inventory))
+        changed["profile"]["services"]["postgres"]["id"] = "9" * 64
+        changed["inventorySha256"] = guard.digest({"profile": changed["profile"], "audit": changed["audit"]})
+        calls = {"inspect": 0}
+        def inspect() -> dict:
+            calls["inspect"] += 1
+            if calls["inspect"] > 2: raise installer.InstallError("synthetic post-activation failure")
+            return changed
+        with self.assertRaises(installer.InstallError):
+            self.invoke(apply=True, inspect=inspect, idle=lambda: self._idle(receiver), reviewed=changed["inventorySha256"])
+        self.assertEqual((self.paths.state / guard.BASELINE_NAME).read_bytes(), sealed)
+        self.assertFalse((self.paths.ingress / installer.FENCE_DIRECTORY / "pending.json").exists())
+        self.assertTrue((self.paths.ingress / installer.SWAP_FENCE_DIRECTORY / "pending.json").exists())
+
+    def test_inventory_is_the_closed_list_of_five_members(self) -> None:
+        self.assertEqual(installer.FILES, ("duora_deploy.py", "postgres_swap.py", "reconcile_payload.py",
+                                           "runtime_guard.py", "install_executor.py"))
+
+    def test_swap_exemption_refuses_a_changed_installed_bundle(self) -> None:
+        receiver = self._swap_receiver()
+        self._arm_swap()
+        (self.paths.versions / COMMIT / "postgres_swap.py").write_text("# changed after install\n")
+        with self.assertRaises(installer.InstallError): self._idle(receiver)
+
+    def test_open_journal_without_fence_blocks_the_installer(self) -> None:
+        receiver = self._swap_receiver()
+        self._arm_swap()
+        (self.paths.ingress / installer.SWAP_FENCE_DIRECTORY / "pending.json").unlink()
+        with self.assertRaises(installer.InstallError): self._idle(receiver)
+
+    def test_cohort_transition_refuses_any_open_swap_before_touching_anything(self) -> None:
+        self._arm_swap()
+        def transition() -> None:
+            installer.install_bundle(self.source, expected_commit=COMMIT, manifest_sha256=self.manifest_hash,
+                reviewed_inventory_sha256=None, expected_executor_sha256=self.old_hash, paths=self.paths,
+                inspect_runtime=lambda: self.inventory, require_idle=lambda: None, _cohort_receiver_source=self.root / "receiver.py")
+        with self.assertRaises(installer.InstallError) as refused: transition()
+        self.assertIn("PostgreSQL swap", str(refused.exception.__cause__))
+        (self.paths.ingress / installer.SWAP_FENCE_DIRECTORY / "pending.json").unlink()
+        with self.assertRaises(installer.InstallError) as refused: transition()
+        self.assertIn("PostgreSQL swap", str(refused.exception.__cause__))
+
+    def test_reseal_in_wrong_phase_refuses_before_any_write(self) -> None:
+        receiver = self._swap_receiver()
+        self._arm_swap("verify-runtime")
+        baseline = (self.paths.state / guard.BASELINE_NAME).read_bytes()
+        with self.assertRaises(installer.InstallError):
+            self.invoke(apply=True, idle=lambda: self._idle(receiver))
+        self.assertEqual((self.paths.state / guard.BASELINE_NAME).read_bytes(), baseline)
+
     def test_interrupted_activation_has_explicit_hash_guarded_recovery_under_real_locks(self) -> None:
         receiver = installer._module(Path(__file__).resolve().parents[1] / "release/coolify/receiver.py", "installer_crash_receiver")
         for boundary in ["fence", "pending", "baseline", "entry", "receipt"]:

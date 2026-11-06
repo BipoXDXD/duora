@@ -322,14 +322,16 @@ socket do Docker. Falhas aparecem em `systemctl --failed`, em `journalctl -u 'du
 **Verify do timer durante um deploy.** O timer chama `duora-backup verify --scheduled`. Se o lock do `duora-deploy`
 estiver ocupado por um deploy (não por um backup: `full`/`diff` seguram também `.backup.lock`) **e** houver um verify
 bom há no máximo 1 h (`/var/lib/duora/.backup-verify-ok`), ele pula com uma linha informativa no journal: o deploy
-recria `postgres` e `backup` e roda o próprio verify antes de parar serviços. Sem verify bom recente, com o marcador
+preserva `postgres` e `backup` e roda o próprio verify antes de parar serviços, e a [troca do
+digest](deploy.md#troca-do-digest-do-postgresql), que os recria sob o mesmo lock, roda o verify antes de parar e
+depois de recriar. Sem verify bom recente, com o marcador
 ilegível, durante um backup ou chamado à mão, o verify roda normalmente. Testes: `ScheduledVerifyDuringDeployTests`
 e `ProcLocksTests`.
 
 No Linux o lock é lido em `/proc/locks` (sem tomá-lo), casando dispositivo e inode do `stat` de
 `/var/lib/duora/.deploy.lock`. Em btrfs (ou num subvolume), o dispositivo do `stat` pode não ser o que o
 `/proc/locks` mostra; aí o deploy não é reconhecido e o verify **roda** durante ele, o que pode dar um alerta `crit`
-falso enquanto `postgres` e `backup` são recriados. O erro é sempre para o lado de alertar, nunca de esconder uma
+falso enquanto a troca do digest recria `postgres` e `backup`. O erro é sempre para o lado de alertar, nunca de esconder uma
 falha. Confira na VPS com `findmnt -T /var/lib/duora` (ext4 casa).
 
 **Estatísticas após o check.** O PostgreSQL pode publicar `pg_stat_archiver` depois de o `pgbackrest check`
