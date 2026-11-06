@@ -157,6 +157,21 @@ em [system.md](system.md); critérios de acessibilidade, em [accessibility.md](a
   leitura, sem botão de pedir revisão da decisão); conflito de edição ("Este perfil mudou em outro dispositivo"
   com "Ver versão atual" e "Reaplicar minhas alterações", spec 13.5); salvo (confirmação em `role="status"`).
 
+## Minhas fotos
+
+- **Propósito:** `/account/photos`. A pessoa envia fotos, acompanha a análise e exclui as próprias. Só ela vê esta
+  lista; a tela não mostra imagem, não escolhe foto do perfil e não expõe nada a terceiros (API-P04, ADR-0050).
+- **Gate:** o mesmo do upload. Com `Media:Review` ausente, `GET /me/photos` responde 503 `MEDIA_UPLOADS_DISABLED` e a
+  tela mostra só o aviso de indisponível. Envio e exclusão aparecem depois de a lista responder 200; não há flag no
+  frontend.
+- **Ações:** "Enviar foto" (API-M01, JPEG, PNG ou WebP até 5 MiB, recusa local antes de gastar envio); "Excluir foto"
+  (API-M03), que primeiro lê estado e ETag em API-M02 e pede confirmação sobre esse estado; "Ler estado atual".
+- **Estados:** carregando; indisponível; erro com "Ler estado atual"; vazio; em análise ("Em análise; ainda não aparece
+  para ninguém"); rejeição (mensagem pública de [media-review.md](../api/media-review.md) e novo envio, sem pedido de
+  revisão); conta que não envia (Restricted, Suspended e demais: aviso, sem formulário, mas ainda exclui); resultado
+  incerto ("Repetir o mesmo pedido", com a mesma chave e os mesmos bytes); versão vencida (reler e confirmar de novo).
+- **Limitação:** o envio mostra "Enviando…", sem porcentagem: o cliente HTTP usa `fetch`, que não informa o progresso.
+
 ## Eventos
 
 ### Lista de eventos

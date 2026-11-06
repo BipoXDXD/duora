@@ -11,8 +11,12 @@ export function needsReviewRevalidation(error: unknown): boolean {
   return [401, 403, 409, 412, 404].includes(reviewHttpStatus(error) ?? 0)
 }
 
+function hasUnknownOutcome(error: unknown): boolean {
+  return ![400, 401, 403, 404, 409, 412, 428].includes(reviewHttpStatus(error) ?? 0)
+}
+
 /** A journal in memory only. Uncertain outcomes can only retry the exact same intent/key. */
-interface ReviewCommand<Intent> {
+export interface ReviewCommand<Intent> {
   readonly intent: Intent | null
   readonly busy: boolean
   readonly error: unknown
@@ -27,6 +31,8 @@ export function useReviewCommand<Intent>(options: {
   readonly send: (operation: OperationHandle, intent: Intent, signal: AbortSignal) => Promise<unknown>
   readonly onConfirmed: () => void
   readonly onFailure: (error: unknown) => void
+  /** Classifies the failure of a command whose refusals differ from the review ones. */
+  readonly isUncertain?: (error: unknown) => boolean
 }): ReviewCommand<Intent> {
   const privateOperation = usePrivateOperation()
   const [intent, setIntent] = useState<Intent | null>(null)
@@ -43,7 +49,7 @@ export function useReviewCommand<Intent>(options: {
       lifetime.current = null
     }
   }, [])
-  const uncertain = error !== null && ![400, 401, 403, 404, 409, 412, 428].includes(reviewHttpStatus(error) ?? 0)
+  const uncertain = error !== null && (options.isUncertain ?? hasUnknownOutcome)(error)
 
   async function send(next: Intent): Promise<void> {
     const controller = lifetime.current
