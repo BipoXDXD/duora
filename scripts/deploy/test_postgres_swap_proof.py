@@ -12,6 +12,7 @@ import stat
 import subprocess
 import sys
 import tempfile
+import time
 from types import SimpleNamespace
 from typing import Any
 import unittest
@@ -137,6 +138,12 @@ class HostGuardTests(unittest.TestCase):
         self.addCleanup(ancestors.stop)
         self.docker_calls: list[tuple] = []
         self.volumes = ""
+        docker = patch.object(bench, "docker", self.docker)
+        docker.start()
+        self.addCleanup(docker.stop)
+        umask = os.umask(0o022)
+        os.umask(umask)
+        self.addCleanup(os.umask, umask)  # A claim closes the umask for the whole process.
 
     def docker(self, *arguments: str, **_: object) -> str:
         self.docker_calls.append(arguments)
@@ -192,7 +199,7 @@ class HostGuardTests(unittest.TestCase):
 
     def run_cleanup(self) -> bool:
         """Docker and the ancestors are doubles that record into docker_calls; the files and the claim are real."""
-        with patch.object(bench, "docker", self.docker), patch.object(bench, "remove_holds") as holds, \
+        with patch.dict(bench.os.environ, {}, clear=True), patch.object(bench, "remove_holds") as holds, \
                 patch.object(bench.subprocess, "run") as run, patch.object(bench, "restore_ancestors") as restore:
             try:
                 return bench.cleanup_claimed()
@@ -210,6 +217,7 @@ class HostGuardTests(unittest.TestCase):
             bench.FixedHost().claim(root=Path("/root/work"), registry="registry")
         self.assertEqual(json.loads(self.paths["CLAIM"].read_text()),
                          {"root": "/root/work", "registry": "registry", "ancestors": [], "pid": 4321})
+        self.assertEqual(self.docker_calls[0][:2], ("ps", "--all"))
 
     def test_claim_is_complete_before_it_becomes_visible(self) -> None:
         link = os.link
@@ -269,10 +277,52 @@ class HostGuardTests(unittest.TestCase):
         self.mark_disposable()
         original = self.claim_text(os.getpid())
         self.paths["CLAIM"].write_text(original)
-        with self.assertRaisesRegex(bench.ProofFailure, "PID %d is still running" % os.getpid()):
+        with self.assertRaisesRegex(bench.ProofFailure, "PID %d is still running" % os.getpid()) as refused:
             self.run_cleanup()
+        self.assertIn("reused PID", str(refused.exception))
+        self.assertIn("deleting the claim by hand loses the record of the ancestors", str(refused.exception))
         self.assert_host_untouched(files)
         self.assertEqual(self.paths["CLAIM"].read_text(), original)
+
+    def run_main_cleanup(self) -> tuple[int, str]:
+        output = io.StringIO()
+        with patch.object(bench.os, "geteuid", return_value=0), patch.dict(bench.os.environ, {}, clear=True), \
+                patch.object(sys, "argv", ["bench", "--mode", "cleanup"]), contextlib.redirect_stdout(output), \
+                contextlib.redirect_stderr(output):
+            return bench.main(), output.getvalue()
+
+    def test_a_refused_cleanup_exits_one_with_the_reason_and_no_traceback(self) -> None:
+        self.mark_disposable()
+        self.paths["CLAIM"].write_text(self.claim_text(os.getpid()))
+        code, output = self.run_main_cleanup()
+        self.assertEqual(code, 1)
+        self.assertIn("PID %d is still running" % os.getpid(), output)
+
+    def test_a_clean_cleanup_exits_zero(self) -> None:
+        self.mark_disposable()
+        self.assertEqual(self.run_main_cleanup(), (0, "[swap-proof] nothing claimed to clean\n"))
+
+    def vanishing_claim(self) -> Any:
+        """The claim exists for the check and is gone for the read, as when the proof releases it in between."""
+        exists = Path.exists
+        return patch.object(bench.Path, "exists", lambda path: path == self.paths["CLAIM"] or exists(path))
+
+    def test_cleanup_when_the_claim_vanishes_finds_nothing_to_clean(self) -> None:
+        files = self.production_files()
+        self.mark_disposable()
+        with self.vanishing_claim():
+            self.assertFalse(self.run_cleanup())
+        self.assert_host_untouched(files)
+
+    def test_the_guard_when_the_claim_vanishes_goes_on_to_the_host_checks(self) -> None:
+        with self.vanishing_claim():
+            bench.require_host_free()
+        self.assertEqual(self.docker_calls[0][:2], ("ps", "--all"))
+
+    def test_the_largest_pid_is_a_valid_claim_of_a_dead_proof(self) -> None:
+        self.mark_disposable()
+        self.paths["CLAIM"].write_text(self.claim_text(2147483647))
+        self.assertTrue(self.run_cleanup())
 
     def test_cleanup_of_a_dead_proof_removes_what_it_claimed(self) -> None:
         files = self.production_files()
@@ -306,7 +356,10 @@ class HostGuardTests(unittest.TestCase):
         files = self.production_files()
         self.mark_disposable()
         known = '"root": "/x", "registry": "r", "ancestors": []'
-        for content in (b"garbage", b"\xff\xfe", b"{\xff", b"[]", b"null", b"1", b"{}", b'{"root": "/x"}',
+        for content in (b"garbage", b"{garbage", b'{"root": "/x", "lixo', b'{"root": "/x", "registry": "r", "ancestors": lixo',
+                        b"\xff\xfe", b"{\xff", b"[]", b"null", b"1", b"{}", b'{"root": "/x"}',
+                        ('{' + known + ', "pid": 2147483648}').encode(), ('{' + known + ', "pid": ' + "9" * 30 + '}').encode(),
+                        ('{' + known + ', "pid": ' + "9" * 5000 + '}').encode(),
                         ('{' + known + ', "extra": 1}').encode(), ('{' + known + ', "pid": 0}').encode(),
                         ('{' + known + ', "pid": -1}').encode(), ('{' + known + ', "pid": true}').encode(),
                         ('{' + known + ', "pid": "4321"}').encode()):
@@ -934,7 +987,7 @@ class DrillStageTests(unittest.TestCase):
             def kill(self): raise PermissionError(1, "Operation not permitted")
         def run(command, **_):
             if "cleanup" in command: cleanup.append("cleanup")
-            if command[:3] == ["sudo", "--non-interactive", "kill"]: cleanup.append(command[3])
+            if command[:2] == ["sudo", "--non-interactive"] and command[2] in ("kill", "pkill"): cleanup.append(command[3])
             return subprocess.CompletedProcess(command, 0, "", "")
         output = io.StringIO()
         report = self.report()
@@ -981,6 +1034,108 @@ class DrillStageTests(unittest.TestCase):
                 contextlib.redirect_stdout(io.StringIO()) as output:
             drill._stop_swap_proof(Process(), ["python3", "bench", "--mode", "pitr"])  # type: ignore[arg-type]
         self.assertIn("cleanup", output.getvalue())
+
+    def test_failed_cleanup_warns_with_its_code_and_reason(self) -> None:
+        class Process:
+            pid = 1
+            def wait(self, timeout=None): return 0
+            def terminate(self): pass
+        refused = subprocess.CompletedProcess(["cleanup"], 1, "[swap-proof] REFUSED: Proof PID 7 is still running\n", "")
+        with patch.object(drill.subprocess, "run", return_value=refused), contextlib.redirect_stdout(io.StringIO()) as output:
+            drill._stop_swap_proof(Process(), ["python3", "bench", "--mode", "pitr"])  # type: ignore[arg-type]
+        self.assertEqual(output.getvalue(), "[drill] AVISO: cleanup da prova da troca falhou (código 1): "
+                                            "[swap-proof] REFUSED: Proof PID 7 is still running\n")
+
+    def test_a_proof_that_outlives_the_kill_wait_still_reaches_the_cleanup(self) -> None:
+        calls = []
+        class Process:
+            pid = 4321
+            def wait(self, timeout=None): raise subprocess.TimeoutExpired("bench", timeout or 0)
+            def terminate(self): pass
+            def kill(self): calls.append("kill")
+        def run(arguments, **_):
+            calls.append(arguments[-1])
+            return subprocess.CompletedProcess(arguments, 0, "", "")
+        with patch.object(drill.subprocess, "run", run), contextlib.redirect_stdout(io.StringIO()) as output:
+            drill._stop_swap_proof(Process(), ["python3", "bench", "--mode", "pitr"])  # type: ignore[arg-type]
+        self.assertEqual(calls, ["kill", "cleanup"])
+        self.assertIn("[drill] AVISO: a prova da troca não saiu depois do KILL", output.getvalue())
+
+    STUCK_PROOF = """
+import os, pathlib, signal, sys, time
+here = pathlib.Path(sys.argv[0]).parent
+if sys.argv[2] == "cleanup":
+    (here / "cleanup-ran").write_text("yes")
+    sys.exit(0)
+signal.signal(signal.SIGTERM, signal.SIG_IGN)
+(here / "pid.tmp").write_text(str(os.getpid()))
+os.rename(here / "pid.tmp", here / "pid")
+time.sleep(60)
+"""
+    # Like sudo: the proof is a child, not an exec, and a TERM is relayed to it while sudo stays alive.
+    SUDO_DOUBLE = """#!/bin/sh
+while [ "${1#--}" != "$1" ]; do shift; done
+"$@" &
+child=$!
+trap 'kill -TERM "$child"' TERM
+while kill -0 "$child" 2>/dev/null; do wait "$child"; done
+"""
+
+    def stuck_proof(self, directory: Path) -> list[str]:
+        script = directory / "postgres_swap_bench.py"
+        script.write_text(self.STUCK_PROOF)
+        return [sys.executable, str(script), "--mode", "pitr"]
+
+    def proof_pid(self, directory: Path) -> int:
+        deadline = time.monotonic() + 10
+        while not (directory / "pid").exists():
+            self.assertLess(time.monotonic(), deadline, "the proof double did not start")
+            time.sleep(0.01)
+        return int((directory / "pid").read_text())
+
+    def forget_process(self, pid: int) -> None:
+        with contextlib.suppress(ProcessLookupError):
+            os.kill(pid, 9)
+
+    def test_a_killed_direct_child_is_reaped_so_cleanup_does_not_read_a_zombie_as_alive(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            directory = Path(temporary)
+            command = self.stuck_proof(directory)
+            process = subprocess.Popen(command)
+            self.addCleanup(process.wait)
+            self.addCleanup(self.forget_process, process.pid)
+            pid = self.proof_pid(directory)
+            with patch.object(drill, "SWAP_STOP_SECONDS", 0.2), contextlib.redirect_stdout(io.StringIO()):
+                drill._stop_swap_proof(process, command)
+            self.assertFalse(bench.process_alive(pid))
+            self.assertEqual((directory / "cleanup-ran").read_text(), "yes")
+
+    def test_under_sudo_the_kill_reaches_the_proof_behind_it(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            directory = Path(temporary)
+            sudo = directory / "sudo"
+            sudo.write_text(self.SUDO_DOUBLE)
+            sudo.chmod(0o755)
+            command = ["sudo", "--non-interactive", drill.SWAP_SUDO_ENVIRONMENT, *self.stuck_proof(directory)]
+            with patch.dict(os.environ, {"PATH": str(directory) + os.pathsep + os.environ["PATH"]}):
+                process = subprocess.Popen(command)
+                self.addCleanup(process.wait)
+                self.addCleanup(self.forget_process, process.pid)
+                pid = self.proof_pid(directory)
+                self.addCleanup(self.forget_process, pid)
+                with patch.object(drill, "SWAP_STOP_SECONDS", 0.2), contextlib.redirect_stdout(io.StringIO()) as output:
+                    drill._stop_swap_proof(process, command)
+            deadline = time.monotonic() + 5
+            while bench.process_alive(pid) and time.monotonic() < deadline:  # Orphaned by sudo's death: init reaps it.
+                time.sleep(0.01)
+            self.assertFalse(bench.process_alive(pid))
+            self.assertIsNotNone(process.returncode)
+            self.assertEqual((directory / "cleanup-ran").read_text(), "yes")
+            self.assertEqual(output.getvalue(), "")
+
+    def test_the_sudo_kill_pattern_spares_the_cleanup_and_its_own_command_line(self) -> None:
+        pattern = drill._swap_proof_pattern(["sudo", "--non-interactive", "python3", "/repo/postgres_swap_bench.py", "--mode", "pitr"])
+        self.assertEqual(pattern, "[/]repo/postgres_swap_bench.py --mode pitr")
 
     def report(self):
         return drill.DrillReport(image="image")

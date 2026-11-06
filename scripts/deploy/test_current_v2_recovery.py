@@ -905,6 +905,7 @@ class RecoveryCliBoundaryTests(RecoveryCliBoundaryFixture):
                         entered.append(True)
                 self.assertEqual(str(raised.exception), busy)
                 self.assertEqual(entered, [])
+                self.assert_free([path for path in lock_paths if path.exists()])
 
     def test_explicit_administrative_modes_use_all_three_locks_and_the_reviewed_handler(self):
         from contextlib import nullcontext, redirect_stdout, redirect_stderr
