@@ -1,5 +1,6 @@
 using System.Data.Common;
 using Duora.Core.Jobs;
+using Duora.Infrastructure;
 using Duora.Infrastructure.Email;
 
 namespace Duora.Worker;
