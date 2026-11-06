@@ -176,6 +176,32 @@ public sealed class WorkerLoopResilienceTests(PostgresFixture postgres)
         AssertLocatesTheDefectWithoutItsContent(entry);
     }
 
+    /// <summary>Um erro de banco na parada não é erro de programação: fica em Warning, e o loop sai pela espera cancelada.</summary>
+    [Fact]
+    public async Task ADatabaseFailureDuringTheStopStaysAWarningAndTheLoopEndsCleanly()
+    {
+        var clock = new ExplodingClock();
+        var logs = new CapturingLoggerProvider();
+        using var host = BuildWorker(clock, logs);
+        var loop = LoopOf(host, typeof(ParticipationJobService));
+        Task stopped = Task.CompletedTask;
+        clock.OnRead = () =>
+        {
+            stopped = loop.StopAsync(CancellationToken.None);
+            throw new NpgsqlException(MessageCanary);
+        };
+
+        await loop.StartAsync(Ct);
+        await clock.FirstPass.WaitAsync(Ceiling, Ct);
+        await Task.WhenAny(loop.ExecuteTask!).WaitAsync(Ceiling, Ct);
+        await stopped.WaitAsync(Ceiling, Ct);
+
+        Assert.False(loop.ExecuteTask!.IsFaulted, $"O loop terminou com {loop.ExecuteTask.Exception?.InnerException?.GetType().Name}.");
+        var entry = Assert.Single(logs.Entries, entry => entry.Category == typeof(ParticipationJobService).FullName && entry.Level >= LogLevel.Warning);
+        Assert.Equal(LogLevel.Warning, entry.Level);
+        Assert.DoesNotContain(MessageCanary, entry.Text, StringComparison.Ordinal);
+    }
+
     private static void AssertLocatesTheDefectWithoutItsContent(CapturedLog entry)
     {
         Assert.Equal(LogLevel.Error, entry.Level);
