@@ -39,19 +39,18 @@ if _SIDECAR_DIRECTORY not in sys.path:
     sys.path.insert(0, _SIDECAR_DIRECTORY)
 import reconcile_payload as _payload
 import runtime_guard as _guard
+import postgres_swap as _swap
+from postgres_swap import (COMMAND_TIMEOUT_SECONDS, RELEASES_DIR, STAGING_DIR, DeployError, _check, _compose_command,
+                           _private_json, _query, _recovery_pin_bytes, _release_env_text, _step, require_no_open_swap)
 
 DESCRIPTION = "Comando restrito de deploy do Duora na VPS (spec 15.5 e 17.3)."
 IMAGE_NAMES = ("web", "worker", "edge", "migrator", "postgres")
 SUPPORTED_ARCHITECTURES = ("amd64", "arm64")
 MANIFEST_SCHEMA_VERSION = 1
 MAX_MANIFEST_BYTES = 64 * 1024
-RELEASES_DIR = "releases"
-STAGING_DIR = "staging"
 GIB = 1024**3
 READINESS_INTERVAL_SECONDS = 2
 DEFAULT_READINESS_TIMEOUT_SECONDS = 90
-# Teto de qualquer comando (o migrador é o mais longo); estourou, o deploy para.
-COMMAND_TIMEOUT_SECONDS = 15 * 60
 
 # Primeira migration com o bootstrap administrativo e o bloqueio do reset por e-mail antes do MFA (I5). Uma release
 # anterior a ela deixaria conta privilegiada sem MFA ser tomada pelo reset; o rollback que a cruza só segue sem
@@ -78,10 +77,6 @@ _MANIFEST_FIELDS = {
     "schemaVersion", "releaseId", "commit", "createdAt", "architecture", "images", "contractVersion",
     "schema", "migrations", "sbom", "gates", "previousReleaseId",
 }
-
-
-class DeployError(Exception):
-    """Falha que interrompe o deploy com mensagem acionável para o operador."""
 
 
 @dataclass(frozen=True)
@@ -133,19 +128,12 @@ class Paths:
     host_env: Path
     state_dir: Path
     backup_command: Path = Path("/usr/local/sbin/duora-backup")
+    ingress: Path = Path("/var/lib/coolify-release")
 
 
 class Runner(Protocol):
     def __call__(self, command: list[str], *, capture: bool = False,
                  input_text: str | None = None) -> subprocess.CompletedProcess[str]: ...
-
-
-def _private_json(path: Path) -> dict:
-    info = path.lstat()
-    if (not stat.S_ISREG(info.st_mode) or info.st_uid != os.geteuid() or info.st_mode & 0o077
-            or info.st_size > 256 * 1024):
-        raise DeployError("Runtime baseline must be an owned private regular file")
-    return _guard.decode_json(path.read_bytes())
 
 
 def runtime_inventory(release: Release, paths: Paths) -> dict:
@@ -156,8 +144,12 @@ def runtime_inventory(release: Release, paths: Paths) -> dict:
     runtime_env = paths.state_dir / RELEASES_DIR / (current + ".env")
     if not runtime_env.is_file():
         raise DeployError("Missing current runtime environment; refusing implicit repair")
+    return _collect_runtime(release, runtime_env, paths)
+
+
+def _collect_runtime(release: Release, environment: Path, paths: Paths) -> dict:
     try:
-        return _guard.collect_runtime(_compose_command(paths, runtime_env),
+        return _guard.collect_runtime(_compose_command(paths, environment),
             postgres_reference=release.images["postgres"],
             compose_sha256=hashlib.sha256(paths.compose_file.read_bytes()).hexdigest(),
             host_id_sha256=hashlib.sha256(Path("/etc/machine-id").read_bytes()).hexdigest(),
@@ -171,6 +163,7 @@ def runtime_recheck(release: Release, paths: Paths) -> dict:
     try:
         if (paths.state_dir / "executor-install-pending.json").exists():
             raise DeployError("Interrupted executor activation requires explicit own-attempt recovery")
+        require_no_open_swap(paths)
         inventory = runtime_inventory(release, paths)
         _guard.require_preserved(_private_json(paths.state_dir / _guard.BASELINE_NAME), inventory["profile"])
         return inventory
@@ -632,24 +625,13 @@ def _canonical(manifest: dict) -> str:
     return json.dumps(manifest, sort_keys=True, separators=(",", ":"))
 
 
-def _compose_command(paths: Paths, release_env: Path) -> list[str]:
-    return [
-        "docker", "compose",
-        "--file", str(paths.compose_file),
-        "--env-file", str(paths.host_env),
-        "--env-file", str(release_env),
-    ]
-
-
 def _stage_release_files(release: Release, state_dir: Path) -> Path:
     # Em subdiretório: um releaseId "current" ou "previous" nunca colide com o estado na raiz. staging/ é rascunho:
     # nada nele decide elegibilidade.
     releases = state_dir / STAGING_DIR
     releases.mkdir(parents=True, exist_ok=True)
-    lines = [f"DUORA_{name.upper()}_IMAGE={reference}" for name, reference in release.images.items()]
-    lines.append(f"DUORA_RELEASE_ID={release.release_id}")
     release_env = releases / f"{release.release_id}.env"
-    release_env.write_text("\n".join(lines) + "\n", encoding="utf-8")
+    release_env.write_text(_release_env_text(release), encoding="utf-8")
     (releases / f"{release.release_id}.json").write_text(
         json.dumps(release.raw, indent=2, sort_keys=True) + "\n", encoding="utf-8")
     return release_env
@@ -683,15 +665,6 @@ def _read_migration_head(compose: list[str], run: Runner) -> str:
     if exists != "t":
         return ""
     return _query(compose, run, 'select coalesce(max("MigrationId"), \'\') from ops.__ef_migrations_history')
-
-
-def _query(compose: list[str], run: Runner, sql: str, what: str = "leitura do histórico de migrations") -> str:
-    result = _check(
-        run(compose + ["exec", "--no-TTY", "postgres", "psql", "--no-psqlrc", "--quiet", "--tuples-only",
-                       "--no-align", "--username", "postgres", "--dbname", "duora", "--command", sql],
-            capture=True),
-        what)
-    return result.stdout.strip()
 
 
 def _wait_ready(compose: list[str], run: Runner, timeout_seconds: int, sleep: Callable[[float], None]) -> None:
@@ -740,15 +713,6 @@ def _mark_current(release: Release, state_dir: Path) -> None:
     temporary = state_dir / "current.json.tmp"
     temporary.write_text(json.dumps(record, indent=2) + "\n", encoding="utf-8")
     temporary.replace(current)
-
-
-def _check(result: subprocess.CompletedProcess[str], what: str) -> subprocess.CompletedProcess[str]:
-    if result.returncode != 0:
-        # Comando não capturado (inclusive o duora-backup) já escreveu stdout e stderr no terminal do operador.
-        # Capturado (inspect, psql, ps), o erro vem do Docker ou do psql; nenhum deles imprime segredo.
-        detail = "\n".join((result.stderr or "").strip().splitlines()[-5:]) or "veja a saída acima"
-        raise DeployError(f"{what} falhou (código {result.returncode}): {detail}")
-    return result
 
 
 # Current-v2 recovery is a separate, deliberately finite qualification. A migration head is not an ACL witness.
@@ -1253,11 +1217,6 @@ def _recovery_catalog_acl_witness(compose: list[str], run: Runner, catalog: list
         _recovery_acl_witness(compose, run)
     else:
         raise DeployError("Unknown recovery catalog cannot select an ACL witness")
-
-
-def _recovery_pin_bytes(pin: dict) -> bytes:
-    # Same insertion-order-preserving representation as the existing receiver's atomic_json, never sorted keys.
-    return (json.dumps(pin, indent=2, allow_nan=False) + "\n").encode()
 
 
 def make_recovery_control_baseline(current: Release, pin_raw: bytes, *, bindings: dict,
@@ -3038,10 +2997,6 @@ def _recovery_control_phases(store: RecoveryStore, attempt: dict, context: dict,
         "releaseId": current.release_id, "commit": current.commit}
 
 
-def _step(message: str) -> None:
-    print(f"[duora-deploy] {message}", flush=True)
-
-
 def run_command(command: list[str], *, capture: bool = False,
                 input_text: str | None = None) -> subprocess.CompletedProcess[str]:
     # Só se captura o que o deploy lê (arquitetura, migration, estado). O resto, inclusive a saída do migrador,
@@ -3056,6 +3011,32 @@ def run_command(command: list[str], *, capture: bool = False,
                               timeout=COMMAND_TIMEOUT_SECONDS, env=environment, input=input_text)
     except subprocess.TimeoutExpired as error:
         raise DeployError(f"comando excedeu {COMMAND_TIMEOUT_SECONDS} s: {' '.join(command[:6])} ...") from error
+
+
+# --- Ligação da troca do PostgreSQL com o host (protocolo em postgres_swap.py) --------------------------------------
+
+def _swap_require_ingress_idle(application_uuid: str) -> None:
+    receiver = _recovery_verified_receiver()
+    receiver.require_host_idle()
+    receiver.require_idle(application_uuid)
+
+
+def _swap_executor_identity(paths: Paths) -> dict:
+    """A isenção do instalador compara este commit: a ressela não pode virar troca de código."""
+    receipt = _guard.decode_json(_recovery_root_read(paths.state_dir / "executor-install-receipt.json"))
+    own = hashlib.sha256(Path(__file__).resolve().read_bytes()).hexdigest()
+    sidecar = hashlib.sha256(Path(str(_swap.__file__)).resolve().read_bytes()).hexdigest()
+    if (receipt.get("status") != "installed" or receipt.get("executorSha256") != own
+            or receipt.get("files", {}).get("postgres_swap.py", {}).get("sha256") != sidecar):
+        raise DeployError("Executor em execução não é o instalado pelo recibo")
+    return {name: receipt[name] for name in ("sourceCommit", "manifestSha256", "executorSha256")}
+
+
+def _production_swap_host(image_prefix: str, paths: Paths, check_host: Callable[[], None]) -> _swap.SwapHost:
+    return _swap.SwapHost(sys.modules[__name__], image_prefix, _recovery_root_read,
+                          lambda release, environment: _collect_runtime(release, environment, paths),
+                          _swap_require_ingress_idle, lambda: _swap_executor_identity(paths), _swap.list_processes,
+                          lambda: datetime.now(timezone.utc), preflight=check_host)
 
 
 # --- CLI ------------------------------------------------------------------------------------------------------------
@@ -3110,6 +3091,18 @@ def recovery_administrative_locks(paths: Paths, *, ingress: Path = Path("/var/li
         except OSError as error:
             raise DeployError("Administrative release window is busy, missing or unsafe; no lock was created") from error
 
+def _swap_arguments_error(args: argparse.Namespace, mode: str | None) -> str | None:
+    if mode != "swap":
+        used = args.target_postgres or args.reviewed_plan_sha256 or args.resume or args.abort
+        return "--target-postgres, --reviewed-plan-sha256, --resume e --abort exigem --swap-postgres-component" if used else None
+    if not args.target_postgres: return "--swap-postgres-component exige --target-postgres"
+    if sum((args.preflight_only, args.resume, args.abort, args.reviewed_plan_sha256 is not None)) != 1:
+        return "use exatamente um entre --preflight-only, --reviewed-plan-sha256, --resume e --abort"
+    if args.reviewed_plan_sha256 and re.fullmatch(r"[a-f0-9]{64}", args.reviewed_plan_sha256) is None:
+        return "--reviewed-plan-sha256 exige um hash sha256"
+    return None
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(prog="duora-deploy", description=DESCRIPTION)
     parser.add_argument("--manifest", required=True, help="caminho do manifesto, ou - para ler do stdin")
@@ -3126,16 +3119,25 @@ def main(argv: list[str] | None = None) -> int:
     administrative.add_argument("--recover-current-v2", action="store_true")
     administrative.add_argument("--finish-current-v2-forward", action="store_true")
     administrative.add_argument("--complete-current-v2-recovery-control", action="store_true")
+    administrative.add_argument("--swap-postgres-component", action="store_true",
+                                help="troca o digest do PostgreSQL; sem --preflight-only exige o hash do plano revisado")
     parser.add_argument("--reviewed-control-sha256", help="hash da projeção administrativa de controle já revisada")
+    parser.add_argument("--target-postgres", help="referência por digest do componente alvo")
+    parser.add_argument("--reviewed-plan-sha256", help="planSha256 impresso pelo --preflight-only e já revisado")
+    parser.add_argument("--resume", action="store_true", help="continua a troca aberta depois de interrupção ou ressela")
+    parser.add_argument("--abort", action="store_true", help="desfaz a troca aberta antes do commit")
     args = parser.parse_args(argv)
     mode = ("enroll" if args.enroll_current_v2_recovery_control else "recover" if args.recover_current_v2
             else "finish-forward" if args.finish_current_v2_forward
-            else "complete-control" if args.complete_current_v2_recovery_control else None)
+            else "complete-control" if args.complete_current_v2_recovery_control
+            else "swap" if args.swap_postgres_component else None)
     if mode and (args.accept_missing_backup_check or args.inventory_only):
         parser.error("recuperação administrativa não aceita bypass de backup nem inventory-only")
     if args.reviewed_control_sha256 and (mode != "enroll" or args.preflight_only
             or re.fullmatch(r"[a-f0-9]{64}", args.reviewed_control_sha256) is None):
         parser.error("reviewed-control-sha256 exige enrollment explícito com hash exato, fora do modo somente leitura")
+    swap_error = _swap_arguments_error(args, mode)
+    if swap_error: parser.error(swap_error)
 
     try:
         if mode: _require_recovery_administrator()
@@ -3149,7 +3151,16 @@ def main(argv: list[str] | None = None) -> int:
         with lock as lease:
             host = parse_host_config(args.host_env.read_text(encoding="utf-8"))
             release = parse_manifest(read_manifest(args.manifest), image_prefix=host.image_prefix)
-            preflight(release, host)
+            # --resume e --abort não dependem de folga em disco: recuperar não pode travar pela mesma causa da falha.
+            if not (args.resume or args.abort): preflight(release, host)
+            if mode == "swap":
+                action = ("resume" if args.resume else "abort" if args.abort
+                          else "plan" if args.preflight_only else "apply")
+                result = _swap.postgres_swap_entry(release, args.target_postgres, paths, _swap.run_in_own_group, action=action,
+                    reviewed_plan_sha256=args.reviewed_plan_sha256, lease=lease,
+                    host=_production_swap_host(host.image_prefix, paths, lambda: preflight(release, host)))
+                print(json.dumps(result, sort_keys=True))
+                return 0
             if mode:
                 result = recovery_administrative_entry(release, paths, run_command, mode=mode,
                     readonly=args.preflight_only, reviewed_sha256=args.reviewed_control_sha256, lease=lease)

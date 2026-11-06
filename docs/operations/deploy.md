@@ -204,7 +204,8 @@ solta o lock se o processo morrer).
    só vão para `releases/` depois do smoke (passo 10).
 4. `pull` de todas as imagens por digest e conferência da arquitetura de cada uma.
 5. Preserva o PostgreSQL e o `backup` (repository host do pgBackRest), sem criá-los nem reiniciá-los: eles já precisam
-   estar saudáveis e no digest da release, ou o `runtime_preflight` recusa antes de qualquer mutação. Depois
+   estar saudáveis e no digest da release, ou o `runtime_preflight` recusa antes de qualquer mutação. Release nenhuma
+   troca esse digest: isso é a [operação administrativa](#troca-do-digest-do-postgresql). Depois
    roda `/usr/local/sbin/duora-backup verify`: filtro de saída do `backup` no iptables, bucket com versionamento +
    Object Lock (ADR-0023), `pgbackrest check` (o segmento atual chega ao repositório),
    `pgbackrest info` sem erro, último WAL confirmado há no máximo 300 s (RPO), arquivamento sem falha pendente e
@@ -420,6 +421,134 @@ para a anterior não tem restrição por esse campo.
 | Migrador | Web anterior no ar, **worker parado** | A saída do migrador está na própria sessão do `duora-deploy` (o `run --rm` apaga o container e os logs junto); corrigir e repetir, ou religar o worker anterior com o env da release corrente |
 | Readiness ou serviço fora de `running` | Release nova no ar, `current.json` ainda aponta a anterior | Logs do web/edge; rollback se o schema permitir |
 | Web recusa o boot sem marcador (`Media:Storage:FileSystemRoot em Production ...` no log) | Migrations aplicadas, web em restart. O worker não confere o marcador: só falha ao subir se a origem do bind mount (`$DUORA_MEDIA_DIR/quarantine` ou `derivatives`) não existir no host | O preflight conferiu os marcadores, então a área sumiu ou foi desmontada depois dele, ou o Compose instalado monta outro caminho que o `DUORA_MEDIA_DIR` do `duora.env`. Reaplicar `app_dirs`, conferir `docker compose ... config` e repetir o deploy; rollback não resolve, porque o Compose é o mesmo |
+
+### Troca do digest do PostgreSQL
+
+Release nenhuma troca o `duora-postgres`: o `runtime_preflight` exige container, imagem e Compose no digest da release
+entrante, e um lock novo antes da hora é recusado, com o `pending` global travando **todos** os projetos do host. Trocar
+o digest é a operação administrativa abaixo, com root direto e os três locks. Ela grava uma release sintética R' (cópia
+da corrente R com `images.postgres`, `sbom.postgres`, `gates`, `createdAt`, `releaseId` novos e `previousReleaseId=R`) e
+guarda a proveniência no journal. Não saiu do pipeline: `gates.runUrl` e `sbom.postgres` têm o prefixo
+`postgres-component-swap:<swapId>`, e o id da troca é o nome do journal arquivado.
+
+Só serve para mesma major, catálogo, pgBackRest e colação, recusados antes de parar qualquer serviço. Upgrade de major
+não passa por aqui.
+
+**Antes da janela.** Decisão do dono, janela e freeze dos três projetos (a fence recusa StillOn e GoblinShift até a
+ressela), executor com esta operação instalado pelo caminho normal, artefato de qualificação desse executor ainda válido
+(a ressela consulta o GitHub) e, se o lock for junto, a ordem abaixo. Aviso de indisponibilidade: os monitores vão acusar
+a janela e nenhum é alterado.
+
+**Janela.** Entre 07:00 e 21:00 UTC; quarta e quinta só depois das 08:00. O comando recusa fora disso, para não cruzar
+backups, `verify-repo` nem o prune diário. Plano e apply na mesma janela: o prune remove imagem sem container.
+
+**Ordem com o lock na main.** Freeze, revisor obrigatório no environment `production`, merge só do lock (`gh pr merge
+--merge --match-head-commit`), CI e `images` verdes, troca, ressela, aprovar a primeira release com o lock novo (R''),
+`healthy`, remover o revisor, fim do freeze. Se a troca abortar com o lock já na main, toda release recusa: nova janela
+em até 7 dias; passado isso, PR de reversão do lock.
+
+Rode tudo pelo `systemd-run`: queda de SSH não pode matar o comando no meio. Filhos ficam em grupo próprio, com
+`PDEATHSIG`. A saída vai para o journal do systemd.
+
+```bash
+R=/opt/duora/releases/<releaseId corrente>.json
+ALVO=ghcr.io/bipoxdxd/duora-postgres@sha256:<digest qualificado>
+troca() { systemd-run --unit=duora-postgres-swap --collect --service-type=exec \
+  /usr/local/sbin/duora-deploy --manifest "$R" --swap-postgres-component --target-postgres "$ALVO" "$@"
+  journalctl -u duora-postgres-swap -f; }
+
+troca --preflight-only                            # imprime planSha256 e o plano; revise, nada para
+troca --reviewed-plan-sha256 <planSha256>         # para em awaiting-reseal, com o tráfego aberto
+```
+
+Rode como root, em shell próprio. O comando não existe no sudoers do executor de deploy e recusa o `SSH_ORIGINAL_COMMAND`
+do envio. `Ctrl-C` no `journalctl` só para de seguir o log; a unit continua.
+
+| Passo | Fase no journal | O que acontece | Falhou aqui |
+|---|---|---|---|
+| 0 | | Pull por digest do alvo e do corrente; pré-condições; plano | Nada mudou |
+| 1 | `journaled` | Compara o plano; journal; fence; containers `duora-postgres-swap-hold-*` seguram as duas imagens contra o prune | `--abort`, nada parado |
+| 2 | `verify-backup` | `duora-backup verify` | `--abort`, nada parado |
+| 3 | `quiesce` | Para worker e web, edge fica. Quiescência, foto do banco, `pgbackrest check` | `--abort` religa a aplicação |
+| 4 | `swap-runtime` | Para `postgres` e depois `backup`; sobe `backup` e depois `postgres` com o env de R'. Nunca `down` nem `-v` | `--abort` recria o digest antigo |
+| 5 | `verify-runtime` | Digest alvo, foto igual, mesmo volume, host e Compose; `verify` | Idem. Falha só do repositório externo não é falha do banco: decida entre `--resume` e `--abort` |
+| 6 | `reopen` | Sobe web, worker e edge; smoke | `--abort` |
+| 7 | `commit` | Manifesto, registro de R', pin, `previous.json` e, por último, `current.json`, cada um com temp + fsync + rename | Antes do rename de `current.json`: `--resume` ou `--abort`. Depois: só `--resume` |
+| 8 | `awaiting-reseal` | Espera a ressela; `verify-repo`; arquiva o journal e remove a fence | `--resume` |
+
+Pré-condições, todas recusadas antes de parar serviço: root e locks, sem `pending`, Coolify ocioso, sem journal aberto,
+corrente v2 em `amd64`, digest igual ao selado, alvo diferente e do mesmo repositório, imagem antiga local e no GHCR,
+Compose interpolando a imagem, labels, `postgres --version`, `pgbackrest version`, `pg_control_system()` e a versão da
+colação conferidos num `initdb` descartável do alvo sem rede, `verify`, `verify-repo` e espaço em disco.
+
+Nada reverte sozinho. Com journal ou fence, nenhuma release age, e um reboot não retoma: só comando explícito.
+`verify-repo` toma o `.deploy.lock` em outro processo, então a troca solta só esse lock em volta dele, com teto próprio de
+45 min; os locks de host e projeto ficam presos, e nenhuma release entra na brecha.
+
+```bash
+troca --resume    # continua da fase gravada
+troca --abort     # desfaz até o rename de current.json
+```
+
+Os dois recusam enquanto houver processo compose vivo do projeto ou mais de um container `postgres` ou `backup`, mesmo
+parado: um cliente órfão recriando o serviço enquanto você age põe dois containers sobre `duora_pgdata`. Espere terminar
+ou resolva à mão antes de repetir, e confira `docker ps --all`. O detector lê `/proc`: linha de comando, `cwd` e
+`COMPOSE_PROJECT_NAME`/`COMPOSE_FILE`. Ele não vê cliente em outro namespace de PID, cliente remoto nem chamada direta à
+API do Docker; a contagem de containers cobre o efeito, não a intenção.
+
+`--resume` antes do passo 4 ainda não parou o banco, então segue as regras de começar: exige a janela e o espaço em disco.
+Do passo 4 em diante, e em todo `--abort`, nenhuma das duas barra a recuperação.
+
+**Ressela.** Com a fase em `awaiting-reseal`, o baseline ainda descreve os containers antigos. Use o procedimento da
+ressela da [selfie](#selfie-de-presença-no-coolify-93): inspeção, revisão e `--apply`. No `profile` só podem mudar
+`services.*` e `configHashes`; host, Docker, volume e `composeSha256` iguais. O instalador só isenta a fence da troca
+nas fases `awaiting-reseal` e `aborted-awaiting-reseal`, com o hash do journal conferido e o `sourceCommit` igual ao do
+executor ativo. Com journal aberto sem fence, ou numa transição de coorte do receiver, o instalador recusa. Depois feche
+com `troca --resume`, que recusa com instalação pendente, confere o baseline contra o runtime, roda `verify-repo`, arquiva
+o journal em `/var/lib/duora/postgres-swap-history/<swapId>/` e remove a fence. Só então uma release volta a andar.
+
+**Abort.** Dos passos 1 a 3 fecha sozinho, salvo se um reboot ou OOM mudou o `startedAt`: aí o banco não é tocado e o
+abort termina em `aborted-awaiting-reseal`. A partir do passo 4 ele recria o digest antigo, compara a foto e reabre a
+aplicação, mas termina em `aborted-awaiting-reseal`, com a fence mantida: basta o `stop` para mudar o `startedAt` selado,
+e sem ressela a próxima release seria recusada e travaria o host. Sele contra R e feche com `troca --resume`, que também
+roda `verify`. Abort interrompido só continua com `--abort`. No passo 6 a aplicação pode ter escrito; o abort preserva
+essas escritas no mesmo volume.
+
+**Depois do commit.** Falhou depois de reabrir: troca reversa pelo mesmo comando, com a R' como `--manifest` e o digest
+antigo como alvo. Ela gera outra release e exige reverter o lock na main; fora do envelope de compatibilidade, conserto
+para frente ou restore, por decisão do dono. R''→R' é rollback normal. R'→R segue recusado de propósito, porque R fixa o
+digest antigo.
+
+**O que a CI prova a cada PR.** `continuity_lab.py`, no job `images`, termina cada rodada trocando pelo comando real
+para um digest diferente do que está rodando, escolhido em `scripts/deploy/fixtures/postgres-swap-target.json`: sentinela,
+troca, ressela real pelo instalador, forward, rollback, lock antigo recusado e troca reversa. `restore_drill.py` faz backup
+no digest do lock, troca, escritas e PITR com o digest novo, com `verify-repo` sem lacuna; no Actions essa etapa não pode
+ser pulada. Com o lock já no alvo, o drill troca de volta para a origem da fixture, e falha se ela não tiver digest
+diferente. O lab não acompanha o lock: ele sai sempre do digest legado de `runtime_guard.py` para o alvo da fixture, então
+o PITR no sentido contrário só o drill cobre.
+
+**O que é prova manual, fora de qualquer gate.** `postgres_swap_bench.py --mode matrix` e `--mode unhealthy` não rodam em
+workflow nenhum. Última execução em arm64, em `docker:dind` isolado com o marcador de host descartável, sobre
+`feat/postgres-swap-lab`: `matrix` em 06/11/2026, commit `df2e343f`, 18 de 18; `unhealthy` em 06/11/2026, commit `5ac88df1`,
+exit 0, com o `--abort` de volta ao digest antigo e deploy seguinte aceito:
+
+```bash
+hostname > /etc/duora-swap-disposable-host   # só num host que existe para isso
+python3 scripts/deploy/postgres_swap_bench.py --mode unhealthy
+python3 scripts/deploy/postgres_swap_bench.py --mode matrix      # 40 min
+```
+
+A matriz mata o comando com SIGKILL em 18 pontos, com filho vivo: as 7 fases até o commit, cada uma resolvida por `--resume`
+e por `--abort`, mais `awaiting-reseal`, `closing`, `aborted-awaiting-reseal` e `aborting`. Os três de fechamento morrem
+dentro de `_swap_close` e `_swap_finish`. Cada desfecho só passa com um deploy real seguinte aceito e nada pendente. A
+bancada assume os caminhos fixos de produção: fora de runner hospedado ou de host com o marcador, ela recusa sem criar nem
+remover nada. `--mode cleanup` remove o que uma execução morta reivindicou. A imagem do runner hospedado traz `/opt` em
+0777, que o leitor protegido do executor recusa: a bancada tira a escrita de grupo e de outros dos ancestrais só durante a
+prova, restaura no fim e, antes da primeira troca, confere cada caminho com o próprio leitor, nomeando o que falhar.
+
+Em banco pequeno, sem Coolify real, a queda medida foi de 6 a 7 s no banco e cerca de 14 s na aplicação; `--abort` soma
+outro tanto. Tempo com volume real só no sombra. Continuam sem prova até a janela: observer e Coolify reais, B2, GHCR a
+partir da VPS, cron de prune e `docker load` do receiver sobre imagem já puxada.
 
 ### Primeira configuração do host
 
