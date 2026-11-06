@@ -1,5 +1,6 @@
 using System.Collections.Concurrent;
 using DotNet.Testcontainers.Configurations;
+using DotNet.Testcontainers.Containers;
 using DotNet.Testcontainers.Networks;
 using Duora.Infrastructure.Persistence;
 using Microsoft.EntityFrameworkCore;
@@ -95,6 +96,10 @@ public sealed class PostgresFixture : IAsyncLifetime
     public string ConnectionString => ConnectAs("duora_app", _appPassword, DatabaseName);
 
     internal string ContainerId => _container.Id;
+
+    /// <summary>Comando dentro do container descartável do teste, como root; nunca alcança outro servidor.</summary>
+    internal Task<ExecResult> ExecuteInContainerAsync(IList<string> command, CancellationToken cancellationToken) =>
+        _container.ExecAsync(command, cancellationToken);
 
     /// <summary>Disposable test-only admin connection for scratch role membership regressions; never logged.</summary>
     internal string ScratchSuperuserConnectionString(ScratchDatabase database)

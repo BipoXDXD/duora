@@ -8,7 +8,7 @@ coletor C1 `scripts/deploy/capacity_inventory.py`. Este documento descreve a fer
 
 | Peça | Onde roda | Papel |
 |---|---|---|
-| `scripts/deploy/c2_shadow.py` | VPS, root | Sobe o projeto sombra `duora-c2`: a release corrente (digests do env da release), os limites e o hardening do `compose.prod.yml`, com segredos, banco, volumes, redes e repositório pgBackRest **sintéticos** (MinIO do drill). Semeia contas e eventos sintéticos, gera a fixture do restic e faz o restore do ensaio (RPO/RTO). |
+| `scripts/deploy/c2_shadow.py` | VPS, root | Sobe o projeto sombra `duora-c2`: a release corrente (digests do env da release), os limites e o hardening do `compose.prod.yml`, com segredos, banco, volumes, redes e repositório pgBackRest **sintéticos** (MinIO do drill). Semeia contas, eventos e tentativas de selfie sintéticas, gera a fixture do restic e faz o restore do ensaio (RPO/RTO e conferência de `identity.selfie_verifications`). |
 | `scripts/deploy/c2_probe.py` | VPS, por stdin via SSH | Sampler somente leitura a cada 5 s: CPU/steal/iowait, PSI, MemAvailable, swap, OOM, discos, uso de filesystem, CPU/throttling/memória/PSI/I/O de **todos** os containers (sombra e outros apps) e das slices indicadas, e do sombra o arquivamento de WAL, `ops.jobs` e outbox. Dois comandos exatos em allowlist; recusa o projeto `duora`. |
 | `scripts/deploy/c2_load.py` | Mac | Participantes sintéticos (uma thread e uma conexão keep-alive cada, cookies e CSRF como a SPA) pelo túnel SSH, com TLS verificado contra a raiz interna do Caddy do sombra. |
 | `scripts/deploy/c2_harness.py` | Mac | Executa as fases, dispara FULL e DIFF na VPS, avalia os guardas a cada segundo, aborta e grava evidência e relatório. |
@@ -130,7 +130,10 @@ Pior caso com todos os cortes: 70 + 80 + 20 + 6 + 3 = 179 min.
    não reduzir guardas.
 7. **Restore do ensaio** (VPS): `sudo python3 scripts/deploy/c2_shadow.py restore-rehearsal --no-final-full`
    (marcadores por 90 s, `docker kill` do postgres sombra, volume apagado, restore até o fim do WAL, web/worker de
-   pé). No Mac: `python3 scripts/deploy/c2_harness.py restore-objectives` com os quatro instantes de
+   pé). O comando confere `identity.selfie_verifications` antes da perda e depois da promoção, com web e worker
+   parados: as 8 tentativas de `scripts/deploy/c2/selfie-restore-seed.sql` campo a campo, com a conta de cada uma,
+   FK, constraints e índices, e o total da tabela igual ao de antes (`selfie_rows` no JSON). Diferença termina em
+   erro, sem subir web e worker e sem gravar o JSON. Nesse caso, ir para o passo 9 e reportar. No Mac: `python3 scripts/deploy/c2_harness.py restore-objectives` com os quatro instantes de
    `/var/lib/duora-c2/state/restore-rehearsal.json` (RPO ≤ 300 s, RTO ≤ 7.200 s).
 8. **C1 depois** (Mac): `c2run/c1-after.json`, para comparar MemAvailable, containers e limites com o passo 1.
 9. **Derrubar o sombra** (VPS): `sudo python3 scripts/deploy/c2_shadow.py down` (só volumes e diretório
