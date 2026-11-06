@@ -117,8 +117,28 @@ Repetir o procedimento com o arquivo já ligado gera os mesmos bytes e o mesmo h
 
 **Caddyfile.** O edge de produção monta `/opt/duora/Caddyfile.duora-web.coolify` (fixado por `caddy_sha256` no pin),
 não o Caddyfile da imagem: o CSP de `/account/selfie` só chega aplicando ao arquivo do host o mesmo diff do
-`infra/caddy/Caddyfile` (o arquivo do host difere só no TLS atrás do Traefik e nos `trusted_proxies`), validando com
-`caddy validate` e atualizando `caddy_sha256`. O Caddyfile não entra no baseline do executor.
+`infra/caddy/Caddyfile` (as diferenças do arquivo do host estão abaixo), validando com `caddy validate` e atualizando
+`caddy_sha256`. O Caddyfile não entra no baseline do executor.
+
+O arquivo do host difere do `infra/caddy/Caddyfile` em quatro pontos (estado atual, segundo o pacote da Fase 4 opção B;
+o arquivo da VPS não foi relido ao escrever este trecho):
+
+- **TLS:** o site é `http://{$DUORA_DOMAIN}` e não tem `tls`, porque o Traefik termina o TLS.
+- **Proxy confiável:** o bloco global tem `servers { trusted_proxies static 172.16.1.6` e `trusted_proxies_strict }`.
+- **`header_up X-Forwarded-For {client_ip}`** em cada `reverse_proxy` (`/api/*`, `/webhooks/*`, `/hubs/*`). Sem essa
+  linha o IP real não chega ao web: no teste do PR #377 (ainda aberto) ele recebeu a cadeia de `X-Forwarded-For` como
+  veio, com o peer no fim, e com `ForwardLimit=1` o web enxerga o peer. `client_ip_headers` sozinho não substitui esse
+  `header_up` (controle `ForwardedForRewriteControlTests`).
+- **`header_up X-Forwarded-Proto https`** nos mesmos três `reverse_proxy`.
+
+Ao copiar o diff do repositório para o arquivo do host, preserve essas quatro diferenças; o `infra/caddy/Caddyfile` não
+tem nenhuma delas.
+
+**Previsto, Fase 4 opção B (ainda não aplicada):** acrescenta `client_ip_headers Cf-Connecting-IP` ao bloco `servers`,
+entre `trusted_proxies` e `trusted_proxies_strict`. É a única linha que a Fase 4 muda no arquivo do host
+(`Caddyfile.diff` do pacote). Enquanto a fase não for aplicada, o arquivo do host não tem essa linha. A cadeia de IP
+com ela está provada em teste no PR #377 (ainda aberto); a `ipAllowList` do Traefik e o comportamento da Cloudflare
+não, e a opção B depende deles.
 
 **Ressela.** O baseline do executor (`/var/lib/duora/executor-runtime-baseline.json`) fixa o hash do Compose
 (`context.composeSha256`). Sem selar de novo, o `duora-deploy` recusa a release com "Database/backup runtime changed".
