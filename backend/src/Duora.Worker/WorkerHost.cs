@@ -13,10 +13,15 @@ namespace Duora.Worker;
 /// <summary>Composition root do worker, separado do Program para os testes subirem o mesmo host.</summary>
 internal static class WorkerHost
 {
+    // Abaixo dos 30 s do stop_grace_period do worker no Compose: o padrão do HostOptions também é 30 s, e com prazos
+    // iguais o SIGKILL chega no instante em que o host desiste de esperar, sem margem para ele encerrar sozinho.
+    private const int ShutdownTimeoutSeconds = 25;
+
     public static HostApplicationBuilder CreateBuilder(string[] args)
     {
         var builder = Host.CreateApplicationBuilder(args);
         builder.Configuration.AddSecretFiles();
+        builder.Services.Configure<HostOptions>(options => options.ShutdownTimeout = TimeSpan.FromSeconds(ShutdownTimeoutSeconds));
 
         builder.ConfigureContainer(new DefaultServiceProviderFactory(new ServiceProviderOptions
         {
