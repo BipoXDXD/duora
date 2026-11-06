@@ -56,6 +56,8 @@ células como parciais; a `main` atual já as cobre. A revisão humana dessa aut
    que o que não está nele continua valendo. O próprio `model.md:309-310` ainda diz que `age_band` "não existe: a
    origem da faixa [...] está por decidir". O que existe por conta é a declaração "Declaro ter 18 anos ou mais", gravada
    no aceite dos Termos `2026-10-29`; ela é igual para todos e não é dado por pessoa.
+   **Nota de 06/11/2026:** este conflito foi resolvido no texto, a favor das decisões (ver a nota da D3). O conflito 1
+   continua: a linha 950 da spec segue sem foto.
 3. **Texto da política de privacidade.** A versão `2026-10-25` diz que outra pessoa recebe "somente a projeção
    autorizada" e que "fotografias ... possuem etapas próprias"; não diz que a foto aprovada será mostrada à pessoa
    pareada. A decisão P4 de 29/10/2026 manteve o texto, e o aceite da política pelo titular segue aberto
@@ -164,6 +166,15 @@ requisição; a matriz de testes da seção Compliance cobre o que a requisiçã
 Hoje não há dado: `age_band` só existe em docs (`model.md:309-310`: "ainda não existe"), e as decisões registradas
 são não coletar data de nascimento, idade nem faixa (conflito 2).
 
+**Nota de 06/11/2026 (alinhamento de texto, sem decisão nova).** O dono mandou alinhar os docs às decisões já
+registradas (24/10, item 3; 29/10, item 1, "Nada de idade"; ADR-0029; `data-map.md`, lacuna 3), sem reabri-las. A
+faixa etária saiu de `spec.md` (linhas 38 e 950), `scope.md` (linhas 21 e 151) e `screens.md` (linha 151); em
+`model.md`, `age_band` saiu do diagrama, das colunas e das constraints, e D12 e "Implementado" foram atualizados.
+As citações a `model.md:309-310` e à redação antiga neste ADR são do `ebfec33d`. Efeitos nesta D3: o contra da
+opção A sobre a emenda e o custo principal da recomendação deixam de valer; a opção C agora também contradiz o
+texto da spec, além das decisões. O alinhamento não escolhe entre A e B, porque nenhuma decisão registrada trata
+do rótulo fixo "18+". Esta nota não decide D1, D2, D4 nem D5, e o status deste ADR continua `Proposed`.
+
 - **A. Sem faixa etária no P04.**
   - Prós: coerente com as decisões de 24/10 e 29/10 e com o ADR-0029; nenhum dado novo; nada que se pareça com
     verificação.
@@ -262,6 +273,8 @@ Estas lacunas vêm da leitura das fontes; não são requisitos que este ADR cria
 
 Nenhuma. Este ADR passa a `Accepted` num PR posterior que registre as escolhas do dono em D1 a D5 e, se D3 for A,
 emende a spec (linhas 38 e 950) e o `model.md` (`age_band`, D12) para refletir a decisão de 24/10 e 29/10.
+**Nota de 06/11/2026:** essa emenda já foi feita (ver a nota da D3) e não depende mais deste ADR. O `Accepted`
+continua exigindo as escolhas do dono.
 
 | ID | Pergunta | Recomendação (não decidida) |
 |---|---|---|
@@ -278,7 +291,7 @@ Se o dono adotar as recomendações:
 - **Positivas.** Ninguém vê foto antes de os dois aceitarem; nenhum dado pessoal novo; uma só regra de autorização
   para a projeção e para os bytes; a #173 mantém seu critério de fechamento.
 - **Negativas.** O aceite do convite é dado sem foto; a spec e o `model.md` ficam em desacordo com o código até a
-  emenda; o P04 não tem utilidade enquanto a D5 não for resolvida e o upload estiver desligado (#69).
+  emenda (**nota de 06/11/2026:** emenda feita, ver a D3); o P04 não tem utilidade enquanto a D5 não for resolvida e o upload estiver desligado (#69).
 - **Trade-off.** Menor exposição em troca de uma experiência menos "visual" antes do jogo.
 
 Se o dono escolher outra opção: A em D1 aumenta a superfície de exposição e de revogação; C em D1 deixa o P04 sem
