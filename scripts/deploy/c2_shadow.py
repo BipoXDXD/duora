@@ -472,17 +472,30 @@ SWAP_ARCHIVE_POLL_SECONDS = 2
 SWAP_MIN_AVAILABLE_MIB = 1024
 SWAP_MEMORY_FLOOR_MIB = 512
 SWAP_MAX_DISK_PERCENT = 85
-# PSI: memória e IO têm teto absoluto, porque em repouso a VPS fica em 0,00 e qualquer valor alto é disputa real.
-# O PSI de CPU global não mede dano à produção: no ensaio de 06/11 ele bateu 71,79 por causa de cgroups do OpenClaw presos
-# na própria cota, com CPU 91% ociosa, enquanto `duora-web-1` marcava 0,83 e o `ready` respondia em 10 ms. A decisão olha o
-# `cpu.pressure` de cada container fora do sombra, com o teto de OTHER_APPS_PSI (c2_harness.Limits.other_cpu_psi_max).
-# O global fica como rede de segurança, num teto alto: quem não é container (sshd, receiver, gateway, systemd) só aparece
-# nele, e 90 significa o host quase todo sem CPU. Abaixo disso, é só informação no JSON.
+# O guarda mede dano à produção, não atividade do host. PSI de memória e IO têm teto absoluto: em repouso a VPS fica em 0,00.
+# O PSI de CPU global não decide nada, só vai ao JSON: no ensaio de 06/11 ele bateu 71,79 por causa de cgroups do OpenClaw
+# presos na própria cota, com CPU 91% ociosa, e `duora-web-1` em 0,83. Medido localmente, um único cgroup preso levou o global
+# acima de 90 com o alvo em 0,00, e nenhum teto abaixo de 100 separa os dois casos.
+# Por isso, a falta real de CPU vem do delta de /proc/stat: idle + iowait abaixo de 10% significa host sem folga para ninguém,
+# inclusive para o que não é container (sshd, receiver, gateway). Cada container fora do sombra mantém o teto 40 do
+# OTHER_APPS_PSI, mas ele sozinho não basta: a revisão mediu p99 22 vezes maior num alvo leve com PSI do alvo em 22,54. Só a
+# sonda `ready` vê a latência que o usuário sente, com a regra do harness (health_latency_*, health_consecutive_failures).
+# A volta à origem não passa por este guarda, de propósito: parar no meio dela seria pior que terminar.
 SWAP_MAX_STALL_PRESSURE = 40.0
 SWAP_MAX_CONTAINER_CPU_PRESSURE = 40.0
-SWAP_MAX_HOST_CPU_PRESSURE = 90.0
+SWAP_MIN_CPU_IDLE_PERCENT = 10.0
 SWAP_PRODUCTION_CONTAINERS = ("duora-web-1", "duora-worker-1", "duora-postgres-1")
 SWAP_CONTAINER_ID = re.compile(r"[0-9a-f]{64}")
+SWAP_DOCKER_PS_TIMEOUT_SECONDS = 10
+# Mesma sonda de duora_deploy._wait_ready, no edge de produção: só leitura, e o web não passa pela borda pública.
+SWAP_READY_PROBE = ("docker", "exec", "duora-edge-1", "wget", "--quiet", "--spider", "--timeout=5",
+                    "http://duora-web:8080/health/ready")
+SWAP_READY_TIMEOUT_SECONDS = 15
+SWAP_READY_BASELINE_SAMPLES = 5
+SWAP_READY_FACTOR = 3.0
+SWAP_READY_FLOOR_MS = 500.0
+SWAP_READY_CONSECUTIVE = 2
+SWAP_ARCHIVE_GUARD_SECONDS = 10
 SWAP_LOOPBACK = ("127.0.0.1", "::1")
 SWAP_CONTAINERS = (f"{PROJECT}-postgres-1", f"{PROJECT}-backup-1")
 SWAP_FAILURES = (ShadowError, c2_probe.CommandRefused, subprocess.TimeoutExpired, OSError, ValueError, KeyError)
@@ -523,6 +536,20 @@ def _host_pressure(directory: Path = Path("/proc/pressure")) -> HostPressure:
     return HostPressure(cpu, memory, io)
 
 
+def _cpu_ticks(stat: Path = Path("/proc/stat")) -> tuple[int, int]:
+    """Acumulados desde o boot: (idle + iowait, total dos 8 campos); guest já está somado em user."""
+    fields = [int(value) for value in stat.read_text(encoding="utf-8").splitlines()[0].split()[1:1 + len(c2_probe.CPU_FIELDS)]]
+    return fields[c2_probe.CPU_FIELDS.index("idle")] + fields[c2_probe.CPU_FIELDS.index("iowait")], sum(fields)
+
+
+def _oom_kills(vmstat: Path = Path("/proc/vmstat")) -> int:
+    for line in vmstat.read_text(encoding="utf-8").splitlines():
+        name, value = line.split()
+        if name == "oom_kill":
+            return int(value)
+    raise ShadowError(f"oom_kill ausente em {vmstat}")
+
+
 def _container_cpu_pressure(identifier: str, root: Path = Path(c2_probe.CGROUP_ROOT)) -> float:
     """Só leitura. Mesmo caminho de c2_probe.Sampler: driver systemd, cgroup v2."""
     return _some_averages(root / "system.slice" / f"docker-{identifier}.scope" / "cpu.pressure")["avg10"]
@@ -533,11 +560,14 @@ class SwapResources:
     available_mib: Callable[[], int]
     pressure: Callable[[], HostPressure]
     container_pressure: Callable[[str], float]
+    cpu_ticks: Callable[[], tuple[int, int]]
+    oom_kills: Callable[[], int]
     disk_mib: Callable[[Path], tuple[int, int]]
     device: Callable[[Path], int]
 
 
-HOST_RESOURCES = SwapResources(_memory_available_mib, _host_pressure, _container_cpu_pressure, _disk_mib, _device)
+HOST_RESOURCES = SwapResources(_memory_available_mib, _host_pressure, _container_cpu_pressure, _cpu_ticks, _oom_kills, _disk_mib,
+                               _device)
 
 
 def _swap_write(path: Path, content: dict) -> None:
@@ -623,58 +653,128 @@ def _swap_require_running(run: Runner, image: str) -> None:
                           "depois de um ensaio morto, rode swap-abort")
 
 
-def _swap_container_pressures(run: Runner, resources: SwapResources) -> dict[str, float]:
-    """Todo container fora do sombra. Falha fechada: sem a leitura de um deles, não há como afirmar que ele vai bem."""
-    pressures: dict[str, float] = {}
-    for row in run(list(c2_probe.PS_COMMAND)).splitlines():
-        identifier, name, project = row.split("\t")
-        if project == PROJECT:
-            continue  # O próprio preenchimento pressiona o sombra de propósito.
-        if not SWAP_CONTAINER_ID.fullmatch(identifier):
-            raise ShadowError(f"cgroup de {name}: id de container fora do formato")
+def _swap_ready_ceiling_ms(baseline_ms: float) -> float:
+    return max(baseline_ms * SWAP_READY_FACTOR, baseline_ms + SWAP_READY_FLOOR_MS)
+
+
+class SwapGuard:
+    """Decide se o ensaio segue. Guarda o estado entre leituras e escreve em `evidence` os piores valores vistos."""
+
+    def __init__(self, resources: SwapResources, docker_root: Path, run: Runner, clock: Callable[[], float], evidence: dict) -> None:
+        self._resources = resources
+        self._docker_root = docker_root
+        self._run = run
+        self._clock = clock
+        self._evidence = evidence
+        self._required = set(SWAP_PRODUCTION_CONTAINERS)
+        self._bad_ready = 0
+        self._ticks = resources.cpu_ticks()
+        self._oom_kills = resources.oom_kills()
+        self._ready_ceiling_ms = 0.0
+
+    def freeze(self) -> None:
+        """Foto do início: quem está de pé agora tem de seguir de pé, e a sonda ganha sua linha de base."""
+        self._required |= self._container_pressures().keys()
         try:
-            pressures[name] = resources.container_pressure(identifier)
-        except (OSError, ValueError, KeyError, IndexError) as error:
-            raise ShadowError(f"cgroup de {name} ilegível, recuso seguir: {error!r}") from error
-    missing = sorted(set(SWAP_PRODUCTION_CONTAINERS) - pressures.keys())
-    if missing:
-        raise ShadowError(f"containers de produção sem leitura: {missing}")
-    return pressures
+            samples = sorted(self._ready_ms() for _ in range(SWAP_READY_BASELINE_SAMPLES))
+        except (ShadowError, subprocess.TimeoutExpired, OSError) as error:
+            raise ShadowError(f"ready falhou na linha de base: {error}") from error
+        baseline = samples[len(samples) // 2]
+        self._ready_ceiling_ms = _swap_ready_ceiling_ms(baseline)
+        self._evidence.update(readyBaselineMs=baseline, readyMaxMs=baseline)
+
+    def check(self, *, memory_mib: int = SWAP_MEMORY_FLOOR_MIB, disk_needed_mib: int = 0) -> None:
+        available = self._resources.available_mib()
+        if available < memory_mib:
+            raise ShadowError(f"memória disponível: {available} MiB, abaixo de {memory_mib} MiB")
+        total, free = self._resources.disk_mib(self._docker_root)
+        if (total - free + disk_needed_mib) * 100 >= total * SWAP_MAX_DISK_PERCENT:
+            raise ShadowError(f"disco de {self._docker_root} chegaria a {SWAP_MAX_DISK_PERCENT}% com mais {disk_needed_mib} MiB")
+        pressure = self._resources.pressure()
+        self._note_worst("hostCpuPressureMax", pressure.cpu)
+        if max(pressure.memory, pressure.io) > SWAP_MAX_STALL_PRESSURE:
+            raise ShadowError(f"PSI de memória {pressure.memory} ou IO {pressure.io} acima de {SWAP_MAX_STALL_PRESSURE}")
+        self._require_cpu_idle()
+        self._require_no_new_oom()
+        self._require_calm_containers()
+        self._require_ready()
+
+    def _require_cpu_idle(self) -> None:
+        ticks = self._resources.cpu_ticks()
+        idle, total = ticks[0] - self._ticks[0], ticks[1] - self._ticks[1]
+        self._ticks = ticks
+        if total <= 0:
+            return  # Duas leituras no mesmo tick: não há intervalo para medir.
+        percent = round(100.0 * idle / total, 1)
+        self._evidence["cpuIdleMinPercent"] = min(percent, self._evidence.get("cpuIdleMinPercent", percent))
+        if percent < SWAP_MIN_CPU_IDLE_PERCENT:
+            raise ShadowError(f"CPU com idle + iowait em {percent}%, abaixo de {SWAP_MIN_CPU_IDLE_PERCENT}%")
+
+    def _require_no_new_oom(self) -> None:
+        count = self._resources.oom_kills()
+        if count > self._oom_kills:
+            raise ShadowError(f"oom_kill subiu de {self._oom_kills} para {count}")
+
+    def _require_calm_containers(self) -> None:
+        name, worst = max(self._container_pressures().items(), key=lambda item: item[1])
+        self._note_worst("containerCpuPressureMax", worst)
+        if worst > SWAP_MAX_CONTAINER_CPU_PRESSURE:
+            raise ShadowError(f"PSI de CPU de {name} em {worst}, acima de {SWAP_MAX_CONTAINER_CPU_PRESSURE}")
+
+    def _container_pressures(self) -> dict[str, float]:
+        """Todo container fora do sombra. Falha fechada: sem a leitura de um deles, não há como afirmar que ele vai bem."""
+        pressures: dict[str, float] = {}
+        listing = self._run(list(c2_probe.PS_COMMAND), timeout=SWAP_DOCKER_PS_TIMEOUT_SECONDS)
+        for row in listing.splitlines():
+            identifier, name, project = row.split("\t")
+            if project == PROJECT:
+                continue  # O próprio preenchimento pressiona o sombra de propósito.
+            if not SWAP_CONTAINER_ID.fullmatch(identifier):
+                raise ShadowError(f"cgroup de {name}: id de container fora do formato")
+            try:
+                pressures[name] = self._resources.container_pressure(identifier)
+            except (OSError, ValueError, KeyError, IndexError) as error:
+                raise ShadowError(f"cgroup de {name} ilegível, recuso seguir: {error!r}") from error
+        missing = sorted(self._required - pressures.keys())
+        if missing:
+            raise ShadowError(f"containers sem leitura: {missing}")
+        return pressures
+
+    def _ready_ms(self) -> float:
+        started = self._clock()
+        self._run(list(SWAP_READY_PROBE), timeout=SWAP_READY_TIMEOUT_SECONDS)
+        return round((self._clock() - started) * 1000, 1)
+
+    def _require_ready(self) -> None:
+        try:
+            elapsed = self._ready_ms()
+        except (ShadowError, subprocess.TimeoutExpired, OSError) as error:
+            self._count_bad_ready(f"ready falhou: {error}")
+            return
+        self._note_worst("readyMaxMs", elapsed)
+        if elapsed > self._ready_ceiling_ms:
+            self._count_bad_ready(f"ready em {elapsed} ms, acima de {self._ready_ceiling_ms} ms")
+        else:
+            self._bad_ready = 0
+
+    def _count_bad_ready(self, reason: str) -> None:
+        self._bad_ready += 1
+        if self._bad_ready >= SWAP_READY_CONSECUTIVE:
+            raise ShadowError(f"{self._bad_ready} leituras ruins seguidas; {reason}")
+
+    def _note_worst(self, key: str, value: float) -> None:
+        self._evidence[key] = max(value, self._evidence.get(key, value))
 
 
-def _swap_require_resources(resources: SwapResources, path: Path, run: Runner, *, memory_mib: int,
-                            disk_needed_mib: int) -> dict[str, float]:
-    """Levanta se um limite foi passado; senão, devolve os PSI de CPU lidos, para o JSON."""
-    available = resources.available_mib()
-    if available < memory_mib:
-        raise ShadowError(f"memória disponível: {available} MiB, abaixo de {memory_mib} MiB")
-    total, free = resources.disk_mib(path)
-    if (total - free + disk_needed_mib) * 100 >= total * SWAP_MAX_DISK_PERCENT:
-        raise ShadowError(f"disco de {path} chegaria a {SWAP_MAX_DISK_PERCENT}% com mais {disk_needed_mib} MiB")
-    pressure = resources.pressure()
-    if max(pressure.memory, pressure.io) > SWAP_MAX_STALL_PRESSURE:
-        raise ShadowError(f"PSI de memória {pressure.memory} ou IO {pressure.io} acima de {SWAP_MAX_STALL_PRESSURE}")
-    if pressure.cpu > SWAP_MAX_HOST_CPU_PRESSURE:
-        raise ShadowError(f"PSI de CPU do host {pressure.cpu} acima da rede de segurança {SWAP_MAX_HOST_CPU_PRESSURE}")
-    containers = _swap_container_pressures(run, resources)
-    name, worst = max(containers.items(), key=lambda item: item[1])
-    if worst > SWAP_MAX_CONTAINER_CPU_PRESSURE:
-        raise ShadowError(f"PSI de CPU de {name} em {worst}, acima de {SWAP_MAX_CONTAINER_CPU_PRESSURE}")
-    return {"hostCpuPressureMax": pressure.cpu, "containerCpuPressureMax": worst}
-
-
-def _swap_note_pressure(result: dict, reading: dict[str, float]) -> None:
-    for key, value in reading.items():
-        result[key] = max(value, result.get(key, value))
-
-
-def _swap_preflight(layout: Layout, fill_mib: int, run: Runner, resources: SwapResources) -> tuple[Path, dict[str, float]]:
+def _swap_preflight(layout: Layout, fill_mib: int, run: Runner, clock: Callable[[], float], resources: SwapResources,
+                    evidence: dict) -> SwapGuard:
     docker_root = Path(run(["docker", "info", "--format", "{{.DockerRootDir}}"]).strip())
     if resources.device(layout.root) != resources.device(docker_root):
         raise ShadowError(f"{docker_root} e {layout.root} em filesystems diferentes: a conta de disco não valeria")
-    reading = _swap_require_resources(resources, docker_root, run, memory_mib=SWAP_MIN_AVAILABLE_MIB,
-                                      disk_needed_mib=fill_mib * SWAP_DISK_FACTOR + SWAP_DISK_MARGIN_MIB)
-    return docker_root, reading
+    guard = SwapGuard(resources, docker_root, run, clock, evidence)
+    guard.freeze()
+    guard.check(memory_mib=SWAP_MIN_AVAILABLE_MIB, disk_needed_mib=fill_mib * SWAP_DISK_FACTOR + SWAP_DISK_MARGIN_MIB)
+    return guard
 
 
 def _swap_compose(layout: Layout, image: str) -> list[str]:
@@ -706,13 +806,18 @@ def _swap_fill(run: Runner, compose: list[str], fill_mib: int, between_batches: 
         run(["docker", "update", "--cpus", cpus, "--cpu-shares", cpu_shares, SWAP_CONTAINERS[0]])
 
 
-def _swap_wait_archived(run: Runner, compose: list[str], clock: Callable[[], float], sleep: Callable[[float], None]) -> None:
+def _swap_wait_archived(run: Runner, compose: list[str], clock: Callable[[], float], sleep: Callable[[float], None],
+                        calm: Callable[[], None]) -> None:
     """O check espera o WAL corrente por pouco tempo: a fila do preenchimento precisa escoar antes de parar algo."""
     segment = _sql(run, compose, "select pg_walfile_name(pg_switch_wal())")
     deadline = clock() + WAIT_SECONDS
+    next_guard = clock() + SWAP_ARCHIVE_GUARD_SECONDS
     while _sql(run, compose, "select coalesce(last_archived_wal,'') from pg_stat_archiver") < segment:
         if clock() > deadline:
             raise ShadowError(f"WAL não arquivado em {WAIT_SECONDS} s; nada foi parado")
+        if clock() >= next_guard:
+            calm()
+            next_guard = clock() + SWAP_ARCHIVE_GUARD_SECONDS
         sleep(SWAP_ARCHIVE_POLL_SECONDS)
 
 
@@ -809,7 +914,7 @@ def _swap_prepare(compose: list[str], target: str, fill_mib: int, result: dict, 
         result["fillSeconds"] = round(clock() - started, 1)
     result["databaseSizeMib"] = int(_sql(run, compose, "select pg_database_size(current_database())/1048576"))
     started = clock()
-    _swap_wait_archived(run, compose, clock, sleep)
+    _swap_wait_archived(run, compose, clock, sleep, calm)
     result["archiveWaitSeconds"] = round(clock() - started, 1)
 
 
@@ -842,15 +947,11 @@ def swap_rehearsal(layout: Layout, target: str, *, fill_mib: int, run: Runner = 
         raise ShadowError("alvo fora da allowlist do ensaio")
     if not 0 <= fill_mib <= SWAP_MAX_FILL_MIB:
         raise ShadowError(f"--fill-mib fora de 0..{SWAP_MAX_FILL_MIB}")
-    docker_root, reading = _swap_preflight(layout, fill_mib, run, resources)
+    result: dict = {"source": SWAP_SOURCE_IMAGE, "target": target}
+    guard = _swap_preflight(layout, fill_mib, run, clock, resources, result)
     _swap_require_running(run, SWAP_SOURCE_IMAGE)
     (layout.state / "swap-baseline.json").unlink(missing_ok=True)
-
-    def calm() -> None:
-        _swap_note_pressure(result, _swap_require_resources(resources, docker_root, run, memory_mib=SWAP_MEMORY_FLOOR_MIB,
-                                                            disk_needed_mib=0))
-
-    result: dict = {"source": SWAP_SOURCE_IMAGE, "target": target, **reading}
+    calm = guard.check
     evidence = layout.state / "swap-rehearsal.json"
     try:
         _swap_prepare(compose, target, fill_mib, result, run, clock, sleep, calm)

@@ -6,6 +6,7 @@ import dataclasses
 import errno
 import hashlib
 import io
+import itertools
 import json
 import os
 import re
@@ -345,7 +346,20 @@ VPS_AT_THE_REAL_STOP = shadow.HostPressure(cpu=71.79, memory=0.09, io=0.02)
 WEB_ID, WORKER_ID, POSTGRES_ID, NEIGHBOR_ID, SHADOW_ID = ("a" * 64, "b" * 64, "c" * 64, "d" * 64, "e" * 64)
 PRODUCTION_ROWS = [(WEB_ID, "duora-web-1", "duora"), (WORKER_ID, "duora-worker-1", "duora"), (POSTGRES_ID, "duora-postgres-1", "duora"),
                    (NEIGHBOR_ID, "stillon-api-1", "stillon"), (SHADOW_ID, "duora-c2-postgres-1", "duora-c2")]
-HEALTHY = shadow.SwapResources(available_mib=lambda: 4000, pressure=lambda: CALM, container_pressure=lambda _identifier: 0.83, disk_mib=lambda _path: (100_000, 60_000),
+
+
+def half_idle_ticks(idle_percent: int = 50) -> Any:
+    """Contadores acumulados de /proc/stat: a cada leitura, 100 ticks novos com `idle_percent` ociosos."""
+    tick = itertools.count(1)
+
+    def read() -> tuple[int, int]:
+        step = next(tick)
+        return step * idle_percent, step * 100
+    return read
+
+
+HEALTHY = shadow.SwapResources(available_mib=lambda: 4000, pressure=lambda: CALM, container_pressure=lambda _identifier: 0.83,
+                               cpu_ticks=half_idle_ticks(), oom_kills=lambda: 6, disk_mib=lambda _path: (100_000, 60_000),
                                device=lambda _path: 7)
 PHOTO = {"systemIdentifier": "7000", "catalogVersion": 202506291, "controlVersion": 1800, "timeline": 1,
          "head": "20261105120000_RegistrationReconciliationManifest", "acl": "d41d8",
@@ -372,6 +386,11 @@ class SwapDocker:
         self.ballast = "0:"
         self.updates: list[str] = []
         self.rows = list(PRODUCTION_ROWS)
+        self.rows_from_call: dict[int, list] = {}
+        self.ps_calls = 0
+        self.ps_timeouts: list[int] = []
+        self.ready_calls = 0
+        self.ready_plan: dict[int, float | None] = {}
         self.archived = "000000010000000000000005"
         self.volume_created = "2026-11-06T00:00:00Z"
         self.compatibility = {"serverVersionNum": "180006", "controlVersion": 1800, "catalogVersion": 202506291, "encoding": "UTF8",
@@ -404,7 +423,17 @@ class SwapDocker:
             self.updates.append(joined)
             return ""
         if argv[:2] == ["docker", "ps"]:
+            self.ps_calls += 1
+            self.ps_timeouts.append(timeout)
+            self.rows = self.rows_from_call.get(self.ps_calls, self.rows)
             return "".join("\t".join(row) + "\n" for row in self.rows)
+        if "health/ready" in joined:
+            self.ready_calls += 1
+            planned = self.ready_plan.get(self.ready_calls, 0.0)
+            if planned is None:
+                raise shadow.ShadowError("wget terminou com código 1")
+            self.now += planned
+            return ""
         if argv[:2] == ["docker", "info"]:
             return "/var/lib/docker\n"
         if argv[:2] == ["docker", "inspect"]:
@@ -609,10 +638,6 @@ class SwapRehearsalGuardTests(SwapRehearsalFixture):
                 high = dataclasses.replace(CALM, **{field: shadow.SWAP_MAX_STALL_PRESSURE + 1})
                 self.refused(resources=dataclasses.replace(HEALTHY, pressure=lambda: high))
 
-    def test_host_cpu_above_the_safety_net_refuses(self) -> None:
-        high = dataclasses.replace(CALM, cpu=shadow.SWAP_MAX_HOST_CPU_PRESSURE + 0.1)
-        self.refused(resources=dataclasses.replace(HEALTHY, pressure=lambda: high))
-
     def test_production_container_above_the_ceiling_refuses(self) -> None:
         for identifier in (WEB_ID, WORKER_ID, POSTGRES_ID, NEIGHBOR_ID):
             with self.subTest(identifier=identifier[0]):
@@ -718,6 +743,12 @@ class SwapRehearsalResourceTests(SwapRehearsalFixture):
                                         container_pressure=lambda identifier: next(containers, 0.0) if identifier == WEB_ID else 0.0)
         result = self.rehearse(resources=resources)
         self.assertEqual((result["hostCpuPressureMax"], result["containerCpuPressureMax"]), (70.0, 30.0))
+
+    def test_global_psi_never_decides_even_at_100(self) -> None:
+        high = dataclasses.replace(CALM, cpu=100.0)
+        result = self.rehearse(resources=dataclasses.replace(HEALTHY, pressure=lambda: high))
+        self.assertTrue(result["photoStable"])
+        self.assertEqual(result["hostCpuPressureMax"], 100.0)
 
     def test_container_at_the_ceiling_still_passes(self) -> None:
         resources = dataclasses.replace(HEALTHY, container_pressure=lambda _identifier: shadow.SWAP_MAX_CONTAINER_CPU_PRESSURE)
@@ -833,6 +864,143 @@ class SwapGuardRealRenderTests(unittest.TestCase):
         self.assertEqual(s3["cpu_shares"], 256)
         self.assertEqual(s3["deploy"]["resources"]["limits"]["memory"], "805306368")
         self.assertEqual(s3["deploy"]["resources"]["limits"]["cpus"], 0.5)
+
+
+class SwapGuardReadyTests(SwapRehearsalFixture):
+    """Cada lote faz uma sonda: 5 de base e 1 no preflight, depois a 7ª no 1º lote. O clock do dublê soma 1 s por comando."""
+
+    def test_probe_is_the_deploy_one_inside_the_production_edge(self) -> None:
+        self.rehearse()
+        probes = [c for c in self.docker.commands if "health/ready" in c]
+        self.assertEqual(probes[0], "docker exec duora-edge-1 wget --quiet --spider --timeout=5 http://duora-web:8080/health/ready")
+        self.assertEqual(len(probes), 8)  # 5 de base, preflight, antes da ida, antes da volta
+
+    def test_baseline_is_the_median_of_five_real_probes(self) -> None:
+        self.docker.ready_plan = {1: 0.0, 2: 0.0, 3: 9.0, 4: 0.0, 5: 0.0}
+        self.assertEqual(self.rehearse()["readyBaselineMs"], 1000.0)
+
+    def test_any_failure_in_the_baseline_refuses(self) -> None:
+        self.docker.ready_plan = {5: None}
+        with self.assertRaisesRegex(shadow.ShadowError, "ready"):
+            self.rehearse()
+        self.assertEqual(self.stops(), [])
+
+    def test_two_failures_in_a_row_stop(self) -> None:
+        self.docker.ready_plan = {7: None, 8: None}
+        with self.assertRaisesRegex(shadow.ShadowError, "ready"):
+            self.rehearse(fill_mib=256)
+        self.assertEqual(self.stops(), [])
+        self.assertEqual(self.docker.ready_calls, 8)
+
+    def test_one_failure_alone_does_not_stop(self) -> None:
+        self.docker.ready_plan = {7: None, 9: None}
+        self.assertTrue(self.rehearse(fill_mib=256)["photoStable"])
+
+    def test_two_slow_readings_in_a_row_stop(self) -> None:
+        self.docker.ready_plan = {7: 2.1, 8: 2.1}
+        with self.assertRaisesRegex(shadow.ShadowError, "ready"):
+            self.rehearse(fill_mib=256)
+        self.assertEqual(self.docker.ready_calls, 8)
+
+    def test_one_slow_reading_alone_does_not_stop(self) -> None:
+        self.docker.ready_plan = {7: 2.1, 9: 2.1}
+        result = self.rehearse(fill_mib=256)
+        self.assertTrue(result["photoStable"])
+        self.assertEqual(result["readyMaxMs"], 3100.0)
+
+    def test_exactly_at_the_ceiling_is_not_slow(self) -> None:
+        self.docker.ready_plan = {7: 2.0, 8: 2.0}
+        self.assertTrue(self.rehearse(fill_mib=256)["photoStable"])
+
+    def test_ceiling_is_the_larger_of_factor_and_floor(self) -> None:
+        self.assertEqual(shadow._swap_ready_ceiling_ms(10.0), 510.0)
+        self.assertEqual(shadow._swap_ready_ceiling_ms(1000.0), 3000.0)
+
+    def test_constants_are_the_ones_of_the_harness(self) -> None:
+        limits = c2_harness.Limits()
+        self.assertEqual((shadow.SWAP_READY_FACTOR, shadow.SWAP_READY_FLOOR_MS, shadow.SWAP_READY_CONSECUTIVE),
+                         (limits.health_latency_factor, limits.health_latency_floor_ms, limits.health_consecutive_failures))
+
+    def test_slow_ready_during_the_swap_returns_to_the_origin(self) -> None:
+        self.docker.ready_plan = {7: 2.1, 8: 2.1}
+        with self.assertRaisesRegex(shadow.ShadowError, "ready"):
+            self.rehearse()
+        self.assertEqual(self.docker.image, SOURCE)
+
+
+class SwapGuardHostTests(SwapRehearsalFixture):
+    def test_idle_below_10_percent_stops(self) -> None:
+        ticks = iter([(50, 100), (100, 200), (109, 300)])
+        with self.assertRaisesRegex(shadow.ShadowError, "idle"):
+            self.rehearse(fill_mib=256, resources=dataclasses.replace(HEALTHY, cpu_ticks=lambda: next(ticks)))
+        self.assertEqual(self.stops(), [])
+
+    def test_idle_at_10_percent_passes(self) -> None:
+        self.assertTrue(self.rehearse(resources=dataclasses.replace(HEALTHY, cpu_ticks=half_idle_ticks(10)))["photoStable"])
+
+    def test_idle_is_recorded_as_the_worst_delta(self) -> None:
+        ticks = iter([(0, 0), (50, 100), (70, 200), (120, 300)])
+        result = self.rehearse(resources=dataclasses.replace(HEALTHY, cpu_ticks=lambda: next(ticks)))
+        self.assertEqual(result["cpuIdleMinPercent"], 20.0)
+
+    def test_stopped_clock_between_readings_is_not_a_stop(self) -> None:
+        self.assertTrue(self.rehearse(resources=dataclasses.replace(HEALTHY, cpu_ticks=lambda: (50, 100)))["photoStable"])
+
+    def test_ticks_of_the_real_format_count_idle_and_iowait(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            stat = Path(directory) / "stat"
+            stat.write_text("cpu  100 1 20 700 30 2 3 4 0 0\ncpu0 1 1 1 1 1 1 1 1 0 0\n")
+            self.assertEqual(shadow._cpu_ticks(stat), (730, 860))
+
+    def test_any_new_oom_kill_stops(self) -> None:
+        counts = iter([6, 6, 7])
+        with self.assertRaisesRegex(shadow.ShadowError, "oom_kill"):
+            self.rehearse(fill_mib=256, resources=dataclasses.replace(HEALTHY, oom_kills=lambda: next(counts, 7)))
+        self.assertEqual(self.stops(), [])
+
+    def test_old_oom_kills_do_not_stop(self) -> None:
+        self.assertTrue(self.rehearse(resources=dataclasses.replace(HEALTHY, oom_kills=lambda: 6))["photoStable"])
+
+    def test_oom_counter_of_the_real_format(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            vmstat = Path(directory) / "vmstat"
+            vmstat.write_text("pswpin 0\noom_kill 6\nthp_fault_alloc 1\n")
+            self.assertEqual(shadow._oom_kills(vmstat), 6)
+            vmstat.write_text("pswpin 0\n")
+            with self.assertRaises(shadow.ShadowError):
+                shadow._oom_kills(vmstat)
+
+    def test_container_seen_at_the_start_is_required_until_the_end(self) -> None:
+        self.docker.rows_from_call = {3: [row for row in PRODUCTION_ROWS if row[1] != "stillon-api-1"]}
+        with self.assertRaisesRegex(shadow.ShadowError, "stillon-api-1"):
+            self.rehearse(fill_mib=256)
+        self.assertEqual(self.stops(), [])
+
+    def test_docker_ps_has_its_short_timeout(self) -> None:
+        self.rehearse()
+        self.assertEqual(set(self.docker.ps_timeouts), {10})
+
+    def test_archive_wait_runs_the_guard_every_ten_seconds(self) -> None:
+        self.docker.archived = "000000010000000000000004"
+        seen = {"polls": 0}
+        real = shadow._sql
+        def sql(run: Any, compose: list[str], statement: str) -> str:
+            if "last_archived_wal" in statement:
+                seen["polls"] += 1
+                if seen["polls"] > 20:
+                    self.docker.archived = "000000010000000000000005"
+            return real(run, compose, statement)
+        with mock.patch.object(shadow, "_sql", sql):
+            self.rehearse()
+        # 20 voltas de 3 s (1 do comando e 2 de espera) somam 60 s no relógio do dublê, mais 2 s por guarda: 5 guardas em 70 s.
+        self.assertEqual(self.docker.ready_calls - 8, 5)
+
+    def test_archive_wait_stops_when_the_guard_stops(self) -> None:
+        self.docker.archived = "000000010000000000000004"
+        self.docker.ready_plan = {7: None, 8: None}
+        with self.assertRaisesRegex(shadow.ShadowError, "ready"):
+            self.rehearse()
+        self.assertEqual(self.stops(), [])
 
 
 class DeadTerminal(io.StringIO):

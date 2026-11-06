@@ -217,36 +217,43 @@ porta em loopback. Os containers precisam estar de fato na origem, conferidos pe
 mínimo, sem herdar `DUORA_*`, `DOCKER_HOST`, `DOCKER_CONTEXT` nem `COMPOSE_*` do root, e um lock em `/var/lib/.duora-c2.lock`,
 ao lado da raiz para o `down` não depender de `state/`, faz os subcomandos se excluírem. O comando não usa o executor, o receiver, `/etc/duora` nem `/var/lib/duora`.
 
-**Recursos.** O início exige ao menos 1 GiB de `MemAvailable`, PSI `some avg10` de memória e de IO até 40, PSI de CPU de cada
-container até 40 e uso de disco abaixo de 85% contando a reserva, com o `DockerRootDir` no mesmo filesystem da raiz. Entre lotes e
-antes de cada sentido, ele repete a conta com piso de 512 MiB e, se passar de um limite, para sem parar serviços ou volta à
-origem.
+**Guarda de recursos.** O início exige ao menos 1 GiB de `MemAvailable` e uso de disco abaixo de 85% contando a reserva, com o
+`DockerRootDir` no mesmo filesystem da raiz. A mesma conta se repete entre lotes, a cada 10 s da espera do arquivamento e antes de
+cada sentido, com piso de 512 MiB. Antes da primeira parada, ela para sem parar serviços. Depois, volta à origem. A volta em si
+não passa pelo guarda, de propósito: parar no meio dela seria pior que terminar.
 
-A decisão de CPU lê o `cpu.pressure` de todo container fora do sombra, em
-`/sys/fs/cgroup/system.slice/docker-<id>.scope`, só leitura, com o teto 40 do `OTHER_APPS_PSI`. `duora-web-1`, `duora-worker-1` e
-`duora-postgres-1` são obrigatórios: sem o container, sem o cgroup ou com o arquivo ilegível, o ensaio recusa. Isso vale também
-para um vizinho que suma entre o `docker ps` e a leitura. O sombra fica de fora, porque o preenchimento o pressiona de propósito.
+| Parada | Regra |
+| --- | --- |
+| Sonda `ready` | `docker exec duora-edge-1 wget --quiet --spider --timeout=5 http://duora-web:8080/health/ready`, a sonda do deploy. A linha de base é a mediana de 5 leituras no preflight, e falha nelas recusa. Para com 2 leituras ruins seguidas, sejam falha ou acima de `max(3 × base, base + 500 ms)` |
+| CPU do host | Delta de `/proc/stat` desde a leitura anterior: para se idle + iowait ficar abaixo de 10% |
+| Por container | `cpu.pressure` de todo container fora do sombra, em `/sys/fs/cgroup/system.slice/docker-<id>.scope`, só leitura, com teto 40 do `OTHER_APPS_PSI` |
+| Containers do início | Todo container visto no preflight, mais web, worker e postgres, vira obrigatório. Sem ele, sem o cgroup ou com arquivo ilegível, para. `docker ps` tem 10 s de timeout |
+| OOM | Qualquer aumento de `oom_kill` em `/proc/vmstat` |
+| Memória e IO | PSI `some avg10` acima de 40 |
 
-O PSI de CPU global saiu da decisão. No ensaio de 06/11 às 16:13 UTC, ele foi a 71,79 por causa de cgroups do OpenClaw presos na
-própria cota, com a CPU 91% ociosa, enquanto `duora-web-1` marcava no máximo 0,83 e o `ready` respondia em 10 ms. Ele fica no JSON,
-em `hostCpuPressureMax`, ao lado de `containerCpuPressureMax`, e só decide acima de 90. Esse teto é a rede de segurança para o que
-não é container (sshd, receiver, gateway, systemd), que nenhuma leitura por container alcança. Ele pode parar o ensaio sem dano à
-produção: na medição abaixo, um único cgroup preso na própria cota levou o global a 92,79 com o alvo em 0,00. Nesse caso, a parada
-é limpa.
+O sombra fica fora da leitura por container, porque o preenchimento o pressiona de propósito. O JSON registra `readyBaselineMs`,
+`readyMaxMs`, `cpuIdleMinPercent`, `containerCpuPressureMax` e `hostCpuPressureMax`.
 
-Medição local em Docker Desktop, kernel `7.0.14-linuxkit`, 10 CPUs, cgroup v2, com `_swap_require_resources` real lendo arquivos
-reais, por 40 s cada:
+**PSI de CPU global não decide.** No ensaio de 06/11 às 16:13 UTC, ele foi a 71,79 por causa de cgroups do OpenClaw presos na
+própria cota, com a CPU 91% ociosa, enquanto `duora-web-1` marcava no máximo 0,83 e o `ready` respondia em 10 ms. Medido localmente,
+um único cgroup preso levou o global a 92,79 com o alvo em 0,00, então nenhum teto alto serve de rede: quem cumpre esse papel é o
+idle de CPU, que também vale para o que não é container (sshd, receiver, gateway).
 
-| Cenário | `cpu.pressure` do alvo | PSI de CPU global | Guarda |
+**O teto por container não basta.** A revisão adversarial mediu um alvo leve com p99 22 vezes maior, PSI do alvo em 22,54 e global
+em 46,86, sem o guarda parar. A sonda `ready` entrou por isso. A medição abaixo foi feita antes dela, em Docker Desktop, kernel
+`7.0.14-linuxkit`, 10 CPUs e cgroup v2, com a versão anterior do guarda lendo arquivos reais, por 40 s cada:
+
+| Cenário | `cpu.pressure` do alvo | PSI de CPU global | Por container |
 | --- | --- | --- | --- |
-| Alvo com `--cpus 0.1` e 4 loops | 31,81 a 95,12 | 37,75 a 94,31 | Passa aos 5 s, para aos 10 s (59,42) e não volta a passar |
-| Outro cgroup com `--cpus 0.1` e 4 loops, alvo leve | 0,00 | 61,86 a 92,79 | Passa até 89,97, depois para pela rede de 90 |
-| Outro cgroup sem cota com 30 loops, alvo leve | 0,00 a 0,35 | 57,47 a 83,41 | Passa |
-| Outro cgroup sem cota com 30 loops, alvo com 4 loops | 2,18 a 9,68 | 45,47 a 65,79 | Passa |
+| Alvo com `--cpus 0.1` e 4 loops | 31,81 a 95,12 | 37,75 a 94,31 | Para aos 10 s, em 59,42 |
+| Outro cgroup com `--cpus 0.1` e 4 loops, alvo leve | 0,00 | 61,86 a 92,79 | Não dispara |
+| Outro cgroup sem cota com 30 loops, alvo leve | 0,00 a 0,35 | 57,47 a 83,41 | Não dispara |
+| Outro cgroup sem cota com 30 loops, alvo com 4 loops | 2,18 a 9,68 | 45,47 a 65,79 | Não dispara |
 
-Isso prova que o guarda para com o container sem CPU e que ruído em outro cgroup não dispara o guarda por container. Não prova que
-um vizinho causando dano ao alvo passe de 40: nas duas últimas linhas, o alvo seguiu com CPU e o valor ficou baixo. O PSI também não
-mede latência HTTP, então o `ready` continua sendo do operador. É Docker Desktop, não a VPS, e a VPS tem 2 vCPU.
+**Limites do guarda.** A sonda é uma requisição por leitura e o piso é de 500 ms sobre a base: uma piora abaixo disso, ou que afete
+só parte das requisições, não para o ensaio. Ela cobre só o `duora-web-1`. Durante cada sentido da troca não há leitura, e o
+intervalo entre leituras no preenchimento é o tempo de um lote. Um container efêmero visto no preflight que termine depois para o
+ensaio. As sondas externas dos apps vizinhos continuam com o operador. É uma medição de Docker Desktop, não da VPS de 2 vCPU.
 
 O preenchimento roda com `--cpus 0.5` e `--cpu-shares 256`, com um intervalo de 1 s entre lotes, e devolve os limites definidos no
 Compose ao terminar. O MinIO tem teto de 768 MiB e meia CPU no overlay.
