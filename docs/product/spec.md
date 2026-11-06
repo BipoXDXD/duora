@@ -30,7 +30,7 @@
 
 ### 1.1. Produto a implementar
 
-O Duora organiza encontros entre duas pessoas adultas em eventos com rodadas e experiências cooperativas. O sistema seleciona pares mutuamente elegíveis, conduz uma atividade curta, permite comunicação contextual e coleta interesse de forma privada. Uma conversa persistente só nasce de interesse mútuo. Segurança não é um complemento do chat: bloqueio, denúncia, retirada de participação, proteção etária e revisão de incidentes fazem parte do fluxo principal.
+O Duora organiza encontros entre duas pessoas adultas em eventos com rodadas e experiências cooperativas. O sistema seleciona pares mutuamente elegíveis, conduz uma atividade curta, permite comunicação contextual e coleta interesse de forma privada. Uma conversa persistente só nasce de interesse mútuo. Segurança não é um complemento do chat: bloqueio, denúncia, retirada de participação, requisito de 18 anos ou mais (autodeclarado no cadastro), selfie de presença e revisão de incidentes fazem parte do fluxo principal.
 
 | Capacidade | Base obrigatória | Fora da primeira entrega |
 |---|---|---|
@@ -949,7 +949,7 @@ A implementação deve ser revisada à luz da LGPD, das regras aplicáveis do Ma
 |---|---|---|
 | Perfil exibido | Nome de exibição e região aproximada | Data de nascimento, idade ou faixa etária (não coletadas; [decisões de 29/10/2026](decisions-2026-10-29.md), item 1) e localização precisa para outras pessoas |
 | Preferências | Uso estritamente necessário à elegibilidade | Telemetria comportamental com preferências identificáveis |
-| Verificação etária | Resultado mínimo, validade e referência do procedimento | Documento ou biometria brutos no banco do Duora sem necessidade justificada |
+| Selfie de presença | Resultado mínimo, datas e versão da política; nenhuma imagem guardada ([ADR-0029](../architecture/adr/0029-confirmacao-email-presenca-sem-idade.md), adendo de 28/10/2026) | Documento, estimativa de idade, comparação de identidade ou biometria bruta no banco do Duora |
 | Conversas | Acesso só por contexto autorizado; criptografia em trânsito e proteção de armazenamento | Analytics de conteúdo e promessa de E2EE inexistente |
 | Evidências | Recorte necessário, integridade, caso, finalidade e acesso auditado | Duplicar todo o histórico para cada denúncia |
 | Telemetria | IDs técnicos, rotas parametrizadas, latência e contadores agregados | IDs de usuário como label de métrica e corpos completos de requisição |

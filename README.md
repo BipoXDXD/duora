@@ -5,7 +5,7 @@ catálogo, cada par joga uma experiência cooperativa (um minijogo de alguns min
 decide em privado se quer continuar a conversa. A conversa persistente só existe quando o interesse é mútuo.
 
 Segurança faz parte do fluxo principal: sair de uma sala é imediato, bloqueio vale para pareamento, mensagens e
-leituras, denúncias geram protocolo e recurso, e a participação depende de verificação etária. A maior parte
+leituras, denúncias geram protocolo e recurso, e a participação depende de e-mail confirmado e selfie de presença. A maior parte
 do trabalho de engenharia está em manter essas garantias sob concorrência, retries, reconexões, reinícios e
 restauração de backup.
 
