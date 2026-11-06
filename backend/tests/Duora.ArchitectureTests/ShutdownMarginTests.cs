@@ -11,8 +11,9 @@ namespace Duora.ArchitectureTests;
 
 /// <summary>
 /// O host precisa desistir de esperar antes que o Docker mande SIGKILL: o prazo de parada de cada host fica abaixo
-/// do <c>stop_grace_period</c> do seu serviço no Compose de produção. Com prazos iguais, a margem é zero. Sobe só o
-/// composition root, sem iniciar nada, então não precisa de banco.
+/// do <c>stop_grace_period</c> do seu serviço na referência revisada <c>compose.prod.yml</c>. Com prazos iguais, a
+/// margem é zero. A produção usa <c>/opt/duora/compose.coolify.json</c>, fora do repositório e fora do alcance deste
+/// teste. Sobe só o composition root, sem iniciar nada, então não precisa de banco.
 /// </summary>
 public sealed class ShutdownMarginTests
 {
@@ -60,6 +61,7 @@ public sealed class ShutdownMarginTests
 
     private static TimeSpan StopGracePeriodOf(string service)
     {
+        // Referência revisada compose.prod.yml, não o arquivo que a produção executa.
         var compose = File.ReadAllText(Path.Combine(RepositoryRoot.Find(), "infra", "compose", "compose.prod.yml"));
         var block = Assert.Single(Regex.Matches(
             compose, $@"^  {service}:\n(?<body>(?:(?:    .*)?\n)+)", RegexOptions.Multiline)).Groups["body"].Value;
