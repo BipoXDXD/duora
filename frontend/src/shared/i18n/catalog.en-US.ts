@@ -642,7 +642,13 @@ export const en = {
   'photoOwner.queueFull': 'The review queue is full. Try again later.',
   'photoOwner.uncertain':
     'The result could not be confirmed. Repeating the same request does not duplicate the action.',
-  'photoOwner.inReview': 'In review; not visible to anyone yet.',
+  'photoOwner.inReview': 'In review; not visible to other participants yet.',
+  'photoOwner.giveUp': 'Give up',
+  'photoOwner.abandoned': 'Upload discarded. Check the list before uploading again: the photo may have arrived.',
+  'photoOwner.rulesTitle': 'Photo rules',
+  // Placeholder: the rules wording needs the owner's approval before uploads are turned on (#69).
+  'photoOwner.rulesPending': 'Wording pending approval by the Duora owner before photo uploads are turned on.',
+  'photoOwner.showRules': 'See photo rules',
   'photoOwner.rejectedGeneric': 'This photo was not approved. Upload another photo.',
   'photoOwner.reasonUnsupportedFormat': 'This image format is not accepted. Upload another photo.',
   'photoOwner.reasonTypeMismatch': 'The file content does not match the image type. Upload another photo.',

@@ -22,7 +22,7 @@ import { ReviewFailure } from './ReviewFeedback'
 /** Espelha `PhotoUploadPolicy`; estado desconhecido não oferece envio, e o servidor continua decidindo. */
 const UPLOADING_STATUSES: ReadonlySet<AccountStatus> = new Set(['Active', 'PendingEligibility'])
 
-type Notice = 'photoOwner.uploaded' | 'photoOwner.deleted'
+type Notice = 'photoOwner.uploaded' | 'photoOwner.deleted' | 'photoOwner.abandoned'
 
 export function PhotoReviewOwnerIndex(): React.JSX.Element {
   const account = useAccount()
@@ -40,6 +40,7 @@ function OwnerPhotos({
   const client = useQueryClient()
   const privateOperation = usePrivateOperation()
   const listTitle = useRef<HTMLHeadingElement>(null)
+  const rulesTitle = useRef<HTMLHeadingElement>(null)
   const triggers = useRef(new Map<string, HTMLButtonElement>())
   const [cursor, setCursor] = useState<string | null>(null)
   const [epoch, setEpoch] = useState(0)
@@ -76,12 +77,25 @@ function OwnerPhotos({
     },
     [client, reread],
   )
+  // A chave do formulário descarta a intenção: depois de confirmada, ou quando a pessoa desiste dela.
+  const restartUpload = useCallback(
+    (next: Notice) => {
+      setNotice(next)
+      setUploads((value) => value + 1)
+      setCursor(null)
+      reread()
+    },
+    [reread],
+  )
   const onUploaded = useCallback(() => {
-    setNotice('photoOwner.uploaded')
-    setUploads((value) => value + 1)
-    setCursor(null)
-    reread()
-  }, [reread])
+    restartUpload('photoOwner.uploaded')
+  }, [restartUpload])
+  const onAbandoned = useCallback(() => {
+    restartUpload('photoOwner.abandoned')
+  }, [restartUpload])
+  const showRules = useCallback(() => {
+    rulesTitle.current?.focus()
+  }, [])
   const onDeleted = useCallback(() => {
     setNotice('photoOwner.deleted')
     setDeleting(null)
@@ -124,7 +138,7 @@ function OwnerPhotos({
       {...(closed ? {} : { intro: t('photoReview.ownerIndexIntro') })}
     >
       {notice === null ? null : (
-        <Alert key={epoch} variant="success" focusOnMount>
+        <Alert key={epoch} variant={notice === 'photoOwner.abandoned' ? 'info' : 'success'} focusOnMount>
           {t(notice)}
         </Alert>
       )}
@@ -139,10 +153,19 @@ function OwnerPhotos({
           key={uploads}
           available={!closed && UPLOADING_STATUSES.has(status)}
           onUploaded={onUploaded}
+          onAbandoned={onAbandoned}
           onFailure={reactToFailure}
         />
       ) : null}
       {opened && !closed && !UPLOADING_STATUSES.has(status) ? <p>{t('photoOwner.accountCannotUpload')}</p> : null}
+      {opened && !closed ? (
+        <section className="flex flex-col gap-2">
+          <h2 ref={rulesTitle} tabIndex={-1} className="text-xl font-semibold">
+            {t('photoOwner.rulesTitle')}
+          </h2>
+          <p className="text-text-muted">{t('photoOwner.rulesPending')}</p>
+        </section>
+      ) : null}
       {deleting === null ? null : (
         <OwnerPhotoDeletion
           key={deleting}
@@ -180,6 +203,7 @@ function OwnerPhotos({
               // A conta suspensa não alcança o histórico de revisão (ADR-0042).
               showHistory={status !== 'Suspended'}
               deletion={canAccountDeletePhotos(status) ? deletion : null}
+              onShowRules={showRules}
             />
           ))}
         </ul>

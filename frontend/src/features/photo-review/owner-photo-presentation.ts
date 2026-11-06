@@ -38,6 +38,11 @@ export function rejectionMessage(code: string | null): PlainMessageKey {
     : 'photoOwner.rejectedGeneric'
 }
 
+/** Só a recusa humana manda consultar as regras (`media-review.md`). */
+export function citesPhotoRules(code: string | null): boolean {
+  return code === 'PHOTO_REVIEW_REJECTED'
+}
+
 export function isInReview(status: string): boolean {
   return IN_REVIEW.has(status)
 }

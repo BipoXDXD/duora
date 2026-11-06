@@ -1,5 +1,5 @@
 import { PrivateOperationProvider } from '@/features/session/PrivateOperationProvider'
-import { installTestMe } from '@/test/private-context'
+import { installTestMe, withSessionContext } from '@/test/private-context'
 import { focusManager, QueryClientProvider } from '@tanstack/react-query'
 import { screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
@@ -10,8 +10,8 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import { AccountContext } from '@/features/session/account-context'
 import type { AccountStatus } from '@/features/session/session-api'
 import { meQueryKey } from '@/features/session/query-keys'
-import { API, problem, server } from '@/test/msw'
-import { createTestQueryClient, renderWithI18n } from '@/test/render'
+import { API, problem, server, useAntiforgeryEndpoint } from '@/test/msw'
+import { createTestQueryClient, renderApp, renderWithI18n } from '@/test/render'
 import { PhotoReviewOwnerIndex } from './PhotoReviewOwnerIndex'
 
 const PHOTOS = `${API}/me/photos`
@@ -20,6 +20,15 @@ const NEW_PHOTO = 'cccccccc-cccc-4ccc-8ccc-cccccccccccc'
 const TAG_V1 = '"photo-bbbbbbbb-1"'
 const TAG_V2 = '"photo-bbbbbbbb-2"'
 const CANARY = '<img src=x onerror="window.CANARY=1">CANARY storage/internal/key'
+
+const ACTIVE_ACCOUNT = {
+  id: 'dddddddd-dddd-4ddd-8ddd-dddddddddddd',
+  email: 'owner@example.test',
+  status: 'Active',
+  emailConfirmed: true,
+  mfaEnabled: false,
+  roles: ['participant'],
+}
 
 const stored = {
   photoId: PHOTO,
@@ -388,12 +397,12 @@ describe('envio', () => {
 
 describe('estado e motivo', () => {
   it.each(['Pending', 'Quarantined', 'Processing', 'AwaitingReview'])(
-    '%s avisa que nada aparece para ninguém',
+    '%s avisa que ainda não aparece para outros participantes',
     async (status) => {
       useList({ ...stored, status })
       mount()
 
-      expect(await screen.findByText('Em análise; ainda não aparece para ninguém.')).toBeVisible()
+      expect(await screen.findByText('Em análise; ainda não aparece para outros participantes.')).toBeVisible()
     },
   )
 
@@ -402,7 +411,7 @@ describe('estado e motivo', () => {
     mount()
 
     expect(await screen.findByText('Aprovada')).toBeVisible()
-    expect(screen.queryByText('Em análise; ainda não aparece para ninguém.')).not.toBeInTheDocument()
+    expect(screen.queryByText('Em análise; ainda não aparece para outros participantes.')).not.toBeInTheDocument()
   })
 
   it.each([
@@ -1358,17 +1367,6 @@ describe('saída segura da exclusão incerta', () => {
     await screen.findByText('Foto excluída. A remoção dos arquivos termina em seguida.')
     expect(screen.queryByRole('group')).not.toBeInTheDocument()
   })
-
-  it('o envio incerto continua sem desistência: decisão do dono', async () => {
-    useList()
-    usePosts(serverError)
-    mount()
-
-    await sendFile()
-    await repeatButton()
-
-    expect(screen.queryByRole('button', { name: /desistir|cancelar/i })).not.toBeInTheDocument()
-  })
 })
 
 describe('mudança do status da conta com pedido pendente', () => {
@@ -1431,5 +1429,183 @@ describe('mudança do status da conta com pedido pendente', () => {
     await account.restrict()
 
     expect(screen.queryByLabelText('Foto')).not.toBeInTheDocument()
+  })
+})
+
+describe('desistir do envio incerto', () => {
+  const ABANDONED = 'Envio descartado. Confira a lista antes de enviar de novo: a foto pode já ter chegado.'
+  const giveUp = (): Promise<HTMLElement> => screen.findByRole('button', { name: 'Desistir' })
+
+  it('só aparece com resultado incerto', async () => {
+    useList()
+    const gate = deferred()
+    const posts = usePosts(async () => {
+      await gate.wait
+      return serverError()
+    })
+    mount()
+
+    await screen.findByLabelText('Foto')
+    expect(screen.queryByRole('button', { name: 'Desistir' })).not.toBeInTheDocument()
+    await sendFile()
+    await waitFor(() => {
+      expect(posts).toHaveLength(1)
+    })
+    expect(screen.queryByRole('button', { name: 'Desistir' })).not.toBeInTheDocument()
+    gate.release()
+
+    expect(await giveUp()).toBeVisible()
+  })
+
+  it('descarta a intenção sem reenviar, avisa e relê a lista', async () => {
+    let reads = 0
+    server.use(
+      http.get(PHOTOS, () => {
+        reads += 1
+        return listing()
+      }),
+    )
+    const posts = usePosts(serverError)
+    mount()
+
+    await sendFile()
+    await userEvent.click(await giveUp())
+
+    await expectFocusedNotice(ABANDONED)
+    await waitFor(() => {
+      expect(reads).toBeGreaterThan(1)
+    })
+    expect(posts).toHaveLength(1)
+    expect(screen.queryByRole('button', { name: 'Repetir o mesmo pedido' })).not.toBeInTheDocument()
+    expect(screen.getByLabelText('Foto')).toBeEnabled()
+    expect(screen.getByLabelText<HTMLInputElement>('Foto').files).toHaveLength(0)
+    expect(leavingIsWarned()).toBe(false)
+  })
+
+  it('o próximo envio é outra intenção, com chave nova', async () => {
+    useList()
+    const posts = usePosts(serverError, accepted)
+    mount()
+
+    await sendFile()
+    await userEvent.click(await giveUp())
+    await screen.findByText(ABANDONED)
+    await sendFile()
+
+    await screen.findByText('Foto recebida e enviada para análise.')
+    expect(posts[1]?.key).not.toBe(posts[0]?.key)
+  })
+
+  it('funciona com o gate fechado e fecha o formulário', async () => {
+    let open = true
+    server.use(http.get(PHOTOS, () => (open ? listing() : problem(503, 'MEDIA_UPLOADS_DISABLED'))))
+    usePosts(serverError, () => {
+      open = false
+      return problem(503, 'MEDIA_UPLOADS_DISABLED')
+    })
+    mount()
+
+    await sendFile()
+    await userEvent.click(await repeatButton())
+    await screen.findByText('As fotos ainda não estão disponíveis no Duora.')
+    await userEvent.click(await giveUp())
+
+    await screen.findByText(ABANDONED)
+    expect(screen.queryByLabelText('Foto')).not.toBeInTheDocument()
+  })
+
+  it('a exclusão incerta não ganha "Desistir": a saída dela é reler M02', async () => {
+    useList(stored)
+    useStatus()
+    useDeletes(serverError)
+    mount()
+
+    await askToDelete()
+    await confirmDeletion()
+    await repeatButton()
+
+    expect(screen.queryByRole('button', { name: 'Desistir' })).not.toBeInTheDocument()
+  })
+})
+
+describe('regras de fotos', () => {
+  const PLACEHOLDER = 'Redação pendente de aprovação do dono do Duora antes de o envio de fotos ser ligado.'
+  const rejected = { ...stored, status: 'Rejected', rejectionCode: 'PHOTO_REVIEW_REJECTED' }
+
+  it('mostra o marcador pendente, sem texto de regra inventado, com o gate aberto', async () => {
+    useList()
+    mount()
+
+    expect(await screen.findByRole('heading', { name: 'Regras de fotos' })).toBeVisible()
+    expect(screen.getByText(PLACEHOLDER)).toBeVisible()
+  })
+
+  it('tem o marcador em inglês', async () => {
+    useList()
+    mount({ locale: 'en-US' })
+
+    expect(await screen.findByRole('heading', { name: 'Photo rules' })).toBeVisible()
+    expect(
+      screen.getByText('Wording pending approval by the Duora owner before photo uploads are turned on.'),
+    ).toBeVisible()
+  })
+
+  it('não aparece com o upload desligado', async () => {
+    server.use(http.get(PHOTOS, () => problem(503, 'MEDIA_UPLOADS_DISABLED')))
+    mount()
+
+    await screen.findByText('As fotos ainda não estão disponíveis no Duora.')
+    expect(screen.queryByRole('heading', { name: 'Regras de fotos' })).not.toBeInTheDocument()
+    expect(screen.queryByText(PLACEHOLDER)).not.toBeInTheDocument()
+  })
+
+  it('some quando o upload é desligado depois de a tela abrir', async () => {
+    let open = true
+    server.use(http.get(PHOTOS, () => (open ? listing() : problem(503, 'MEDIA_UPLOADS_DISABLED'))))
+    usePosts(() => {
+      open = false
+      return problem(503, 'MEDIA_UPLOADS_DISABLED')
+    })
+    mount()
+
+    await sendFile()
+
+    await screen.findByText('As fotos ainda não estão disponíveis no Duora.')
+    expect(screen.queryByRole('heading', { name: 'Regras de fotos' })).not.toBeInTheDocument()
+    expect(screen.queryByText(PLACEHOLDER)).not.toBeInTheDocument()
+  })
+
+  it('"Consulte as regras" leva às regras na mesma tela', async () => {
+    useList(rejected)
+    mount()
+
+    await userEvent.click(await screen.findByRole('button', { name: 'Ver regras de fotos' }))
+
+    expect(screen.getByRole('heading', { name: 'Regras de fotos' })).toHaveFocus()
+  })
+
+  it.each(['PHOTO_REVIEW_EXPIRED', 'PHOTO_REVIEW_UNAVAILABLE', 'CORRUPT_IMAGE'])(
+    '%s não cita as regras e não ganha o atalho',
+    async (rejectionCode) => {
+      useList({ ...rejected, rejectionCode })
+      mount()
+
+      await screen.findByRole('heading', { name: `Foto ${PHOTO}` })
+      expect(screen.queryByRole('button', { name: 'Ver regras de fotos' })).not.toBeInTheDocument()
+    },
+  )
+})
+
+describe('link "Minhas fotos" com o upload desligado', () => {
+  it('continua na conta e leva ao aviso de indisponível', async () => {
+    server.use(http.get(PHOTOS, () => problem(503, 'MEDIA_UPLOADS_DISABLED')))
+    server.use(http.get(`${API}/me`, () => HttpResponse.json(withSessionContext(ACTIVE_ACCOUNT))))
+    server.use(http.get(`${API}/me/sessions`, () => HttpResponse.json({ items: [] })))
+    useAntiforgeryEndpoint()
+    await renderApp('/account')
+
+    await userEvent.click(await screen.findByRole('link', { name: 'Minhas fotos' }))
+
+    expect(await screen.findByText('As fotos ainda não estão disponíveis no Duora.')).toBeVisible()
   })
 })

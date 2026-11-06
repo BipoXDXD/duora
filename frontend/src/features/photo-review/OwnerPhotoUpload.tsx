@@ -27,10 +27,13 @@ const REFUSALS: Readonly<Record<LocalRefusal, PlainMessageKey>> = {
 export function OwnerPhotoUpload({
   available,
   onUploaded,
+  onAbandoned,
   onFailure,
 }: {
   readonly available: boolean
   readonly onUploaded: () => void
+  /** A pessoa desistiu de um envio incerto: quem monta descarta a intenção junto com este componente. */
+  readonly onAbandoned: () => void
   readonly onFailure: (error: unknown) => void
 }): React.JSX.Element | null {
   const { t } = useI18n()
@@ -105,6 +108,11 @@ export function OwnerPhotoUpload({
       <Button type="submit" aria-disabled={command.busy} className="w-full sm:w-auto">
         {t(command.busy ? 'photoReview.sending' : command.uncertain ? 'photoReview.retrySame' : 'photoOwner.send')}
       </Button>
+      {command.uncertain ? (
+        <Button variant="neutral" className="w-full sm:w-auto" onClick={onAbandoned}>
+          {t('photoOwner.giveUp')}
+        </Button>
+      ) : null}
     </form>
   )
 }
