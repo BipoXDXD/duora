@@ -62,10 +62,31 @@ public sealed partial class TransactionalEmailDispatcher
         var waiting = new Queue<ClaimedDelivery>(result.Claimed);
         while (waiting.TryDequeue(out var delivery))
         {
-            await DeliverAsync(delivery, waiting, cancellationToken);
+            await DeliverOrRetryAsync(delivery, waiting, cancellationToken);
         }
 
         return result.Claimed.Count;
+    }
+
+    /// <summary>
+    /// Isola a falha na entrega que a causou. Sem isto, um item que sempre lança abortaria o lote a cada claim, e os
+    /// vizinhos, que só voltariam pelo lease, gastariam tentativas sem nunca sair.
+    /// </summary>
+    private async Task DeliverOrRetryAsync(
+        ClaimedDelivery delivery,
+        IReadOnlyCollection<ClaimedDelivery> waiting,
+        CancellationToken cancellationToken)
+    {
+        try
+        {
+            await DeliverAsync(delivery, waiting, cancellationToken);
+        }
+        catch (Exception exception) when (!cancellationToken.IsCancellationRequested)
+        {
+            // Inclui o timeout do envio. O parar do worker (token cancelado) propaga: a entrega fica em voo e
+            // outro worker a retoma quando o lease vencer. Com o banco fora, reagendar também falha e aborta o lote.
+            await RetryOrFailAsync(delivery, exception, cancellationToken);
+        }
     }
 
     private async Task DeliverAsync(
@@ -97,18 +118,7 @@ public sealed partial class TransactionalEmailDispatcher
             return;
         }
 
-        try
-        {
-            await SendWithTimeoutAsync(email, delivery, cancellationToken);
-        }
-        catch (Exception exception) when (!cancellationToken.IsCancellationRequested)
-        {
-            // Inclui o timeout do envio. O parar do worker (token cancelado) propaga: a entrega fica em voo e
-            // outro worker a retoma quando o lease vencer.
-            await RetryOrFailAsync(delivery, exception, cancellationToken);
-            return;
-        }
-
+        await SendWithTimeoutAsync(email, delivery, cancellationToken);
         await SettleAsync(delivery, OutboxDeliveryStatus.Delivered, error: null, cancellationToken);
     }
 

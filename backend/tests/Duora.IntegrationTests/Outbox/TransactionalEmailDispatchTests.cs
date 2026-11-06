@@ -1,4 +1,9 @@
+using System.Runtime.CompilerServices;
+using Duora.Core;
+using Duora.Core.Identity;
+using Duora.Core.Notifications;
 using Duora.Infrastructure.Email;
+using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 
 namespace Duora.IntegrationTests.Outbox;
@@ -199,6 +204,87 @@ public sealed class TransactionalEmailDispatchTests(PostgresFixture postgres)
         Assert.Equal(("Failed", 2, "IOException"), (delivery.Status, delivery.Attempts, delivery.LastError));
         Assert.Equal("{}", delivery.Payload);
         Assert.Empty(harness.MailFiles());
+    }
+
+    /// <summary>
+    /// Nenhum payload lido hoje faz a composição lançar; este defeito fica no lugar de um erro de template ou de
+    /// configuração. Sem a origem, todo e-mail com link lança ao montar o link, e o e-mail sem link sai normalmente.
+    /// </summary>
+    private static AccountEmails EmailsThatCannotComposeALink()
+    {
+        Assert.True(EmailAddress.TryParse("suporte@duora.test", out var supportContact));
+        return new AccountEmails((PublicOrigin)RuntimeHelpers.GetUninitializedObject(typeof(PublicOrigin)), supportContact);
+    }
+
+    [Fact]
+    public async Task AnEmailThatBlowsUpWhenComposedFailsAloneAndItsNeighboursAreSent()
+    {
+        await using var harness = await EmailOutboxHarness.CreateAsync(postgres, Ct);
+        var token = $"CANARY-{Guid.NewGuid():N}";
+        var poisoned = await harness.EnqueueAsync(AccountEmailKind.EmailConfirmation, token, Ct);
+        harness.Time.Advance(TimeSpan.FromSeconds(1));
+        var neighbours = new[]
+        {
+            await harness.EnqueueAsync(AccountEmailKind.PasswordResetUnavailable, token: null, Ct),
+            await harness.EnqueueAsync(AccountEmailKind.PasswordResetUnavailable, token: null, Ct),
+        };
+        var logs = new CapturingLoggerProvider();
+        var dispatcher = harness.StartWorker(
+            ["--Outbox:MaxAttempts=2"],
+            logs: logs,
+            configureServices: services => services.AddSingleton(EmailsThatCannotComposeALink()));
+
+        Assert.Equal(3, await dispatcher.DispatchBatchAsync(Ct));
+
+        var delivery = await harness.ReadDeliveryAsync(poisoned, Ct);
+        Assert.Equal(("Pending", 1, nameof(ArgumentNullException)), (delivery.Status, delivery.Attempts, delivery.LastError));
+        await AssertDeliveredOnTheirFirstAttemptAsync(harness, neighbours);
+
+        harness.Time.Advance(TimeSpan.FromMinutes(20));
+        Assert.Equal(1, await dispatcher.DispatchBatchAsync(Ct));
+
+        delivery = await harness.ReadDeliveryAsync(poisoned, Ct);
+        Assert.Equal(("Failed", 2, nameof(ArgumentNullException)), (delivery.Status, delivery.Attempts, delivery.LastError));
+        await AssertDeliveredOnTheirFirstAttemptAsync(harness, neighbours);
+        Assert.DoesNotContain(logs.Entries, entry => entry.Text.Contains(token, StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public async Task AStopDuringTheSendLeavesTheDeliveryInFlightWithoutAFailureTrace()
+    {
+        await using var harness = await EmailOutboxHarness.CreateAsync(postgres, Ct);
+        var deliveryId = await harness.EnqueueAsync(AccountEmailKind.EmailConfirmation, "tok-1", Ct);
+        using var stopping = new CancellationTokenSource();
+        var logs = new CapturingLoggerProvider();
+        var dispatcher = harness.StartWorker(logs: logs, decorateSender: _ => new SenderStoppedMidway(stopping));
+
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() => dispatcher.DispatchBatchAsync(stopping.Token));
+
+        var delivery = await harness.ReadDeliveryAsync(deliveryId, Ct);
+        Assert.Equal(("InFlight", 1, (string?)null), (delivery.Status, delivery.Attempts, delivery.LastError));
+        Assert.DoesNotContain(
+            logs.Entries,
+            entry => entry.Category == typeof(TransactionalEmailDispatcher).FullName && entry.Level >= LogLevel.Warning);
+    }
+
+    private sealed class SenderStoppedMidway(CancellationTokenSource stopping) : ITransactionalEmailSender
+    {
+        public async Task SendAsync(TransactionalEmail email, string idempotencyKey, CancellationToken cancellationToken)
+        {
+            await stopping.CancelAsync();
+            cancellationToken.ThrowIfCancellationRequested();
+        }
+    }
+
+    private static async Task AssertDeliveredOnTheirFirstAttemptAsync(EmailOutboxHarness harness, Guid[] deliveries)
+    {
+        foreach (var id in deliveries)
+        {
+            var delivery = await harness.ReadDeliveryAsync(id, Ct);
+            Assert.Equal(("Delivered", 1), (delivery.Status, delivery.Attempts));
+        }
+
+        Assert.Equal(deliveries.Length, harness.MailFiles().Length);
     }
 
     [Fact]
