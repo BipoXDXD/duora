@@ -111,6 +111,13 @@ class LockAtTargetTests(AlternativeTargetTests):
             self.assertEqual(bench.alternative_digest(source, architecture), fixture["origin"][architecture])
 
 
+def finished_pid() -> int:
+    """A real process that existed and is gone, as a proof killed by SIGKILL is once its parent reaps it."""
+    process = subprocess.Popen([sys.executable, "-c", ""])
+    process.wait()
+    return process.pid
+
+
 class HostGuardTests(unittest.TestCase):
     ACTIONS = {"GITHUB_ACTIONS": "true", "RUNNER_ENVIRONMENT": "github-hosted", "GITHUB_REPOSITORY": "BipoXDXD/duora"}
 
@@ -178,6 +185,149 @@ class HostGuardTests(unittest.TestCase):
         with patch.object(bench, "require_host_free"), self.assertRaises(FileExistsError):
             bench.FixedHost().claim(root=self.base / "work", registry="registry")
         self.assertEqual(self.paths["CLAIM"].read_text(), "{}")
+
+    def claim_text(self, pid: int) -> str:
+        return json.dumps({"root": str(self.base / "work"), "registry": "registry", "pid": pid,
+                           "ancestors": [{"path": "/opt", "mode": 511, "uid": 0, "gid": 0}]})
+
+    def run_cleanup(self) -> bool:
+        """Docker and the ancestors are doubles that record into docker_calls; the files and the claim are real."""
+        with patch.object(bench, "docker", self.docker), patch.object(bench, "remove_holds") as holds, \
+                patch.object(bench.subprocess, "run") as run, patch.object(bench, "restore_ancestors") as restore:
+            try:
+                return bench.cleanup_claimed()
+            finally:
+                self.docker_calls += [("holds",)] * holds.call_count + [("rm",)] * run.call_count
+                self.docker_calls += [("restore", tuple(call.args)) for call in restore.call_args_list]
+
+    def assert_host_untouched(self, files: list[Path]) -> None:
+        for file in files:
+            self.assertEqual(file.read_text(), "production\n")
+        self.assertEqual(self.docker_calls, [])
+
+    def test_claim_records_the_pid_of_the_proof(self) -> None:
+        with patch.object(bench.os, "getpid", return_value=4321):
+            bench.FixedHost().claim(root=Path("/root/work"), registry="registry")
+        self.assertEqual(json.loads(self.paths["CLAIM"].read_text()),
+                         {"root": "/root/work", "registry": "registry", "ancestors": [], "pid": 4321})
+
+    def test_claim_is_complete_before_it_becomes_visible(self) -> None:
+        link = os.link
+        published = []
+        def spying(source: str, destination: Path) -> None:
+            self.assertFalse(self.paths["CLAIM"].exists())
+            self.assertEqual(Path(source).parent, self.paths["CLAIM"].parent)
+            published.append(json.loads(Path(source).read_text()))
+            link(source, destination)
+        with patch.object(bench.os, "getpid", return_value=4321), patch.object(bench.os, "link", spying):
+            bench.FixedHost().claim(root=Path("/root/work"), registry="registry")
+        self.assertEqual(published, [{"root": "/root/work", "registry": "registry", "ancestors": [], "pid": 4321}])
+        self.assertEqual([path.name for path in self.base.iterdir()], ["claim"])
+
+    def test_a_lost_race_leaves_no_temporary_and_protects_nothing(self) -> None:
+        self.paths["CLAIM"].write_text("{}")
+        host = bench.FixedHost()
+        with patch.object(bench, "require_host_free"), patch.object(bench, "protect_ancestors") as protect, \
+                self.assertRaises(FileExistsError):
+            host.claim(root=self.base / "work", registry="registry")
+        protect.assert_not_called()
+        self.assertFalse(host.claimed)
+        self.assertEqual([path.name for path in self.base.iterdir()], ["claim"])
+
+    def test_process_alive_tells_a_running_pid_from_a_finished_one(self) -> None:
+        self.assertTrue(bench.process_alive(os.getpid()))
+        self.assertFalse(bench.process_alive(finished_pid()))
+
+    def test_a_process_of_another_user_counts_as_alive(self) -> None:
+        with patch.object(bench.os, "kill", side_effect=PermissionError(1, "Operation not permitted")):
+            self.assertTrue(bench.process_alive(4321))
+
+    def test_a_live_proof_refuses_a_new_one_without_asking_for_cleanup(self) -> None:
+        self.mark_disposable()
+        original = self.claim_text(os.getpid())
+        self.paths["CLAIM"].write_text(original)
+        with self.assertRaisesRegex(bench.ProofFailure, "PID %d is still running" % os.getpid()) as refused:
+            self.run_main()
+        self.assertNotIn("--mode cleanup", str(refused.exception))
+        self.assertEqual(self.paths["CLAIM"].read_text(), original)
+        self.assertEqual(self.docker_calls, [])
+
+    def test_a_dead_proof_refuses_a_new_one_and_asks_for_cleanup(self) -> None:
+        self.mark_disposable()
+        self.paths["CLAIM"].write_text(self.claim_text(finished_pid()))
+        with self.assertRaisesRegex(bench.ProofFailure, "--mode cleanup"):
+            self.run_main()
+
+    def test_a_truncated_claim_refuses_a_new_proof_and_asks_for_cleanup(self) -> None:
+        self.mark_disposable()
+        self.paths["CLAIM"].write_text('{"root": "/ro')
+        with self.assertRaisesRegex(bench.ProofFailure, "--mode cleanup"):
+            self.run_main()
+
+    def test_cleanup_refuses_a_live_proof_and_touches_nothing(self) -> None:
+        files = self.production_files()
+        self.mark_disposable()
+        original = self.claim_text(os.getpid())
+        self.paths["CLAIM"].write_text(original)
+        with self.assertRaisesRegex(bench.ProofFailure, "PID %d is still running" % os.getpid()):
+            self.run_cleanup()
+        self.assert_host_untouched(files)
+        self.assertEqual(self.paths["CLAIM"].read_text(), original)
+
+    def test_cleanup_of_a_dead_proof_removes_what_it_claimed(self) -> None:
+        files = self.production_files()
+        self.mark_disposable()
+        (self.base / "work").mkdir()
+        self.paths["CLAIM"].write_text(self.claim_text(finished_pid()))
+        self.assertTrue(self.run_cleanup())
+        self.assertIn(("restore", ([{"path": "/opt", "mode": 511, "uid": 0, "gid": 0}],)), self.docker_calls)
+        self.assertFalse(any(file.exists() for file in files))
+        self.assertFalse((self.base / "work").exists())
+        self.assertFalse(self.paths["CLAIM"].exists())
+
+    def test_cleanup_of_a_truncated_claim_removes_only_the_claim(self) -> None:
+        """Every cut the old writer could leave: it died before protecting anything, so only the claim is the proof's."""
+        files = self.production_files()
+        self.mark_disposable()
+        complete = '{"root": "/root/work", "registry": "registry", "ancestors": [{"path": "/opt", "mode": 511, "uid": 0, "gid": 0}]}'
+        for cut in range(len(complete)):
+            with self.subTest(cut=cut):
+                self.paths["CLAIM"].write_text(complete[:cut])
+                self.assertTrue(self.run_cleanup())
+                self.assertFalse(self.paths["CLAIM"].exists())
+                self.assert_host_untouched(files)
+
+    def test_cleanup_off_a_disposable_host_keeps_even_a_truncated_claim(self) -> None:
+        self.paths["CLAIM"].write_text('{"root": "/ro')
+        self.assertFalse(self.run_cleanup())
+        self.assertEqual(self.paths["CLAIM"].read_text(), '{"root": "/ro')
+
+    def test_a_claim_that_is_not_a_cut_of_ours_is_refused_and_kept(self) -> None:
+        files = self.production_files()
+        self.mark_disposable()
+        known = '"root": "/x", "registry": "r", "ancestors": []'
+        for content in (b"garbage", b"\xff\xfe", b"{\xff", b"[]", b"null", b"1", b"{}", b'{"root": "/x"}',
+                        ('{' + known + ', "extra": 1}').encode(), ('{' + known + ', "pid": 0}').encode(),
+                        ('{' + known + ', "pid": -1}').encode(), ('{' + known + ', "pid": true}').encode(),
+                        ('{' + known + ', "pid": "4321"}').encode()):
+            with self.subTest(content=content):
+                self.paths["CLAIM"].write_bytes(content)
+                with self.assertRaisesRegex(bench.ProofFailure, "Unknown claim"):
+                    self.run_cleanup()
+                with self.assertRaisesRegex(bench.ProofFailure, "Unknown claim"):
+                    self.run_main()
+                self.assert_host_untouched(files)
+                self.assertEqual(self.paths["CLAIM"].read_bytes(), content)
+
+    def test_cleanup_refuses_a_claim_with_no_owner_to_check(self) -> None:
+        files = self.production_files()
+        self.mark_disposable()
+        original = '{"root": "/root/work", "registry": "r", "ancestors": [{"path": "/opt", "mode": 511, "uid": 0, "gid": 0}]}'
+        self.paths["CLAIM"].write_text(original)
+        with self.assertRaisesRegex(bench.ProofFailure, "no owner PID"):
+            self.run_cleanup()
+        self.assert_host_untouched(files)
+        self.assertEqual(self.paths["CLAIM"].read_text(), original)
 
     def test_each_fixed_location_alone_refuses(self) -> None:
         self.mark_disposable()
@@ -359,7 +509,7 @@ class ProtectedAncestorTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temporary:
             claim = Path(temporary) / "claim"
             entry = {"path": "/opt", "mode": 0o777, "uid": 0, "gid": 0}
-            claim.write_text(json.dumps({"root": temporary + "/none", "registry": "r", "ancestors": [entry]}))
+            claim.write_text(json.dumps({"root": temporary + "/none", "registry": "r", "ancestors": [entry], "pid": finished_pid()}))
             with patch.object(bench, "CLAIM", claim), patch.object(bench, "host_is_disposable", return_value=True), \
                     patch.object(bench, "docker", return_value=""), patch.object(bench, "remove_holds"), \
                     patch.object(bench, "_remove_fixed_paths"), patch.object(bench.subprocess, "run"), \

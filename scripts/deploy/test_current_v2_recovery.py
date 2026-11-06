@@ -852,6 +852,60 @@ class RecoveryCliBoundaryTests(RecoveryCliBoundaryFixture):
                     with path.open() as handle, self.assertRaises(BlockingIOError):
                         fcntl.flock(handle, fcntl.LOCK_EX | fcntl.LOCK_NB)
 
+    def administrative_locks_at(self, root):
+        ingress = root / "ingress"
+        (ingress / "duora").mkdir(parents=True)
+        state = root / "state"
+        state.mkdir()
+        lock_paths = [ingress / "host.lock", ingress / "duora/release.lock", state / ".deploy.lock"]
+        for path in lock_paths: path.touch(mode=0o600)
+        return ingress, deploy.Paths(root / "compose", root / "env", state), lock_paths
+
+    def assert_free(self, lock_paths):
+        import fcntl
+        for path in lock_paths:
+            with path.open() as handle:
+                fcntl.flock(handle, fcntl.LOCK_EX | fcntl.LOCK_NB)
+
+    def test_an_os_error_in_the_body_stays_itself_and_the_locks_are_released(self):
+        directory = tempfile.TemporaryDirectory()
+        self.addCleanup(directory.cleanup)
+        ingress, paths, lock_paths = self.administrative_locks_at(Path(directory.name))
+        failure = OSError(28, "No space left on device")
+        with patch.object(deploy, "_recovery_root_read", side_effect=lambda path: path.read_bytes()), \
+                self.assertRaises(OSError) as raised:
+            with deploy.recovery_administrative_locks(paths, ingress=ingress):
+                raise failure
+        self.assertIs(raised.exception, failure)
+        self.assert_free(lock_paths)
+
+    def test_a_held_or_missing_lock_is_the_busy_window_and_releases_those_acquired(self):
+        import fcntl
+        busy = "Administrative release window is busy, missing or unsafe; no lock was created"
+        for last in range(3):
+            with self.subTest(held=last):
+                directory = tempfile.TemporaryDirectory()
+                self.addCleanup(directory.cleanup)
+                ingress, paths, lock_paths = self.administrative_locks_at(Path(directory.name))
+                entered = []
+                with lock_paths[last].open() as holder, \
+                        patch.object(deploy, "_recovery_root_read", side_effect=lambda path: path.read_bytes()):
+                    fcntl.flock(holder, fcntl.LOCK_EX | fcntl.LOCK_NB)
+                    with self.assertRaises(deploy.DeployError) as raised:
+                        with deploy.recovery_administrative_locks(paths, ingress=ingress):
+                            entered.append(True)
+                self.assertEqual(str(raised.exception), busy)
+                self.assertEqual(entered, [])
+                self.assert_free(lock_paths)
+            with self.subTest(missing=last):
+                lock_paths[last].unlink()
+                with patch.object(deploy, "_recovery_root_read", side_effect=lambda path: path.read_bytes()), \
+                        self.assertRaises(deploy.DeployError) as raised:
+                    with deploy.recovery_administrative_locks(paths, ingress=ingress):
+                        entered.append(True)
+                self.assertEqual(str(raised.exception), busy)
+                self.assertEqual(entered, [])
+
     def test_explicit_administrative_modes_use_all_three_locks_and_the_reviewed_handler(self):
         from contextlib import nullcontext, redirect_stdout, redirect_stderr
         import io

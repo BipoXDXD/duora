@@ -542,7 +542,8 @@ A matriz mata o comando com SIGKILL em 18 pontos, com filho vivo: as 7 fases at�
 e por `--abort`, mais `awaiting-reseal`, `closing`, `aborted-awaiting-reseal` e `aborting`. Os três de fechamento morrem
 dentro de `_swap_close` e `_swap_finish`. Cada desfecho só passa com um deploy real seguinte aceito e nada pendente. A
 bancada assume os caminhos fixos de produção: fora de runner hospedado ou de host com o marcador, ela recusa sem criar nem
-remover nada. `--mode cleanup` remove o que uma execução morta reivindicou. A imagem do runner hospedado traz `/opt` em
+remover nada. `--mode cleanup` remove o que uma execução morta reivindicou e recusa enquanto o PID do claim estiver vivo;
+de um claim truncado por versão anterior, remove só o arquivo do claim. A imagem do runner hospedado traz `/opt` em
 0777, que o leitor protegido do executor recusa: a bancada tira a escrita de grupo e de outros dos ancestrais só durante a
 prova, restaura no fim e, antes da primeira troca, confere cada caminho com o próprio leitor, nomeando o que falhar.
 

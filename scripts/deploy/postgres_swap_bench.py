@@ -41,6 +41,7 @@ PIN = Path("/etc/duora/coolify-deploy.json")
 BACKUP_COMMAND = Path("/usr/local/sbin/duora-backup")
 DISPOSABLE_MARKER = Path("/etc/duora-swap-disposable-host")
 CLAIM = Path("/run/duora-swap-bench-claim.json")
+CLAIM_FIELDS = {"root", "registry", "ancestors"}
 FIXTURE = REPO / "scripts/deploy/fixtures/postgres-swap-target.json"
 LOCK = REPO / "infra/images/postgres-component-lock.json"
 RECEIVER = REPO / "scripts/release/coolify/receiver.py"
@@ -158,6 +159,9 @@ def host_is_disposable(environment: dict | None = None) -> bool:
 def require_host_free() -> None:
     """Runs before anything exists to clean: a refusal here leaves the host exactly as it was."""
     if CLAIM.exists():
+        claim = read_claim()
+        if claim is not None and "pid" in claim and process_alive(claim["pid"]):
+            raise ProofFailure(running_proof(claim["pid"]))
         # It holds the original modes of the ancestors: a new claim would record the protected ones as original.
         raise ProofFailure("A previous proof left its claim at " + str(CLAIM) + ": run --mode cleanup first")
     for path in (PIN.parent, RELEASES.parent, INGRESS, BACKUP_COMMAND):
@@ -231,6 +235,48 @@ def protected_reads(paths: executor.Paths, release: executor.Release) -> list[Pa
             state / "releases" / (name + ".env"), RELEASES / (name + ".json"), paths.compose_file, paths.host_env]
 
 
+def process_alive(pid: int) -> bool:
+    """A reused PID or an unreaped zombie reads as alive: the error refuses a cleanup, never allows one."""
+    try:
+        os.kill(pid, 0)
+    except ProcessLookupError:
+        return False
+    except PermissionError:
+        pass  # It exists and belongs to another user.
+    return True
+
+
+def running_proof(pid: int) -> str:
+    return "Proof PID %d is still running with its claim at %s: wait for it or stop it" % (pid, CLAIM)
+
+
+def read_claim() -> dict | None:
+    """None is a claim cut by a kill, which only the former writer left: it dies before anything is protected."""
+    raw = CLAIM.read_bytes()
+    try:
+        claim = json.loads(raw)
+    except ValueError as error:
+        if raw and not (raw.startswith(b"{") and raw.isascii()):
+            raise ProofFailure("Unknown claim at " + str(CLAIM)) from error
+        return None
+    if not isinstance(claim, dict) or not CLAIM_FIELDS <= set(claim) <= CLAIM_FIELDS | {"pid"}:
+        raise ProofFailure("Unknown claim at " + str(CLAIM))
+    if "pid" in claim and (type(claim["pid"]) is not int or claim["pid"] <= 0):
+        raise ProofFailure("Unknown claim at " + str(CLAIM))
+    return claim
+
+
+def publish_claim(claim: dict) -> None:
+    """Complete before it is visible, so a kill cannot leave a partial claim; link, unlike rename, refuses an existing one."""
+    descriptor, temporary = tempfile.mkstemp(dir=CLAIM.parent, prefix=CLAIM.name + ".")
+    try:
+        with os.fdopen(descriptor, "w") as file:
+            json.dump(claim, file)
+        os.link(temporary, CLAIM)
+    finally:
+        os.unlink(temporary)
+
+
 def _remove_fixed_paths() -> None:
     for path in (PIN.parent, RELEASES.parent, INGRESS):
         shutil.rmtree(path, ignore_errors=True)
@@ -248,8 +294,7 @@ class FixedHost:
     def claim(self, *, root: Path, registry: str) -> None:
         require_host_free()
         self.ancestors = unprotected_ancestors([PIN.parent, RELEASES, INGRESS, root])
-        with CLAIM.open("x") as claim:
-            json.dump({"root": str(root), "registry": registry, "ancestors": self.ancestors}, claim)
+        publish_claim({"root": str(root), "registry": registry, "ancestors": self.ancestors, "pid": os.getpid()})
         self.claimed = True
         self.umask = os.umask(0o022)
         protect_ancestors(self.ancestors)
@@ -268,7 +313,15 @@ def cleanup_claimed() -> bool:
     """What a killed run left behind. Without a claim on a disposable host there is nothing of ours to remove."""
     if not CLAIM.exists() or not host_is_disposable():
         return False
-    claim = json.loads(CLAIM.read_text())
+    claim = read_claim()
+    if claim is None:
+        CLAIM.unlink()
+        log("truncated claim removed: its proof died before touching the host")
+        return True
+    if "pid" not in claim:
+        raise ProofFailure("Claim at " + str(CLAIM) + " has no owner PID: run --mode cleanup from the version that wrote it")
+    if process_alive(claim["pid"]):
+        raise ProofFailure(running_proof(claim["pid"]))
     label = "label=com.docker.compose.project=duora"
     containers = docker("ps", "--all", "--quiet", "--filter", label).split()
     if containers:
