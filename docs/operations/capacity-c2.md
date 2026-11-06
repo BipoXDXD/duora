@@ -130,10 +130,11 @@ Pior caso com todos os cortes: 70 + 80 + 20 + 6 + 3 = 179 min.
    não reduzir guardas.
 7. **Restore do ensaio** (VPS): `sudo python3 scripts/deploy/c2_shadow.py restore-rehearsal --no-final-full`
    (marcadores por 90 s, `docker kill` do postgres sombra, volume apagado, restore até o fim do WAL, web/worker de
-   pé). O comando confere `identity.selfie_verifications` antes da perda e depois da promoção, com web e worker
-   parados: as 8 tentativas de `scripts/deploy/c2/selfie-restore-seed.sql` campo a campo, com a conta de cada uma,
-   FK, constraints e índices, e o total da tabela igual ao de antes (`selfie_rows` no JSON). Diferença termina em
-   erro, sem subir web e worker e sem gravar o JSON. Nesse caso, ir para o passo 9 e reportar. No Mac: `python3 scripts/deploy/c2_harness.py restore-objectives` com os quatro instantes de
+   pé). O comando confere `identity.selfie_verifications` antes da perda, com o app de pé, e depois da promoção, com
+   web e worker parados: as 8 tentativas de `scripts/deploy/c2/selfie-restore-seed.sql` campo a campo, com a conta
+   de cada uma, FK, constraints e índices, e o total da tabela igual ao de antes (`selfie_rows` no JSON). Isso prova
+   integridade e esquema, não replay de WAL: o fixture já está no backup base, e quem mede o replay é o RPO pelos
+   marcadores. Diferença termina em erro, sem subir web e worker e sem gravar o JSON. Nesse caso, ir para o passo 9 e reportar. No Mac: `python3 scripts/deploy/c2_harness.py restore-objectives` com os quatro instantes de
    `/var/lib/duora-c2/state/restore-rehearsal.json` (RPO ≤ 300 s, RTO ≤ 7.200 s).
 8. **C1 depois** (Mac): `c2run/c1-after.json`, para comparar MemAvailable, containers e limites com o passo 1.
 9. **Derrubar o sombra** (VPS): `sudo python3 scripts/deploy/c2_shadow.py down` (só volumes e diretório
