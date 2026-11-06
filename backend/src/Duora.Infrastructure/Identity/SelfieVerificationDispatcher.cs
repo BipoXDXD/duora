@@ -131,7 +131,7 @@ public sealed class SelfieVerificationDispatcher
                 result = await _provider.ReadAsync(row.ProviderReference, timeout.Token);
             }
         }
-        catch (Exception exception) when (exception is Amazon.Runtime.AmazonServiceException or HttpRequestException or InvalidDataException or OperationCanceledException)
+        catch (Exception exception) when (IsTransientProviderFailure(exception))
         {
             cancellationToken.ThrowIfCancellationRequested();
             await _queue.RescheduleAsync(delivery, _time.GetUtcNow().AddSeconds(5), "ProviderUnavailable", _time.GetUtcNow(), cancellationToken);
@@ -153,6 +153,15 @@ public sealed class SelfieVerificationDispatcher
             await _queue.RescheduleAsync(delivery, _time.GetUtcNow().AddSeconds(5), "AwaitingCapture", _time.GetUtcNow(), cancellationToken);
         }
     }
+
+    /// <summary>
+    /// Falhas da chamada ao fornecedor que reagendam a entrega, sem mudar a tentativa nem contar reprovação. O SDK da
+    /// AWS entrega o reset de conexão como <see cref="IOException"/> e o timeout do HttpClient como
+    /// <see cref="TimeoutException"/>. Qualquer outra exceção é defeito: sobe ao loop do worker e o lease devolve a entrega.
+    /// </summary>
+    private static bool IsTransientProviderFailure(Exception exception) =>
+        exception is Amazon.Runtime.AmazonServiceException or HttpRequestException or IOException or TimeoutException
+            or InvalidDataException or OperationCanceledException;
 
     /// <summary>
     /// Na transação do resultado, sob a trava da conta (issue #300): grava a reprovação e, se ela é a décima, o pedido

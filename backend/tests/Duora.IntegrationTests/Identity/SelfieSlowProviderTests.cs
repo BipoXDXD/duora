@@ -7,7 +7,9 @@ using System.Text;
 using Amazon.Runtime;
 using Duora.Core.Identity;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.DependencyInjection.Extensions;
 using Microsoft.Extensions.Hosting;
+using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Time.Testing;
 using worker::Duora.Worker;
 
@@ -29,9 +31,6 @@ public sealed class SelfieSlowProviderTests(PostgresFixture postgres)
 
     /// <summary>Maior que a espera de 5 s até a próxima tentativa.</summary>
     private static readonly TimeSpan UntilNextTry = TimeSpan.FromSeconds(6);
-
-    /// <summary>Maior que o lease de 30 s, contado a partir do relógio real do worker no caso da lacuna.</summary>
-    private static readonly TimeSpan PastTheLease = TimeSpan.FromSeconds(90);
 
     private const int MoreTriesThanTheAttemptAllows = 40;
 
@@ -159,41 +158,119 @@ public sealed class SelfieSlowProviderTests(PostgresFixture postgres)
             "select count(*) from identity.selfie_failures where user_id = $1", account.UserId));
     }
 
+    [Theory]
+    [InlineData(true, "IOException")]
+    [InlineData(true, "TimeoutException")]
+    [InlineData(false, "IOException")]
+    [InlineData(false, "TimeoutException")]
+    public async Task ATransportFailureIsRequeuedKeepingTheAttemptAndCountingNothing(bool startFails, string failure)
+    {
+        var provider = new FaultySelfieProvider(_time);
+        var connection = await postgres.CreateMigratedDatabaseAsync(Ct);
+        await using var host = SelfieConcurrencyHarness.Host(connection, _time, provider);
+        var scenario = new IdentityScenario(connection, host);
+        var account = await scenario.CreateConfirmedAccountAsync();
+        await SelfieConcurrencyHarness.RequestAsync(host, account.UserId, Ct);
+        Func<CancellationToken, Task> fault = _ => throw TransportFailure(failure);
+        provider.StartFault = startFails ? fault : null;
+        provider.ReadFault = fault;
+        if (!startFails)
+        {
+            await SelfieConcurrencyHarness.DispatchAsync(host, Ct);
+            _time.Advance(UntilNextTry);
+        }
+
+        await SelfieConcurrencyHarness.DispatchAsync(host, Ct);
+
+        Assert.Equal(startFails ? "Pending|no-reference|no-feedback|open" : "Capturing|has-reference|no-feedback|open", await AttemptAsync(scenario));
+        Assert.Equal($"Pending|ProviderUnavailable|{(startFails ? 1 : 2)}", await DeliveryAsync(scenario));
+        await AssertNotReleasedAsync(scenario, host, account.UserId);
+
+        provider.StartFault = provider.ReadFault = null;
+        _time.Advance(UntilNextTry);
+        await SelfieConcurrencyHarness.DispatchAsync(host, Ct);
+
+        Assert.Equal(startFails ? "Capturing|has-reference|no-feedback|open" : "Passed|has-reference|no-feedback|closed", await AttemptAsync(scenario));
+    }
+
     /// <summary>
-    /// Lacuna do T-17, gravada como está hoje para não passar despercebida: o SDK entrega o reset de conexão como
-    /// <see cref="IOException"/>, que nem o dispatcher nem o loop do worker tratam, e a exceção para o host inteiro. O
-    /// dado continua íntegro. Quando a produção tratar esse caso, este teste falha e deve virar a garantia de que o
-    /// worker segue vivo e reagenda a entrega.
+    /// Pelo SDK real no <see cref="WorkerHost"/> real, com relógio real: o reset de conexão chega como
+    /// <see cref="IOException"/> e o timeout do <see cref="HttpClient"/> como <see cref="TimeoutException"/>. O worker
+    /// segue vivo e a mesma tentativa é retomada 5 s depois.
     /// </summary>
-    [Fact]
-    public async Task KnownGapAConnectionResetStopsTheWholeWorkerButLeavesTheAttemptIntact()
+    [Theory]
+    [InlineData("IOException")]
+    [InlineData("TimeoutException")]
+    public async Task ATransportFailureDoesNotStopTheWorkerAndTheAttemptIsRetried(string failure)
     {
         var connection = await postgres.CreateMigratedDatabaseAsync(Ct);
-        var transport = new SyntheticAwsTransport(ConnectionReset);
+        var transport = new SyntheticAwsTransport(failure == "IOException" ? ConnectionReset : HttpClientTimeout);
         await using var web = RealSdkHost(connection, transport);
         var scenario = new IdentityScenario(connection, web);
         var account = await scenario.CreateConfirmedAccountAsync();
         await SelfieConcurrencyHarness.RequestAsync(web, account.UserId, Ct);
-        using var workerHost = BuildWorker(connection, transport);
+        using var workerHost = BuildWorker(connection, services => services.AddSingleton<HttpClientFactory>(transport));
         var lifetime = workerHost.Services.GetRequiredService<IHostApplicationLifetime>();
-        var stopping = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
-        using var registration = lifetime.ApplicationStopping.Register(() => stopping.TrySetResult());
+        var loop = workerHost.Services.GetServices<IHostedService>().OfType<SelfieVerificationProviderService>().Single();
 
         await workerHost.StartAsync(Ct);
-        var loop = workerHost.Services.GetServices<IHostedService>().OfType<SelfieVerificationProviderService>().Single();
-        await Assert.ThrowsAsync<IOException>(() => loop.ExecuteTask!.WaitAsync(CallCeiling, Ct));
-        await stopping.Task.WaitAsync(CallCeiling, Ct);
-        await workerHost.StopAsync(Ct);
+        await WaitWhileRunningAsync(lifetime, async () => await DeliveryAsync(scenario) == "Pending|ProviderUnavailable|1");
 
         Assert.Equal("Pending|no-reference|no-feedback|open", await AttemptAsync(scenario));
-        Assert.Equal("InFlight|-|1", await DeliveryAsync(scenario));
         await AssertNotReleasedAsync(scenario, web, account.UserId);
 
         transport.Send = HealthySession;
-        _time.Advance(PastTheLease);
-        await SelfieConcurrencyHarness.DispatchAsync(web, Ct);
+        await WaitWhileRunningAsync(lifetime, async () => await AttemptAsync(scenario) == "Capturing|has-reference|no-feedback|open");
 
-        Assert.Equal("Capturing|has-reference|no-feedback|open", await AttemptAsync(scenario));
+        Assert.False(loop.ExecuteTask!.IsCompleted);
+        await AssertNotReleasedAsync(scenario, web, account.UserId);
+        await workerHost.StopAsync(Ct);
+    }
+
+    /// <summary>
+    /// Erro de programação no fornecedor não entra na lista de transitórias: não reagenda, vira log de erro com o tipo,
+    /// e a fila segue. A entrega fica presa só até o lease vencer, e o teto de tentativas a encerra.
+    /// </summary>
+    [Fact]
+    public async Task AnUnexpectedProviderErrorIsLoggedWithoutStoppingTheQueue()
+    {
+        var provider = new FaultySelfieProvider(_time);
+        var secondCall = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        provider.StartFault = _ =>
+        {
+            if (provider.StartCalls == 1)
+            {
+                throw new ArgumentNullException(nameof(provider));
+            }
+
+            secondCall.TrySetResult();
+            return Task.CompletedTask;
+        };
+        var connection = await postgres.CreateMigratedDatabaseAsync(Ct);
+        await using var web = SelfieConcurrencyHarness.Host(connection, _time, provider);
+        var scenario = new IdentityScenario(connection, web);
+        var first = await scenario.CreateConfirmedAccountAsync();
+        var second = await scenario.CreateConfirmedAccountAsync();
+        await SelfieConcurrencyHarness.RequestAsync(web, first.UserId, Ct);
+        await SelfieConcurrencyHarness.RequestAsync(web, second.UserId, Ct);
+        var logs = new CapturingLoggerProvider();
+        using var workerHost = BuildWorker(connection, services =>
+        {
+            services.RemoveAll<ISelfieProvider>();
+            services.AddSingleton<ISelfieProvider>(provider);
+        }, logs);
+        var loop = workerHost.Services.GetServices<IHostedService>().OfType<SelfieVerificationProviderService>().Single();
+
+        await workerHost.StartAsync(Ct);
+        await secondCall.Task.WaitAsync(CallCeiling, Ct);
+
+        var error = await logs.FirstWarningFrom(typeof(SelfieVerificationProviderService).FullName!).WaitAsync(CallCeiling, Ct);
+        Assert.Equal(LogLevel.Error, error.Level);
+        Assert.Contains(nameof(ArgumentNullException), error.Text, StringComparison.Ordinal);
+        Assert.Null(error.Exception);
+        Assert.False(loop.ExecuteTask!.IsCompleted);
+        Assert.False(workerHost.Services.GetRequiredService<IHostApplicationLifetime>().ApplicationStopping.IsCancellationRequested);
+        await workerHost.StopAsync(Ct);
     }
 
     private static Task<HttpResponseMessage> Stall(CancellationToken cancellationToken) =>
@@ -204,6 +281,13 @@ public sealed class SelfieSlowProviderTests(PostgresFixture postgres)
 
     private static Task<HttpResponseMessage> ConnectionReset(CancellationToken cancellationToken) =>
         throw new HttpRequestException("Conexão sintética encerrada.", new IOException("Conexão sintética encerrada."));
+
+    private static Task<HttpResponseMessage> HttpClientTimeout(CancellationToken cancellationToken) =>
+        throw new TaskCanceledException("Tempo sintético esgotado.", new TimeoutException("Tempo sintético esgotado."));
+
+    private static Exception TransportFailure(string name) => name == "IOException"
+        ? new IOException("Conexão sintética encerrada.")
+        : new TimeoutException("Tempo sintético esgotado.");
 
     private static Task<HttpResponseMessage> HealthySession(CancellationToken cancellationToken)
     {
@@ -222,7 +306,7 @@ public sealed class SelfieSlowProviderTests(PostgresFixture postgres)
         TestServices = services => services.AddSingleton<HttpClientFactory>(transport),
     };
 
-    private static IHost BuildWorker(string connection, SyntheticAwsTransport transport)
+    private static IHost BuildWorker(string connection, Action<IServiceCollection> services, CapturingLoggerProvider? logs = null)
     {
         var builder = WorkerHost.CreateBuilder(
         [
@@ -232,8 +316,25 @@ public sealed class SelfieSlowProviderTests(PostgresFixture postgres)
             $"--Email:PickupDirectory={Path.Combine(Path.GetTempPath(), "duora-mail-unused")}",
             .. SelfieTestSettings.Enabled(ScriptedSelfieProvider.Policy).Select(setting => $"--{setting.Key}={setting.Value}"),
         ]);
-        builder.Services.AddSingleton<HttpClientFactory>(transport);
+        services(builder.Services);
+        if (logs is not null)
+        {
+            builder.Logging.AddProvider(logs);
+        }
+
         return builder.Build();
+    }
+
+    /// <summary>Espera a condição no banco e falha na hora se o host do worker começar a parar.</summary>
+    private static async Task WaitWhileRunningAsync(IHostApplicationLifetime lifetime, Func<Task<bool>> condition)
+    {
+        using var timeout = CancellationTokenSource.CreateLinkedTokenSource(Ct);
+        timeout.CancelAfter(CallCeiling);
+        while (!await condition())
+        {
+            Assert.False(lifetime.ApplicationStopping.IsCancellationRequested, "O host do worker parou.");
+            await Task.Delay(TimeSpan.FromMilliseconds(50), timeout.Token);
+        }
     }
 
     /// <summary>Tempo real de um lote; falha em vez de pendurar a suíte se a chamada não for cortada.</summary>
