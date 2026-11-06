@@ -292,13 +292,14 @@ concedidas. "404 uniforme" quer dizer que alheio e inexistente dão o mesmo stat
 | GET `/admin/photo-reviews/{caseId}/evidence/{variant}` | 403 `FORBIDDEN` | 403 `FORBIDDEN` | 200 `image/webp`, `no-store`, auditada antes dos bytes; 404 caso não atribuído ou variante desconhecida; 503 storage | 403 `PHOTO_REVIEW_FORBIDDEN` | 401 `UNAUTHENTICATED` |
 | POST `/admin/photo-reviews/{caseId}/decisions` | 403 `FORBIDDEN` | 403 `FORBIDDEN` | 200 com MFA recente (TOTP na última hora, ADR-0041); sem ela, 401 `REAUTHENTICATION_REQUIRED` | 401 `REAUTHENTICATION_REQUIRED` sem MFA recente; com ela, 403 `PHOTO_REVIEW_FORBIDDEN` | 401 `UNAUTHENTICATED` |
 
-Evidência: `PhotoReviewHttpTests` (fluxo do moderador único, 404 uniforme no histórico, rotas de recurso
-inexistentes), `PhotoReviewOwnerPhotoListTests` (lista só do titular, 401), `PhotoDeletionTests` e
+Evidência: `PhotoReviewApprovalTests` (classe `partial` dos arquivos `PhotoReviewHttpTests.cs`, `PhotoReviewOwnerPhotoListTests.cs` e
+`PhotoReviewAuthorizationMatrixTests.cs`; filtro `FullyQualifiedName~Safety.PhotoReviewApprovalTests`): fluxo do moderador único, 404 uniforme no
+histórico, rotas de recurso inexistentes e lista só do titular com 401. Também: `PhotoDeletionTests` e
 `MediaAssetReadTests` (404 uniforme, 401), `AdminRouteTests` (401 anônimo, 403 participante, 503 com upload
 desligado, 401 `REAUTHENTICATION_REQUIRED` sem MFA recente numa ação crítica), `SecondFactorHardeningTests`
 (403 da conta privilegiada em API-M01/M02) e `PhotoReviewAccessTests` (capacidades explícitas; `operator`, `product_admin` e `participant` não
 recebem grant). As células que só tinham o código como evidência (política padrão e recusa do serviço) têm agora
-teste HTTP em `PhotoReviewAuthorizationMatrixTests`, com o upload ligado, PostgreSQL real e dados sintéticos; cada
+teste HTTP no arquivo `PhotoReviewAuthorizationMatrixTests.cs` (mesma classe `PhotoReviewApprovalTests`), com o upload ligado, PostgreSQL real e dados sintéticos; cada
 teste afirma o status, o código do problema e que o corpo não traz identificador alheio, e confere que banco e
 armazenamento não mudaram: as 403 de `moderator`, `product_admin` e `operator` em lista, histórico, DELETE e
 `/media` (`PrivilegedAccountsAreForbiddenOnTheOwnerPhotoRoutesAndNothingOfTheOwnerLeaks`); as 403 de titular e outro
