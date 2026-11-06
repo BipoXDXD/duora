@@ -437,8 +437,9 @@ SWAP_SOURCE_IMAGE = "ghcr.io/bipoxdxd/duora-postgres@sha256:d32f8c4408e804bf8b57
 SWAP_TARGET_IMAGE = "ghcr.io/bipoxdxd/duora-postgres@sha256:b5103bfd8ac7832915eed8170ffd0bcb94d9bca834cbd659114fa25606f0434e"
 SWAP_MAX_FILL_MIB = 8192
 SWAP_FILL_BATCH_MIB = 64
-# Cada linha são 100 md5 (3,2 KiB) com storage external: sem compressão, o tamanho pedido é o tamanho no disco.
-SWAP_FILL_ROWS = 20971
+# Cada linha são 100 md5 (3,2 KiB) com storage external, sem compressão. O TOAST ocupa cerca de 30% a mais: 16000 linhas
+# dão perto de 64 MiB no disco, medido em PostgreSQL 18.
+SWAP_FILL_ROWS = 16000
 SWAP_FILL_MD5_PER_ROW = 100
 # Tabela, WAL no pg_wal e a cópia cifrada no MinIO, mais a imagem alvo e folga.
 SWAP_DISK_FACTOR = 3
