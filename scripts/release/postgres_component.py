@@ -235,23 +235,8 @@ def inspect_recipe(root: Path) -> str:
 
 def validate_recipe(root: Path) -> None:
     """Reject inputs the closed runtime inventory cannot describe; never build as fallback."""
-    instructions = []
-    pending = ""
-    for raw in (root / "infra/images/postgres/Dockerfile").read_text().splitlines():
-        line = raw.strip()
-        if PARSER_DIRECTIVE.match(line):
-            raise ValueError("PostgreSQL recipe must not carry a parser directive")
-        if not line or line.startswith("#"):
-            continue
-        continuation = line.endswith("\\")
-        pending += (line[:-1] if continuation else line) + " "
-        if not continuation:
-            instructions.append(pending.strip())
-            pending = ""
-    if pending:
-        raise ValueError("Incomplete PostgreSQL Dockerfile instruction")
     bases = []
-    for instruction in instructions:
+    for instruction in recipe_instructions((root / "infra/images/postgres/Dockerfile").read_bytes()):
         parts = instruction.split(maxsplit=1)
         command = parts[0].upper()
         value = parts[1] if len(parts) == 2 else ""
@@ -278,6 +263,38 @@ def validate_recipe(root: Path) -> None:
                     raise ValueError("PostgreSQL COPY escapes the closed runtime inventory")
     if len(bases) != 1 or not re.fullmatch(r"postgres:18\.[0-9]+-trixie@sha256:[0-9a-f]{64}", bases[0]):
         raise ValueError("PostgreSQL base must be the reviewed immutable single-stage platform image")
+
+
+def recipe_instructions(recipe: bytes) -> list[str]:
+    """Split the recipe as BuildKit does, refusing every form where the two could differ.
+
+    The reference is frontend/dockerfile/parser/parser.go in moby/buildkit v0.34.2. Its lines end only at LF, its
+    continuation token does not count after another token, it joins lines without a separator, and heredoc bodies
+    are not instructions. A recipe that depends on any of these never reaches a build.
+    """
+    text = recipe.decode("utf-8")
+    if any(not character.isprintable() and character not in "\t\n" for character in text):
+        raise ValueError("PostgreSQL recipe carries a character outside the BuildKit line model")
+    instructions = []
+    pending = ""
+    for raw in text.split("\n"):
+        line = raw.strip()
+        if PARSER_DIRECTIVE.match(line):
+            raise ValueError("PostgreSQL recipe must not carry a parser directive")
+        if not line or line.startswith("#"):
+            continue
+        continuation = line.endswith("\\")
+        if continuation and not line[:-1].endswith((" ", "\t")):
+            raise ValueError("PostgreSQL recipe continuation must follow whitespace")
+        pending += (line[:-1] if continuation else line) + " "
+        if not continuation:
+            if "<<" in pending:
+                raise ValueError("PostgreSQL recipe must not carry a heredoc")
+            instructions.append(pending.strip())
+            pending = ""
+    if pending:
+        raise ValueError("Incomplete PostgreSQL Dockerfile instruction")
+    return instructions
 
 
 def select_proof_artifact(lock: dict[str, Any], inventory: dict[str, Any], architecture: str,
