@@ -56,7 +56,7 @@ estão como "não implementado" ([acceptance.md](docs/testing/acceptance.md)).
 | Marco | Entrega |
 |---|---|
 | M0 | Fundação: build reproduzível no Mac e no Linux, CI, PostgreSQL real, ADRs |
-| M1 | Identidade e proteção: cadastro, sessão, perfil, MFA administrativo, bloqueio, denúncia, fluxo etário |
+| M1 | Identidade e proteção: cadastro, sessão, perfil, MFA administrativo, bloqueio, denúncia, declaração de 18 anos ou mais, confirmação de e-mail e selfie de presença |
 | M2 | Fatia vertical: evento, rodada, pareamento, primeira experiência, chat de sala e decisão |
 | M3 | Piloto operável: chat persistente, segunda experiência, administração, exportação/exclusão, alertas |
 

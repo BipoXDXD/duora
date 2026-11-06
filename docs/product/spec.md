@@ -1732,13 +1732,13 @@ Os marcos são ordenados por dependência e risco, sem inventar prazo de impleme
 | Marco | Entrega | Aceite objetivo | Não avançar quando |
 |---|---|---|---|
 | M0 — Fundação verificável | Repositório .NET/React, CI, contratos iniciais, infraestrutura de homologação e protótipo de design | Build reproduzível no Mac e Linux; PostgreSQL real; arquitetura de destino validada; deploy/restore sintético; ADRs principais | Dependências, permissões ou backup indefinidos |
-| M1 — Identidade e proteção | Cadastro, sessão, perfil, MFA administrativo, bloqueio, denúncia e fluxo etário | T-01, T-03, T-10, T-13 a T-17 e T-21; política de dados aprovada | Exposição de dados, antiforgery incompleto ou moderação sem responsável |
+| M1 — Identidade e proteção | Cadastro, sessão, perfil, MFA administrativo, bloqueio, denúncia e declaração de 18 anos ou mais, confirmação de e-mail e selfie de presença | T-01, T-03, T-10, T-13 a T-17 e T-21; política de dados aprovada | Exposição de dados, antiforgery incompleto ou moderação sem responsável |
 | M2 — Fatia vertical | Evento, inscrição, rodada, pareamento, Rotas Improváveis, chat de sala e decisão | Dois participantes concluem; terceiro é negado; concorrência/reconexão demonstradas | Só “caminho feliz” funciona ou estado depende de memória |
-| M3 — Piloto operável | Chat persistente, segundo jogo, administração, exclusão/exportação e alertas | Matriz crítica completa; restore limpo; acessibilidade e carga ensaiadas | Verificação etária/retention/DR sem evidência |
+| M3 — Piloto operável | Chat persistente, segundo jogo, administração, exclusão/exportação e alertas | Matriz crítica completa; restore limpo; acessibilidade e carga ensaiadas | Declaração de 18+, e-mail, selfie de presença, aceite do risco etário, retention ou DR sem evidência |
 | M4 — Piloto controlado | Entrada gradual de pessoas adultas com suporte e limites | Começar pequeno, observar tarefas e segurança; ampliar até limite testado | Erro de segurança, sobrecarga, denúncias sem tratamento ou metas não atendidas |
 | M5 — Evolução medida | Melhorias de experiência, capacidade e integrações justificadas | Decisões baseadas em métricas e relatos; ADRs de escala | Adição de infraestrutura apenas por expectativa abstrata |
 
-A expansão sugerida pode passar por grupos de 10, depois 50 e até 100 participantes simultâneos, **somente conforme teste e operação permitirem**. O piloto não recebe automaticamente a capacidade máxima do ensaio. Antes de qualquer pessoa real, M1/M2 precisam dos controles etários, privacidade, atendimento e incidentes aplicáveis; ambiente sintético não autoriza flexibilizá-los em produção.
+A expansão sugerida pode passar por grupos de 10, depois 50 e até 100 participantes simultâneos, **somente conforme teste e operação permitirem**. O piloto não recebe automaticamente a capacidade máxima do ensaio. Antes de qualquer pessoa real, M1/M2 precisam da declaração de 18 anos ou mais, do e-mail confirmado, da selfie de presença, do aceite do risco etário residual pelo dono e dos controles de privacidade, atendimento e incidentes aplicáveis; ambiente sintético não autoriza flexibilizá-los em produção.
 
 ### 22.1. Definition of Ready
 
@@ -1784,7 +1784,7 @@ Aumento de denúncias pode significar abuso maior ou mecanismo mais fácil de us
 | VPS | Ubuntu Server 24.04 LTS/Compose; Hostinger KVM 2 (2 vCPU/8 GB), Boston | Provedor, região, IOPS, suporte, arquitetura e teste | Provisionamento final/capacidade |
 | Storage e backup | Externos, privados e separados | Recursos, credenciais, retenção, exportação e teste | Dados reais |
 | Domínio/e-mail | Mesma origem (`meetduora.com`), DNS na Cloudflare e e-mail transacional | Registro só DNS ou proxied, provedor de e-mail e autenticação de envio | Cadastro real |
-| Verificação etária | Controle adequado antes de participação | Método/provedor, revisão e critérios legais/técnicos | Participação real |
+| Requisito de 18 anos | Termos exigem 18+ por autodeclaração; participação exige e-mail confirmado e selfie de presença; sem verificação etária (ADR-0029; decisões de 29/10, item 1) | Aceite do risco residual pelo dono; revisão jurídica da lacuna 5 do mapa de dados, J-02 e J-05 | Participação real |
 | Privacidade | Minimização e exclusão rastreável | Prazos finais, bases, fornecedores e responsáveis | Coleta real |
 | Moderação | Triagem automatizada, decisões críticas revisadas | Política, cobertura, escalonamento e recurso | Piloto |
 | Desempenho | Metas e cenário definidos | Relatório no hardware selecionado | Ampliação de capacidade |
@@ -1803,7 +1803,7 @@ Essas pendências não são permissão para deixar a implementação vaga: cada 
 |---|---|---|
 | Segurança de conta | Sessão, CSRF, MFA administrativo e revogação testados | Especificado; não executado |
 | Segurança interpessoal | Bloqueio, denúncia, recurso e responsável disponíveis | Especificado; não executado |
-| Público adulto | Método e fluxo de verificação aprovados e testados | Critérios definidos; seleção pendente |
+| Público adulto | Declaração de 18+, e-mail confirmado e selfie de presença testados, com uma execução real da selfie registrada; rotas etárias legadas em `410`; risco de declaração falsa aceito por escrito pelo dono; revisão jurídica da lacuna 5 concluída. Nada disso prova idade | Testes automatizados com fornecedor sintético; execução real a conferir; aceite e revisão pendentes |
 | Privacidade | Mapa de dados, retention e exclusão validados | Proposta; revisão necessária |
 | Consistência | Concorrência, idempotência, reconexão e versão de jogo testadas | Especificado; não executado |
 | Experiência | Jornada completa, estados de erro e evidências A11Y-01 a A11Y-08 | Especificado; não executado |
