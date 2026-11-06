@@ -430,6 +430,7 @@ teste** (nunca produção) e um host `internet` arbitrário na rede de saída do
 ```sh
 docker buildx build -f infra/images/postgres/Dockerfile -t duora-postgres:drill --load .
 python3 scripts/backup/restore_drill.py --image duora-postgres:drill
+# Com root, ou sudo sem senha, segue para o PITR atravessando a troca de digest; no Actions isso é obrigatório.
 ```
 
 1. **Isolamento**:
