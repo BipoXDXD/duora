@@ -17,6 +17,9 @@ public sealed class SelfieCaptureOptions
 
 public sealed class SelfieCaptureCredentialService
 {
+    /// <summary>Teto do AssumeRole com as repetições do SDK; sem ele, 100 s por tentativa passariam dos 3 min da tentativa.</summary>
+    private static readonly TimeSpan AssumeRoleTimeout = TimeSpan.FromSeconds(10);
+
     private readonly SelfieVerificationService _verifications;
     private readonly IOptions<SelfieProviderOptions> _options;
     private readonly IOptions<SelfieCaptureOptions> _capture;
@@ -44,13 +47,15 @@ public sealed class SelfieCaptureCredentialService
             Version = "2012-10-17",
             Statement = new[] { new { Effect = "Allow", Action = "rekognition:StartFaceLivenessSession", Resource = "*" } },
         });
+        using var timeout = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        timeout.CancelAfter(AssumeRoleTimeout);
         var response = await client.AssumeRoleAsync(new AssumeRoleRequest
         {
             RoleArn = _capture.Value.CaptureRoleArn,
             RoleSessionName = "selfie-" + id.ToString("N"),
             DurationSeconds = 900,
             Policy = policy,
-        }, cancellationToken);
+        }, timeout.Token);
         var credentials = response.Credentials;
         return new(reference, _options.Value.Region,
             new(credentials.AccessKeyId, credentials.SecretAccessKey, credentials.SessionToken, credentials.Expiration!.Value));

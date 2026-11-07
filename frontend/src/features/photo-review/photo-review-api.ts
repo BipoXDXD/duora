@@ -1,6 +1,8 @@
 import type { OperationHandle } from '@/shared/session-context'
 import { z } from 'zod'
 import { apiClient, ApiResponseError, sendMutation, sendMutationForJson } from '@/shared/api'
+import type { components, paths } from '@/shared/api/schema'
+import type { PhotoToUpload } from './owner-photo-file'
 
 // Localized boundary for the M7 contract (2026-10-25). Backend owns final generated OpenAPI/types.
 const instant = z.iso.datetime({ offset: true })
@@ -44,9 +46,37 @@ const ownerPhotoPageSchema = z.object({
     z.object({ photoId: id, status: z.string(), rejectionCode: z.string().nullable(), createdAt: instant }),
   ),
   nextCursor: z.string().max(512).nullable(),
-})
+}) satisfies z.ZodType<components['schemas']['PhotoReviewPhotoPageResponse']>
+const photoUploadSchema = z.object({
+  photoId: id,
+  status: z.string(),
+}) satisfies z.ZodType<components['schemas']['PhotoUploadResponse']>
+const photoStatusSchema = z.object({
+  photoId: id,
+  status: z.string(),
+  rejectionCode: z.string().nullable(),
+}) satisfies z.ZodType<components['schemas']['PhotoStatusResponse']>
+// O DELETE só aceita uma tag forte e única: fraca, lista e curinga nunca valem como versão da foto.
+const strongETag = /^"[^"]+"$/
 
 export type OwnerPhotoPage = z.output<typeof ownerPhotoPageSchema>
+export type OwnerPhoto = OwnerPhotoPage['items'][number]
+export type UploadedPhoto = z.output<typeof photoUploadSchema>
+export type OwnerPhotoVersion = z.output<typeof photoStatusSchema> & { readonly eTag: string }
+
+export interface PhotoUploadIntent {
+  readonly key: string
+  readonly photo: PhotoToUpload
+}
+
+export interface PhotoDeletionIntent {
+  readonly photoId: string
+  readonly eTag: string
+  readonly key: string
+}
+
+type PhotoUploadHeaders = paths['/api/v1/me/photos']['post']['parameters']['header']
+type PhotoDeletionHeaders = paths['/api/v1/me/photos/{photoId}']['delete']['parameters']['header']
 
 export type ReviewCapabilities = z.output<typeof capabilitiesSchema>
 export type PhotoReviewHistory = z.output<typeof historySchema>
@@ -128,6 +158,59 @@ export async function fetchOwnerPhotoPage(
   const query = new URLSearchParams({ limit: '20' })
   if (cursor !== null) query.set('cursor', cursor)
   return ownerPhotoPageSchema.parse(await json(await get(operation, `/api/v1/me/photos?${query}`, signal)))
+}
+
+/** API-M01: corpo cru, não JSON. Chave e bytes ficam na intenção para repetir o pedido sem duplicar a foto. */
+export async function uploadOwnerPhoto(
+  operation: OperationHandle,
+  intent: PhotoUploadIntent,
+  signal?: AbortSignal,
+): Promise<UploadedPhoto> {
+  const headers: PhotoUploadHeaders & { 'Content-Type': string } = {
+    'Idempotency-Key': intent.key,
+    'Content-Type': intent.photo.contentType,
+  }
+  const response = await apiClient.fetchFor(operation)(
+    new Request(new URL('/api/v1/me/photos', location.origin), {
+      method: 'POST',
+      cache: 'no-store',
+      redirect: 'error',
+      headers,
+      body: intent.photo.bytes,
+      ...(signal === undefined ? {} : { signal }),
+    }),
+  )
+  return photoUploadSchema.parse(await json(response))
+}
+
+/** API-M02 é a única fonte da versão aceita no If-Match da exclusão; a lista não traz ETag. */
+export async function fetchOwnerPhotoVersion(
+  operation: OperationHandle,
+  photoId: string,
+  signal?: AbortSignal,
+): Promise<OwnerPhotoVersion> {
+  const response = await get(operation, `/api/v1/me/photos/${encodeURIComponent(photoId)}/status`, signal)
+  const status = photoStatusSchema.parse(await json(response))
+  const eTag = response.headers.get('ETag')
+  if (eTag === null || !strongETag.test(eTag)) throw new ApiResponseError(response.status, 'missing or invalid ETag')
+  if (status.photoId !== photoId) throw new ApiResponseError(response.status, 'inconsistent photo status')
+  return { ...status, eTag }
+}
+
+/** API-M03: exclusão lógica, sem corpo, na versão que a pessoa confirmou. */
+export function deleteOwnerPhoto(
+  operation: OperationHandle,
+  intent: PhotoDeletionIntent,
+  signal?: AbortSignal,
+): Promise<void> {
+  const headers: PhotoDeletionHeaders = { 'If-Match': intent.eTag, 'Idempotency-Key': intent.key }
+  return sendMutation({
+    operation,
+    method: 'DELETE',
+    path: `/api/v1/me/photos/${encodeURIComponent(intent.photoId)}`,
+    headers,
+    ...(signal === undefined ? {} : { signal }),
+  })
 }
 
 export async function fetchReviewPage(
