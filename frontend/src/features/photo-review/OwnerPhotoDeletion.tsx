@@ -40,7 +40,9 @@ export function OwnerPhotoDeletion({
   const { t } = useI18n()
   const titleId = useId()
   const panel = useRef<HTMLDivElement>(null)
-  const verifying = useRef(false)
+  // A leitura (epoch) que decide a exclusão incerta. Um efeito de commit anterior ao clique ainda pode rodar com a
+  // versão velha: só o epoch que o clique pediu decide.
+  const verifyingRead = useRef<number | null>(null)
   const privateOperation = usePrivateOperation()
   const [epoch, setEpoch] = useState(0)
   const version = useQuery({
@@ -63,16 +65,16 @@ export function OwnerPhotoDeletion({
   useLeaveWarning(pending)
   useEffect(() => {
     if (version.error === null) return
-    verifying.current = false
+    if (verifyingRead.current === epoch) verifyingRead.current = null
     onFailure(version.error)
     if (reviewHttpStatus(version.error) === 404) onGone()
-  }, [version.error, onFailure, onGone])
+  }, [version.error, epoch, onFailure, onGone])
   useEffect(() => {
-    if (current === undefined || !verifying.current) return
-    verifying.current = false
+    if (current === undefined || verifyingRead.current !== epoch) return
+    verifyingRead.current = null
     if (current.status === 'Deleted') onDeleted()
     else command.conclude()
-  }, [current, command, onDeleted])
+  }, [current, epoch, command, onDeleted])
   useEffect(() => {
     if (!pending && (current?.status === 'Deleted' || closed)) onGone()
   }, [current, closed, pending, onGone])
@@ -112,8 +114,8 @@ export function OwnerPhotoDeletion({
         }}
         onVerify={() => {
           focusPanel()
-          verifying.current = true
-          setEpoch((value) => value + 1)
+          verifyingRead.current = epoch + 1
+          setEpoch(epoch + 1)
         }}
         onReread={() => {
           focusPanel()
