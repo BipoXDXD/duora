@@ -5,8 +5,9 @@ de [28/10](decisions-2026-10-28.md) e [29/10](decisions-2026-10-29.md); o que n�
 
 1. **Identificação retirada dos sites, por enquanto:** a ordem foi "retire o nome da pessoa física dos sites por
    enquanto". Isto substitui o item 1 do registro de 28/10 para as versões novas.
-   - **Termos e Privacidade:** versão nova `2026-11-07`, em PT-BR e EN-US. A única mudança de conteúdo é a
-     identificação. `controllerName` é o texto neutro exato `Responsável pelo Duora`, igual nas quatro fontes. O
+   - **Termos e Privacidade:** versão nova `2026-11-07`, em PT-BR e EN-US. As mudanças de conteúdo são a
+     identificação e, na Privacidade, a retirada da frase que prometia acesso às versões anteriores pelo endereço de
+     cada uma. `controllerName` é o texto neutro exato `Responsável pelo Duora`, igual nas quatro fontes. O
      contato continua `support@meetduora.com`. Nenhuma empresa entra no lugar: a operadora não aparece sem CNPJ e
      aval do dono.
    - **Temporário:** a identificação volta, em versão nova, quando houver CNPJ.
@@ -35,5 +36,5 @@ SHA-256 de conteúdo da versão `2026-11-07`, fixados no teste `PublishedDocumen
 |---|---|
 | terms/pt-BR | `101bd6102a89bc32135e2cfda3f7c2bbbe739ca6e7e4a3d6024124348960e8e8` |
 | terms/en-US | `b07c56cc2655f8625d5221521eaba32cfa874bd55fe6609ab66cec187f64d80e` |
-| privacy/pt-BR | `aad9288cc724d5310430cea90dafb5c24cf097274e70a1e802265d9867e80b01` |
-| privacy/en-US | `236e00727761937ec434356e6dcc11d6d1cf57a79a45c8830ee0ff7890eb58a7` |
+| privacy/pt-BR | `3f045d877474bb9f5510fa0fdac7833ac0d7e0e5b4fd572d6f68712c2058e073` |
+| privacy/en-US | `e1b3642bdadd51033dd7aff072be8be4bf849d3dc7d5072da417683d43d38d3f` |

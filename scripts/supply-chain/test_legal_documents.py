@@ -78,7 +78,7 @@ class LegalDocumentSourcesTests(unittest.TestCase):
                 self.assertIn(declaration, " ".join(section["paragraphs"]))
         self.assertEqual(expected, {})
 
-    def test_superseded_terms_stay_resolvable_and_unchanged(self):
+    def test_superseded_versions_stay_in_the_canonical_catalog(self):
         catalog = load_catalog()
         self.assertEqual(catalog["termsVersion"], "2026-11-07")
         self.assertEqual(catalog["privacyVersion"], "2026-11-07")
