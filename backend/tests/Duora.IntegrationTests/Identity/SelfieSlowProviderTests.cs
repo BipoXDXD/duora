@@ -98,11 +98,14 @@ public sealed class SelfieSlowProviderTests(PostgresFixture postgres)
         Assert.True(await SelfieConcurrencyHarness.EligibleAsync(host, account.UserId, Ct));
     }
 
-    /// <summary>A tentativa dura 3 minutos e o retry vem a cada 6 s no relógio do teste: 30 chamadas ao todo, contando o início.</summary>
+    /// <summary>
+    /// A tentativa dura 3 minutos e o retry vem a cada 6 s no relógio do teste. Sem sessão, a última chamada é a de 2:30,
+    /// e a entrega seguinte encerra: 26 inícios em 27 entregas. Com sessão, a leitura vai até o fim do prazo.
+    /// </summary>
     [Theory]
-    [InlineData(true, 30, 0)]
-    [InlineData(false, 1, 29)]
-    public async Task AProviderThatStaysDownEndsTheAttemptExpiredWithoutCountingIt(bool startFails, int expectedStarts, int expectedReads)
+    [InlineData(true, 26, 0, 27)]
+    [InlineData(false, 1, 29, 31)]
+    public async Task AProviderThatStaysDownEndsTheAttemptExpiredWithoutCountingIt(bool startFails, int expectedStarts, int expectedReads, int expectedDeliveries)
     {
         var provider = new FaultySelfieProvider(_time);
         var connection = await postgres.CreateMigratedDatabaseAsync(Ct);
@@ -120,7 +123,7 @@ public sealed class SelfieSlowProviderTests(PostgresFixture postgres)
         }
 
         Assert.Equal((expectedStarts, expectedReads), (provider.StartCalls, provider.ReadCalls));
-        Assert.Equal("Expired|-|31", await DeliveryAsync(scenario));
+        Assert.Equal($"Expired|-|{expectedDeliveries}", await DeliveryAsync(scenario));
         Assert.Equal(startFails ? "Expired|no-reference|PROVIDER_UNAVAILABLE|closed" : "Expired|has-reference|PROVIDER_UNAVAILABLE|closed", await AttemptAsync(scenario));
         var expired = await SelfieConcurrencyHarness.CurrentAsync(host, account.UserId, Ct);
         Assert.Equal(("Recapture", SelfieFeedbackCodes.ProviderUnavailable), (expired.NextStep, expired.FeedbackCode));
@@ -128,6 +131,66 @@ public sealed class SelfieSlowProviderTests(PostgresFixture postgres)
 
         provider.ReadFault = provider.StartFault = null;
         await SelfieConcurrencyHarness.RequestAsync(host, account.UserId, Ct);
+    }
+
+    /// <summary>Em 2:31 restam 29 s: abrir a sessão daria à pessoa um Capturing que ela não tem tempo de usar.</summary>
+    [Fact]
+    public async Task ASessionIsNotOpenedWithoutTimeLeftToCapture()
+    {
+        var provider = new FaultySelfieProvider(_time);
+        var connection = await postgres.CreateMigratedDatabaseAsync(Ct);
+        await using var host = SelfieConcurrencyHarness.Host(connection, _time, provider);
+        var scenario = new IdentityScenario(connection, host);
+        var account = await scenario.CreateConfirmedAccountAsync();
+        await SelfieConcurrencyHarness.RequestAsync(host, account.UserId, Ct);
+        _time.Advance(TimeSpan.FromSeconds(151));
+
+        await SelfieConcurrencyHarness.DispatchAsync(host, Ct);
+
+        Assert.Equal(0, provider.StartCalls);
+        Assert.Equal("Expired|no-reference|PROVIDER_UNAVAILABLE|closed", await AttemptAsync(scenario));
+        Assert.Equal("Expired|-|1", await DeliveryAsync(scenario));
+        var status = await SelfieConcurrencyHarness.CurrentAsync(host, account.UserId, Ct);
+        Assert.Equal(("Recapture", new SelfieAttemptStanding.Available(5, LastCycle: false)), (status.NextStep, status.Attempts));
+        await AssertNotReleasedAsync(scenario, host, account.UserId);
+
+        await SelfieConcurrencyHarness.RequestAsync(host, account.UserId, Ct);
+    }
+
+    [Fact]
+    public async Task ASessionIsStillOpenedAtTheExactMinimumWindow()
+    {
+        var provider = new FaultySelfieProvider(_time);
+        var connection = await postgres.CreateMigratedDatabaseAsync(Ct);
+        await using var host = SelfieConcurrencyHarness.Host(connection, _time, provider);
+        var scenario = new IdentityScenario(connection, host);
+        var account = await scenario.CreateConfirmedAccountAsync();
+        await SelfieConcurrencyHarness.RequestAsync(host, account.UserId, Ct);
+        _time.Advance(TimeSpan.FromSeconds(150));
+
+        await SelfieConcurrencyHarness.DispatchAsync(host, Ct);
+
+        Assert.Equal(1, provider.StartCalls);
+        Assert.Equal("Capturing|has-reference|no-feedback|open", await AttemptAsync(scenario));
+    }
+
+    /// <summary>O corte vale só para abrir sessão: quem já capturou ainda precisa ter o resultado lido no fim do prazo.</summary>
+    [Fact]
+    public async Task AnOpenSessionIsStillReadWithLessThanTheMinimumWindow()
+    {
+        var provider = new FaultySelfieProvider(_time);
+        var connection = await postgres.CreateMigratedDatabaseAsync(Ct);
+        await using var host = SelfieConcurrencyHarness.Host(connection, _time, provider);
+        var scenario = new IdentityScenario(connection, host);
+        var account = await scenario.CreateConfirmedAccountAsync();
+        await SelfieConcurrencyHarness.RequestAsync(host, account.UserId, Ct);
+        await SelfieConcurrencyHarness.DispatchAsync(host, Ct);
+        _time.Advance(TimeSpan.FromSeconds(170));
+
+        await SelfieConcurrencyHarness.DispatchAsync(host, Ct);
+
+        Assert.Equal(1, provider.ReadCalls);
+        Assert.Equal("Passed|has-reference|no-feedback|closed", await AttemptAsync(scenario));
     }
 
     /// <summary>Queda em cada ponto do fluxo: a API distingue a instabilidade sem mudar o passo seguinte, e a volta limpa o sinal.</summary>

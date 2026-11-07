@@ -15,6 +15,13 @@ public sealed partial class SelfieVerificationDispatcher
     private static readonly TimeSpan TransientDataRetention = TimeSpan.FromHours(24);
 
     /// <summary>
+    /// Prazo mínimo para abrir sessão: menos que isso gera um Capturing que a pessoa não consegue usar. HIPÓTESE, não
+    /// medida: nem o repositório nem o SDK trazem a duração real do início à captura, que inclui passos humanos e a
+    /// leitura do resultado antes do prazo. Calibrar com medição antes de tratar o valor como requisito.
+    /// </summary>
+    private static readonly TimeSpan MinimumCaptureWindow = TimeSpan.FromSeconds(30);
+
+    /// <summary>
     /// Decisões do dono em 28/10/2026 (issue #93): tentativa não aprovada sai 30 dias depois; o Passed fica enquanto a
     /// conta existir e mantém a participação.
     /// </summary>
@@ -109,8 +116,13 @@ public sealed partial class SelfieVerificationDispatcher
 
         if (row.ExpiresAt <= _time.GetUtcNow())
         {
-            await ApplyAsync(row, delivery, null, new(SelfieState.Expired, null, row.PolicyVersion), cancellationToken);
-            await _queue.SettleAsync(delivery, OutboxDeliveryStatus.Expired, null, _time.GetUtcNow(), cancellationToken);
+            await ExpireAsync(row, delivery, null, cancellationToken);
+            return;
+        }
+
+        if (row.ProviderReference is null && row.ExpiresAt - _time.GetUtcNow() < MinimumCaptureWindow)
+        {
+            await ExpireAsync(row, delivery, SelfieFeedbackCodes.ProviderUnavailable, cancellationToken);
             return;
         }
 
@@ -157,6 +169,13 @@ public sealed partial class SelfieVerificationDispatcher
         {
             await _queue.RescheduleAsync(delivery, _time.GetUtcNow().AddSeconds(5), "AwaitingCapture", _time.GetUtcNow(), cancellationToken);
         }
+    }
+
+    private async Task ExpireAsync(SelfieVerificationRecord row, ClaimedDelivery delivery, string? feedbackCode,
+        CancellationToken cancellationToken)
+    {
+        await ApplyAsync(row, delivery, null, new(SelfieState.Expired, feedbackCode, row.PolicyVersion), cancellationToken);
+        await _queue.SettleAsync(delivery, OutboxDeliveryStatus.Expired, null, _time.GetUtcNow(), cancellationToken);
     }
 
     /// <summary>Só o tipo: a mensagem de erro do fornecedor pode carregar dado (spec 19.2).</summary>
