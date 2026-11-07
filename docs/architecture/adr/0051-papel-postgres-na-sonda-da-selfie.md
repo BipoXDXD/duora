@@ -13,8 +13,9 @@ para monitoramento, e hoje não existe papel de monitor no banco.
 
 Alternativas consideradas:
 
-- **Papel próprio de leitura.** É o destino certo, mas exige criar e provisionar o papel na produção, e os papéis vivem
-  na imagem do PostgreSQL. Agora, não reduziria o risco real: o script já roda como root com acesso ao Docker.
+- **Papel próprio de leitura.** É o destino certo, mas exige criar o papel e mudar o `pg_hba`, que hoje tem
+  `local all all reject` para todo papel que não seja `postgres`. Agora, não reduziria o risco real: o script já roda
+  como root com acesso ao Docker.
 - **`-c role=` na conexão.** Conectaria como `postgres` e rebaixaria a sessão a um papel de leitura. Não foi testada, e o
   efeito sobre o `pg_hba` e sobre a criação do papel segue sem conclusão.
 - **Rota anônima no web.** Superfície HTTP nova, allowlist, rate limit e deploy do backend, para responder um booleano.
@@ -30,8 +31,9 @@ limites, todos em `scripts/deploy/selfie_provider_alert.py`:
 - consulta fixa no código, sem parâmetro de entrada, que lê só a fila e devolve um booleano.
 
 A spec não muda. A divergência fica como lacuna aberta. Destino: um papel próprio, só com leitura em
-`ops.outbox_deliveries`, entregue na troca da imagem do PostgreSQL pelo #353 ou na troca que o substituir. A lacuna fecha
-quando a sonda conectar com esse papel e a prova em `DatabaseObserverImageTests` passar com ele.
+`ops.outbox_deliveries`, entregue numa troca da imagem do PostgreSQL. O #353 hoje não inclui esse papel, e incluí-lo
+exige nova qualificação da imagem. A lacuna fecha quando a sonda conectar com esse papel e a prova em
+`DatabaseObserverImageTests` passar com ele.
 
 ## Consequências
 

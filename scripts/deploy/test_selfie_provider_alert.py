@@ -337,6 +337,13 @@ class OutboxTests(unittest.TestCase):
         self.assertEqual(self.cycle(TEMPORARY_ERROR, 1600), 1)
         self.assertEqual([event['event'] for event in self.pending()], [BLIND])
 
+    def test_missing_outbox_fails_the_unit_even_with_nothing_to_say(self):
+        self.outbox.rmdir()
+        with self.assertLogs('duora-selfie-alert', 'ERROR') as logs:
+            self.assertEqual(self.cycle('f\n', 1000), 1)
+        self.assertEqual(logs.output, ['ERROR:duora-selfie-alert:selfie_alert_outbox_missing'])
+        self.assertTrue(self.state.exists())
+
     def test_memory_survives_between_runs(self):
         self.almost_open()
         self.assertEqual(self.pending(), [])
@@ -409,7 +416,7 @@ class UnitTests(unittest.TestCase):
     def test_timer_counts_from_the_end_of_the_run(self):
         timer = (ROOT / 'infra/selfie-provider-alert/duora-selfie-provider-alert.timer').read_text()
         self.assertIn('OnUnitInactiveSec=30s\n', timer)
-        self.assertEqual(alert.RESTART_AFTER, 100)
+        self.assertLessEqual(2 * (30 + 2 * 8 + 1), alert.RESTART_AFTER)
 
     def test_unit_writes_only_its_state_and_the_outbox(self):
         unit = (ROOT / 'infra/selfie-provider-alert/duora-selfie-provider-alert.service').read_text()

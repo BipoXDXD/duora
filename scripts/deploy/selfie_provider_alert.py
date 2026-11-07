@@ -184,13 +184,16 @@ def emit(outbox: Path, event: str, anchor: float, now: float) -> None:
 
 
 def run_once(runner: Runner, state: Path, outbox: Path, now: float) -> int:
-    """O estado só avança depois do evento gravado. Sem leitura, sai com erro e a unit fica `failed`."""
+    """O estado só avança depois do evento gravado. Sem leitura ou sem outbox, sai com erro e a unit fica `failed`."""
+    outbox_present = outbox.is_dir()
+    if not outbox_present:
+        LOG.error('selfie_alert_outbox_missing')
     failing = provider_failing(runner)
     memory, events = advance(load_memory(state), failing, now)
     for event, anchor in events:
         emit(outbox, event, anchor, now)
     save_memory(state, memory)
-    return 1 if failing is None else 0
+    return 0 if outbox_present and failing is not None else 1
 
 
 def main() -> int:

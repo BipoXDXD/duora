@@ -48,7 +48,7 @@ Na lista transitória entra todo `AmazonServiceException`, então credencial err
 O script só avisa enquanto roda, e não há sinal de vida. Nenhum e-mail chega se:
 
 - o timer parar ou for removido, o host cair, ou o Python não iniciar;
-- o outbox estiver inacessível ou o disco cheio: a unit falha, mas o evento não existe;
+- o outbox estiver ausente ou inacessível, ou o disco cheio: a unit falha a cada execução, mas o evento não existe;
 - o `mail.py` ou o Gmail falharem.
 
 Nesses casos só resta olhar o host: `systemctl list-timers`, `systemctl --failed` e
