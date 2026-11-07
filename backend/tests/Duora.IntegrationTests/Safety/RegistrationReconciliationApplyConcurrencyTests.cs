@@ -507,9 +507,10 @@ public sealed class RegistrationReconciliationApplyConcurrencyTests(PostgresFixt
 
         await gate.CommitAsync();
 
-        Assert.IsType<ReconciliationApplyOutcome.Busy>(await applying);
+        // Com o outro já fora, uma repetição indevida passaria pelo run, contaria a segunda tentativa e aplicaria.
         await inverted;
         await hold.RollbackAsync();
+        Assert.IsType<ReconciliationApplyOutcome.Busy>(await applying);
         Assert.Equal(1, await a.AttemptsAsync());
         Assert.Single(a.CoordinatorLogs.Entries, entry => entry.Level == Microsoft.Extensions.Logging.LogLevel.Error
             && entry.Text.Contains("Deadlock", StringComparison.Ordinal));
@@ -540,10 +541,11 @@ public sealed class RegistrationReconciliationApplyConcurrencyTests(PostgresFixt
 
         await gate.CommitAsync();
 
-        using var response = await closing;
-        await ProblemAssert.IsProblemAsync(response, System.Net.HttpStatusCode.ServiceUnavailable, "TEMPORARILY_UNAVAILABLE");
+        // Com o outro já fora, uma repetição indevida passaria pelo run e fecharia: 200 em vez de 503.
         await inverted;
         await hold.RollbackAsync();
+        using var response = await closing;
+        await ProblemAssert.IsProblemAsync(response, System.Net.HttpStatusCode.ServiceUnavailable, "TEMPORARILY_UNAVAILABLE");
         Assert.Single(a.HostLogs.Entries, entry => entry.Level == Microsoft.Extensions.Logging.LogLevel.Error
             && entry.Text.Contains("Deadlock", StringComparison.Ordinal));
         Assert.Equal("Open", await s.TextAsync("select state from ops.registration_reconciliation_runs where id=$1", a.Run));
