@@ -32,7 +32,7 @@ transacionais), [data-map.md](../privacy/data-map.md) e [retention.md](../privac
 | AT-01 | Credenciais: hash de senha, chave TOTP, códigos de recuperação, tokens de confirmação e reset | `identity.users`, `identity.user_tokens`, e-mail em trânsito | Tomada de conta | S |
 | AT-02 | Sessões: cookie `__Host-duora`, ticket protegido, referência opaca | Navegador, `identity.auth_tickets`, `identity.login_sessions` | Sequestro de sessão; sessão revogada que volta a valer | S |
 | AT-03 | Key ring de Data Protection e certificado que o protege | Volume restrito, backup sob custódia separada | Forjar cookie, antiforgery e tokens de e-mail | S |
-| AT-04 | Resultado e referência da verificação etária | `identity.age_verifications`, fornecedor | INV-01: menor participando; falsificação de maioridade | P3 |
+| AT-04 | Histórico da verificação etária retirada: resultado e referência antigos | `identity.age_verifications` | Não recebe dados novos e não concede nem retira participação (ADR-0029); um vazamento ainda expõe o resultado antigo | P3 |
 | AT-05 | Preferências privadas | `profiles.preferences` | Podem revelar orientação sexual (dado sensível); nunca no DTO de outra pessoa | P3 |
 | AT-06 | Fotos: originais em quarentena e derivados | Disco da VPS (`IObjectStore` de filesystem), cópia dos derivados no B2, `media.*` | Dado pessoal; localização em EXIF; exposição após bloqueio | P3 |
 | AT-07 | Decisões privadas e pistas de jogo | `social.decisions`, `experiences.game_participants` | INV-05: rejeição revelada, vantagem no jogo | P3 |
@@ -54,13 +54,13 @@ transacionais), [data-map.md](../privacy/data-map.md) e [retention.md](../privac
 | AC-01 | Visitante anônimo | Páginas públicas, cadastro, login, recuperação | Enumerar contas, força bruta, spam de cadastro, CSRF de login |
 | AC-02 | Participante mal-intencionado | Conta ativa e elegível | BOLA em sala/perfil/conversa/mídia, descobrir decisão alheia, contornar bloqueio, assédio, denúncia falsa em massa |
 | AC-03 | Pessoa bloqueada ou ex-conexão | Conta ativa | Continuar vendo perfil, fotos ou mensagens; descobrir quem bloqueou; perseguir |
-| AC-04 | Menor de idade | Nenhum para participar | Passar pela verificação etária (INV-01) |
+| AC-04 | Menor de idade | Nenhum para participar: os Termos exigem 18 anos ou mais | Declarar falsamente 18 anos ou mais no cadastro: é autodeclaração, sem verificação ([decisões de 29/10/2026](../product/decisions-2026-10-29.md), item 1; ADR-0029) |
 | AC-05 | Conta comprometida | Sessão roubada ou senha vazada | Ler conversas, trocar e-mail/senha, desativar MFA, excluir a conta da vítima |
 | AC-06 | Moderador | Casos atribuídos (ADR-0017: MFA obrigatório) | Curiosidade, acesso a evidência fora do caso, exportação em massa, sanção sem motivo |
 | AC-07 | Administrador de produto | Catálogo, eventos e configuração funcional | Autopromoção, acesso a dados sensíveis, publicar conteúdo sem revisão |
 | AC-08 | Operador técnico | Infraestrutura, releases, recuperação | Usar banco como ferramenta de atendimento; restore que reativa contas |
 | AC-09 | Agente de desenvolvimento | Branch e workspace isolados, dados sintéticos (INV-12) | Ser induzido por conteúdo não confiável (issue, README, log) a ler segredos, enfraquecer gates ou fazer deploy (spec 14.3, D-SEC-02) |
-| AC-10 | Fornecedor (verificação etária, e-mail, provedor da VPS, monitoramento, backup) | Dados mínimos da sua função; callbacks em `/webhooks/{provider}` | Fornecedor comprometido ou curioso: callback forjado, retenção excessiva, uso secundário, vazamento |
+| AC-10 | Fornecedor (selfie de presença, e-mail, provedor da VPS, monitoramento, backup) | Dados mínimos da sua função | Fornecedor comprometido ou curioso: retenção excessiva, uso secundário, vazamento |
 | AC-11 | Atacante de rede ou de cadeia de suprimentos | Nenhum | MITM sem TLS, pacote malicioso, action não fixada, imagem trocada no registry |
 | AC-12 | Navegador compartilhado | Mesmo dispositivo, outra identidade (T-21) | Ver cache, fotos ou socket da identidade anterior |
 
@@ -77,8 +77,8 @@ fluxo crítico cruza cada uma.
 | F1 | Internet → Caddy | Todos os fluxos do navegador; callbacks de fornecedor; sondas |
 | F2 | Caddy → Web | API, hub, webhooks, upload, stream de mídia |
 | F3 | Web/Worker → PostgreSQL | Todos; protocolos de [concurrency.md](../data/concurrency.md) |
-| F4 | Worker → fornecedores | E-mail (cadastro, recuperação, notificações), solicitação de verificação etária, quarentena e derivados |
-| F5 | Fornecedores → `/webhooks/{provider}` | Callback de verificação etária; bounces e recibos de e-mail |
+| F4 | Worker → fornecedores | E-mail (cadastro, recuperação, notificações), sessão e resultado da selfie (AWS Rekognition; ADR-0029), quarentena e derivados |
+| F5 | Fornecedores → `/webhooks/{provider}` | Nenhum callback é processado: a rota responde `410` a qualquer provedor (seção 5.6). Bounces e recibos de e-mail não chegam por webhook ([resend.md](../operations/resend.md)) |
 | F6 | Web → disco da VPS (fotos) | Stream de mídia aprovada (API-M04) e upload para quarentena (API-M01) |
 | F7 | PostgreSQL → backup | Backup físico, WAL, tombstones e key ring |
 | F8 | Collector → monitoramento | Telemetria de todos os fluxos (risco de vazamento de dado privado em log) |
@@ -182,17 +182,24 @@ service, **E** elevation of privilege. Cada linha cita a ameaça (TM-xx) detalha
 | E | Sanção permanente aplicada só por classificador; recurso revisado pelo mesmo autor | TM-34 |
 | T/D | Limite de reprovações da selfie contado em dobro, burlado ou perdido; suspensão automática por falha técnica (#300) | TM-84 |
 
-### 5.6 Verificação etária com callback de fornecedor (API-P05, P06; `/webhooks/{provider}`)
+### 5.6 Fluxo etário retirado: rotas legadas com `410` (`/api/v1/me/age-verifications`, `/webhooks/{provider}`)
+
+O ADR-0029 retirou a verificação etária. Estas rotas ficam só por compatibilidade, respondem `410`
+`AGE_VERIFICATION_RETIRED` e não executam operação etária:
+
+- `POST /api/v1/me/age-verifications` e `GET /api/v1/me/age-verifications/current`, com sessão;
+- `POST /webhooks/{provider}`, anônima, para qualquer provedor; corpo e assinatura não são processados nem
+  persistidos.
+
+API-P05 e P06 agora são a selfie de presença (spec 8.2, 12.2).
 
 | STRIDE | Ameaça | Ref. |
 |---|---|---|
-| S | Navegador envia `isAdult: true` ou resultado do fornecedor | TM-35 |
-| S | Callback forjado ou de outro fornecedor aprova uma conta | TM-36 |
-| T | Replay de callback antigo aprovado para outra solicitação ou conta | TM-36 |
-| R | Resultado sem ligação verificável a usuário, procedimento, política e instante da decisão | TM-37 |
-| I | Documento ou biometria brutos guardados pelo Duora; inferências do fornecedor expostas em API-P06 | TM-38 |
-| D | Fornecedor lento ou fora do ar trava o worker ou o cadastro | TM-39 |
-| E | Indisponibilidade do fornecedor libera participação por autodeclaração; suspeita de menor volta a `Active` por decurso de prazo | TM-40 |
+| S/T | Callback antigo, repetido ou forjado tenta aprovar ou restringir uma conta pela rota legada | TM-40 |
+| E | Falha do fornecedor da selfie, evidência etária antiga ou decurso de prazo libera participação | TM-40 |
+
+TM-35 a TM-39 cobriam o fluxo com fornecedor etário (resultado vindo do navegador, callback forjado ou repetido,
+falta de rastreabilidade, documento no Duora e fornecedor lento) e ficam como histórico: não descrevem rota ativa.
 
 ### 5.7 Upload de foto (API-M01 a M04)
 
@@ -325,7 +332,7 @@ Convenções:
 | TM-37 | Resultado sem rastreabilidade | `age_verifications` guarda usuário, fornecedor, referência, versão da política e instante da decisão; a verificação adulta não tem validade (verificação única no cadastro, ADR-0024, adendo de 2026-10-16); transições auditadas ([model.md](../data/model.md#t-identity-age-verifications)) | `AgeWebhookTests.AgeVerificationResultRecordsPolicyVersionWithoutExpiry` |
 | TM-38 | Documento ou biometria no Duora; inferências expostas | Nenhum campo para documento ou imagem; API-P06 devolve estado mínimo e próximo passo (spec 12.1, 12.2) | `AgeVerificationStatusTests.AgeVerificationStatusExposesOnlyStateAndNextStep`, `FlowUrlOutsideTheAllowlistIsNeverShown` |
 | TM-39 | Fornecedor lento | Chamada só no worker, via outbox, com timeout, retry por backoff, teto de tentativas e uma chamada por vez por worker; nada no request do usuário (spec 16.4; ADR-0024). O adaptador real usa `IHttpClientFactory` com circuit breaker. API-P05 com rate limit por conta e por IP (`429` com `Retry-After`) e teto de 3 solicitações criadas por conta numa janela móvel de 7 dias (decidido), contado no banco sob lock da conta; rate limit com valor inicial a medir no piloto (adendo de 2026-10-19 do ADR-0024, que substitui o risco aceito na revisão do #39). Webhook sem rate limit próprio, risco aceito (assinatura conferida antes de qualquer escrita, corpo limitado a 64 KiB) | T-17: `AgeVerificationProviderDispatchTests` (lento, falhando, esgotado); a criar: `AgeVerificationRequestIsRateLimitedPerAccount`, `AgeVerificationRequestIsRateLimitedPerIp`, `AgeVerificationRequestsAboveTheWeeklyCapAreRefused`, `ConcurrentRequestsAtTheCapCreateOnlyOne` |
-| TM-40 | Liberação indevida | Indisponibilidade mantém `PendingEligibility`; suspeita de menor → `Restricted` e revisão, mesmo para quem já é adulta verificada (`NotAdult` tardio); nenhuma transição automática para `Active` por prazo; a verificação adulta não vence, e o tempo só faz uma solicitação abandonada dar lugar a uma nova (spec 4.2, 12.2; ADR-0024, adendo de 2026-10-16) | T-17; T-01; `AgeEligibilityPropertyTests.ElapsedTimeNeverGrantsEligibility`; `AgeWebhookTests.LateNotAdultRestrictsEvenAVerifiedAdult` |
+| TM-40 | Liberação indevida | Participação exige `Active`, e-mail confirmado e selfie `Passed` (INV-01; spec 12.2). Indisponibilidade do fornecedor da selfie mantém a pendência; conta `Restricted`, `Suspended` ou `DeletionPending` não é liberada automaticamente; nenhuma transição automática para `Active` por prazo; `VerifiedAdult` não vira `Passed`, e evidência etária antiga não concede nem retira participação; as rotas legadas respondem `410` sem alterar conta (seção 5.6; ADR-0029) | T-17; T-01; `SelfieAuthorizationTests.ParticipationRequiresEmailAndPresenceButNoAgeEvidence`; `EligibleParticipantPolicyTests.PendingEligibilityAccountIsNotEligible`, `RestrictedAccountIsForbiddenOnAParticipationRoute`, `LegacyAgeDecisionDoesNotOverridePresence`; `SelfieDispatchTests.ServerResultActivatesOnlyAnUnrestrictedAccount`; `AgeFlowRetirementTests.LegacyCallbacksCannotChangeAccounts`; `AgeWebhookTests.CallbackAndReplayCannotChangeAnyAccountState`; `AgeEligibilityPropertyTests.ElapsedTimeNeverGrantsEligibility` (regra do fluxo retirado) |
 | TM-41 | Arquivo malicioso | Assinatura real do tipo, allowlist JPEG/PNG/WebP estáticos, reencodar, nome do cliente nunca vira chave; chave aleatória gerada pelo servidor (spec 16.1; D-SEC-04) | T-16 |
 | TM-42 | Metadados e chaves expostos | Remoção de EXIF na normalização; DTO de mídia só com `assetId`; chave de bucket nunca em DTO nem log (ADR-0010) | T-16; `MediaResponsesNeverContainStorageKeys` |
 | TM-43 | Decompression bomb e uploads em massa | Limite de bytes no stream, de pixels decodificados e de frames; teto de uploads pendentes por conta (guarda `media.upload_guards`); teto global da fila somando contas (`Media:MaxQueuedUploads`, 100, hipótese) com `503 MEDIA_QUEUE_FULL` e `Retry-After`; rate limit de envio por conta e por IP (20/h, hipótese) com `429` e `Retry-After`; taxa mínima do corpo na rota contra cliente lento; antes do decode, no máximo 100 scans num JPEG e 4 chunks inflados (`zTXt`, `iTXt`, `iCCP`) num PNG (`PhotoDecodeCost`); fila de processamento limitada (concorrência 1) com teto de tentativas no claim (spec 4.3, 11.5, 16.1) | T-16; `PendingUploadsPerAccountAreCapped`, `UploadQueueLimitTests`, `PhotoDecodeCostTests`, `PhotoUploadRateLimitTests`, `KestrelPhotoUploadTests` |

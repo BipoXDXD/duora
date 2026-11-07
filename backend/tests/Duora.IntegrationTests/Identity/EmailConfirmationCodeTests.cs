@@ -82,7 +82,8 @@ public sealed class EmailConfirmationCodeTests(PostgresFixture postgres)
     [Fact]
     public async Task ParallelRedemptionsOnlyConfirmOnce()
     {
-        await using var factory = new DuoraWebFactory(postgres.ConnectionString);
+        // Custo real: a verificação do hash fica dentro da janela da corrida, e um hash rápido a estreitaria.
+        await using var factory = new DuoraWebFactory(postgres.ConnectionString) { RealPasswordHashCost = true };
         var scenario = new IdentityScenario(postgres, factory);
         using var first = new Browser(factory);
         using var second = new Browser(factory);

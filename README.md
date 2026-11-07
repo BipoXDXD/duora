@@ -5,7 +5,7 @@ catálogo, cada par joga uma experiência cooperativa (um minijogo de alguns min
 decide em privado se quer continuar a conversa. A conversa persistente só existe quando o interesse é mútuo.
 
 Segurança faz parte do fluxo principal: sair de uma sala é imediato, bloqueio vale para pareamento, mensagens e
-leituras, denúncias geram protocolo e recurso, e a participação depende de verificação etária. A maior parte
+leituras, denúncias geram protocolo e recurso, e a participação depende de e-mail confirmado e selfie de presença. A maior parte
 do trabalho de engenharia está em manter essas garantias sob concorrência, retries, reconexões, reinícios e
 restauração de backup.
 
@@ -56,7 +56,7 @@ estão como "não implementado" ([acceptance.md](docs/testing/acceptance.md)).
 | Marco | Entrega |
 |---|---|
 | M0 | Fundação: build reproduzível no Mac e no Linux, CI, PostgreSQL real, ADRs |
-| M1 | Identidade e proteção: cadastro, sessão, perfil, MFA administrativo, bloqueio, denúncia, fluxo etário |
+| M1 | Identidade e proteção: cadastro, sessão, perfil, MFA administrativo, bloqueio, denúncia, declaração de 18 anos ou mais, confirmação de e-mail e selfie de presença |
 | M2 | Fatia vertical: evento, rodada, pareamento, primeira experiência, chat de sala e decisão |
 | M3 | Piloto operável: chat persistente, segunda experiência, administração, exportação/exclusão, alertas |
 

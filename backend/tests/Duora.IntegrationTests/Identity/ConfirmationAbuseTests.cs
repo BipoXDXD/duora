@@ -19,7 +19,7 @@ public sealed class ConfirmationAbuseTests(PostgresFixture postgres)
     [Fact]
     public async Task ReusedLinkAfterConfirmationIsNeverAPasswordOracle()
     {
-        await using var factory = new DuoraWebFactory(postgres.ConnectionString);
+        await using var factory = new DuoraWebFactory(postgres.ConnectionString) { RealPasswordHashCost = true };
         var scenario = new IdentityScenario(postgres, factory);
         var email = IdentityScenario.NewEmail();
         using var browser = new Browser(factory);
@@ -45,6 +45,8 @@ public sealed class ConfirmationAbuseTests(PostgresFixture postgres)
     {
         await using var factory = new DuoraWebFactory(postgres.ConnectionString)
         {
+            // Custo real: a verificação do hash fica dentro da janela da corrida, e um hash rápido a estreitaria.
+            RealPasswordHashCost = true,
             // Isola o teto do banco: a cota de falhas por conta em memória (10 / hora) responderia 429 antes dele.
             Settings = new Dictionary<string, string?> { ["RateLimiting:EmailConfirmationFailuresPerAccount:PermitLimit"] = "1000" },
         };
@@ -83,6 +85,8 @@ public sealed class ConfirmationAbuseTests(PostgresFixture postgres)
         var race = new RegistrationRace(postgres.ConnectionString);
         await using var factory = new DuoraWebFactory(postgres.ConnectionString)
         {
+            // Custo real: a verificação do hash fica dentro da janela da corrida, e um hash rápido a estreitaria.
+            RealPasswordHashCost = true,
             TestServices = services => services.ConfigureDbContext<DuoraDbContext>(o => o.AddInterceptors(race)),
         };
         var scenario = new IdentityScenario(postgres, factory);
