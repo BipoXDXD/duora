@@ -21,10 +21,16 @@ public sealed class SelfieCaptureEndpointTests(PostgresFixture postgres)
     /// <summary>Abaixo do corte de 10 s: prova que a chamada ficou presa até ele, sem medir precisão de timer.</summary>
     private static readonly TimeSpan BelowTheAssumeRoleTimeout = TimeSpan.FromSeconds(9);
 
+    /// <summary>Acima do corte de 10 s, com folga para fila de CI: prova que o corte veio dele, não do teto do teste.</summary>
+    private static readonly TimeSpan AboveTheAssumeRoleTimeout = TimeSpan.FromSeconds(20);
+
     /// <summary>Falha em vez de esperar os minutos que as tentativas do SDK levariam sem o corte.</summary>
     private static readonly TimeSpan CaptureCeiling = TimeSpan.FromSeconds(30);
 
     private const string UnavailableLog = "Selfie capture credentials unavailable";
+
+    /// <summary>Status que o middleware de exceção do ASP.NET Core dá ao pedido abortado pelo cliente.</summary>
+    private const HttpStatusCode ClientClosedRequest = (HttpStatusCode)499;
 
     private static CancellationToken Ct => TestContext.Current.CancellationToken;
 
@@ -127,7 +133,7 @@ public sealed class SelfieCaptureEndpointTests(PostgresFixture postgres)
         var elapsed = watch.Elapsed;
 
         await ProblemAssert.IsProblemAsync(response, HttpStatusCode.ServiceUnavailable, "SELFIE_UNAVAILABLE");
-        Assert.InRange(elapsed, BelowTheAssumeRoleTimeout, CaptureCeiling);
+        Assert.InRange(elapsed, BelowTheAssumeRoleTimeout, AboveTheAssumeRoleTimeout);
         Assert.Equal(resetsBeforeTheStall + 1, transport.Calls.Count);
         var trace = Assert.Single(logs.Entries, entry => entry.Text.Contains(UnavailableLog, StringComparison.Ordinal));
         Assert.Contains("CanceledException", trace.Text, StringComparison.Ordinal);
@@ -186,8 +192,31 @@ public sealed class SelfieCaptureEndpointTests(PostgresFixture postgres)
             .WaitAsync(CaptureCeiling, Ct);
 
         Assert.InRange(watch.Elapsed, TimeSpan.Zero, BelowTheAssumeRoleTimeout);
-        Assert.NotEqual(HttpStatusCode.ServiceUnavailable, response.StatusCode);
+        Assert.Equal(ClientClosedRequest, response.StatusCode);
         Assert.Single(transport.Calls);
+        Assert.DoesNotContain(logs.Entries, entry => entry.Text.Contains(UnavailableLog, StringComparison.Ordinal));
+        await AssertAttemptUntouchedAsync(scenario, factory, attempt, owner.UserId);
+    }
+
+    [Fact]
+    public async Task AnExceptionOutsideTheListStaysA500InsteadOfUnavailable()
+    {
+        var message = $"CANARY-defect-{Guid.NewGuid()}";
+        var transport = new RecordingAwsTransport((_, _) => throw new InvalidOperationException(message));
+        var logs = new CapturingLoggerProvider();
+        await using var factory = Factory(transport, logs, "SYNTHETICACCESSKEYID", "synthetic");
+        var scenario = new IdentityScenario(postgres, factory);
+        var owner = await scenario.CreateConfirmedAccountAsync();
+        var attempt = await CapturingAttemptAsync(scenario, factory, owner.UserId);
+        using var browser = await scenario.SignedInBrowserAsync(owner);
+
+        using var response = await browser.PostJsonAsync($"/api/v1/me/selfie-verifications/{attempt}/capture", new { })
+            .WaitAsync(CaptureCeiling, Ct);
+        var body = await response.Content.ReadAsStringAsync(Ct);
+
+        Assert.Equal(HttpStatusCode.InternalServerError, response.StatusCode);
+        Assert.DoesNotContain("SELFIE_UNAVAILABLE", body, StringComparison.Ordinal);
+        Assert.DoesNotContain(message, body, StringComparison.Ordinal);
         Assert.DoesNotContain(logs.Entries, entry => entry.Text.Contains(UnavailableLog, StringComparison.Ordinal));
         await AssertAttemptUntouchedAsync(scenario, factory, attempt, owner.UserId);
     }

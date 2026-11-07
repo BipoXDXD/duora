@@ -39,7 +39,8 @@ internal static partial class SelfieVerificationEndpoints
             }
             catch (Exception error) when (IsProviderUnavailable(error, context.RequestAborted))
             {
-                // Só o código do erro: a mensagem da AWS pode citar ARN ou chave, e a exceção nunca vai ao log.
+                // Só o tipo e o código do erro: a mensagem da AWS pode citar ARN ou chave, e este log não leva a exceção.
+                // Com o cliente já fora, falha de transporte não entra aqui e segue ao middleware, que loga a mensagem.
                 var awsError = error as Amazon.Runtime.AmazonServiceException;
                 LogCaptureUnavailable(loggers.CreateLogger(typeof(SelfieVerificationEndpoints)), error.GetType().Name,
                     awsError?.ErrorCode, (int?)awsError?.StatusCode);
