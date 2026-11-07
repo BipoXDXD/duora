@@ -1,18 +1,34 @@
 using System.Net;
 using System.Net.Http.Json;
+using System.Security.Cryptography;
+using System.Text;
+using System.Text.Encodings.Web;
+using System.Text.Json;
+using System.Text.Json.Nodes;
+using System.Text.RegularExpressions;
 using Duora.Contracts.Identity;
+using Duora.Core.Identity;
 using Duora.Infrastructure.Identity;
 
 namespace Duora.IntegrationTests.Identity;
 
-public sealed class LegalDocumentTests(PostgresFixture postgres)
+public sealed partial class LegalDocumentTests(PostgresFixture postgres)
 {
-    private const string PublishedController = "Luca Grimmer";
-    private const string CurrentTermsVersion = "2026-10-29";
+    // Temporary (decisions-2026-11-07): the identification returns once there is a registered entity to publish.
+    private const string ActiveController = "Responsável pelo Duora";
+    private const string CurrentTermsVersion = "2026-11-07";
+    private const string CurrentPrivacyVersion = "2026-11-07";
+    // SHA-256 of each casefolded word of the former personal identification, so the guard does not republish it.
+    private static readonly string[] FormerIdentificationWords =
+    [
+        "6ad24e7987574a99f016032e7603f0cad2842d85c3a3162fe53a05e6e58547cb",
+        "d70f47790f689414789eeff231703429c7f88a10210775906460edbf38589d90",
+    ];
+    private static readonly string[] FormerIdentificationPhrases = ["pessoa física", "pessoa fisica", ", an individual"];
     private static CancellationToken Ct => TestContext.Current.CancellationToken;
 
     [Fact]
-    public async Task ActualPublicationIsPublishedUnderTheNamedController()
+    public async Task ActualPublicationIsPublishedUnderTheNeutralController()
     {
         await using var factory = new DuoraWebFactory(postgres.ConnectionString) { LegalDocuments = null };
         using var browser = new Browser(factory);
@@ -24,18 +40,107 @@ public sealed class LegalDocumentTests(PostgresFixture postgres)
         Assert.NotNull(catalog);
         Assert.True(catalog.RegistrationAvailable);
         Assert.Equal(CurrentTermsVersion, catalog.TermsVersion);
-        Assert.Equal(4, catalog.Documents.Count(document =>
-            document.Version == (document.Document == "terms" ? catalog.TermsVersion : catalog.PrivacyVersion)));
-        // The superseded terms stay in the catalog so earlier acceptance evidence still resolves to its text.
-        Assert.Equal(2, catalog.Documents.Count(document => document.Document == "terms" && document.Version == "2026-10-25"));
+        Assert.Equal(CurrentPrivacyVersion, catalog.PrivacyVersion);
+        Assert.Equal(4, catalog.Documents.Count);
+        Assert.All(catalog.Documents, document =>
+        {
+            Assert.Equal(document.Document == "terms" ? catalog.TermsVersion : catalog.PrivacyVersion, document.Version);
+            Assert.Equal(ActiveController, document.ControllerName);
+        });
         Assert.All(catalog.Documents, document =>
         {
             Assert.True(document.Published);
-            Assert.Equal(PublishedController, document.ControllerName);
             Assert.Equal("support@meetduora.com", document.PrivacyContact);
             Assert.NotEmpty(document.Sections);
             Assert.Matches("^[a-f0-9]{64}$", document.Sha256);
         });
+    }
+
+    [Fact]
+    public async Task DocumentsServedByTheApiDoNotCarryTheFormerPersonalIdentification()
+    {
+        await using var factory = new DuoraWebFactory(postgres.ConnectionString) { LegalDocuments = null };
+        using var browser = new Browser(factory);
+        using var response = await browser.GetAsync("/api/v1/legal-documents");
+        var body = await response.Content.ReadAsStringAsync(Ct);
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+
+        Assert.Empty(FormerIdentificationIn(UnescapedJson(body)));
+    }
+
+    [Fact]
+    public void TheIdentificationGuardFlagsEverySupersededVersion()
+    {
+        var publication = LegalPublicationResources.Load();
+        var superseded = publication.Documents.Except(publication.ActiveDocuments).ToArray();
+
+        Assert.Equal(6, superseded.Length);
+        Assert.All(superseded, document => Assert.NotEmpty(
+            FormerIdentificationIn(UnescapedJson(JsonSerializer.Serialize(document)))));
+    }
+
+    [Fact]
+    public async Task SupersededVersionsAreNotServedAndTheirAcceptanceStaysVerifiableBySha256()
+    {
+        var publication = LegalPublicationResources.Load();
+        var superseded = publication.Documents.Except(publication.ActiveDocuments).ToArray();
+        await using var factory = new DuoraWebFactory(postgres.ConnectionString) { LegalDocuments = null };
+        using var visitor = new Browser(factory);
+        using var response = await visitor.GetAsync("/api/v1/legal-documents");
+        var body = await response.Content.ReadAsStringAsync(Ct);
+        Assert.All(superseded, document =>
+        {
+            Assert.DoesNotContain(document.Sha256, body, StringComparison.Ordinal);
+            Assert.DoesNotContain($"\"{document.Version}\"", body, StringComparison.Ordinal);
+        });
+
+        var scenario = new IdentityScenario(postgres, factory);
+        var account = await RegisterConfirmedUnderTheActualPublicationAsync(scenario, factory, publication);
+        var accepted = Assert.Single(superseded,
+            document => document.Document == "terms" && document.Version == "2026-10-29" && document.Locale == "pt-BR");
+        await scenario.ScalarAsync(
+            """
+            with removed as (delete from identity.consent_records where user_id = $1 and document = 'Terms' returning user_id, accepted_at),
+                 inserted as (
+                     insert into identity.consent_records (id, user_id, document, version, accepted_at, document_locale, document_sha256)
+                     select gen_random_uuid(), user_id, 'Terms', $2, accepted_at, $3, $4 from removed
+                     returning 1)
+            select count(*) from inserted
+            """,
+            account.UserId, accepted.Version, accepted.Locale, accepted.Sha256);
+        using var browser = await scenario.SignedInBrowserAsync(account);
+
+        Assert.False(await ReadCurrentTermsAcceptedAsync(browser));
+
+        var active = Assert.Single(publication.ActiveDocuments, document => document.Document == "terms" && document.Locale == "en-US");
+        using var reaccepted = await browser.PostJsonAsync("/api/v1/me/terms-acceptances", new
+        {
+            acceptedTermsVersion = active.Version,
+            acceptedTermsLocale = active.Locale,
+            acceptedTermsSha256 = active.Sha256,
+            confirmedAdult = true,
+        });
+        Assert.Equal(HttpStatusCode.NoContent, reaccepted.StatusCode);
+        Assert.True(await ReadCurrentTermsAcceptedAsync(browser));
+        Assert.Equal(1, await scenario.ScalarAsync(
+            """
+            select count(*) from identity.consent_records
+            where user_id = $1 and document = 'Terms' and version = $2 and document_locale = $3 and document_sha256 = $4
+            """, account.UserId, accepted.Version, accepted.Locale, accepted.Sha256));
+    }
+
+    [Theory]
+    [InlineData("Operated by someone, an individual.", ", an individual")]
+    [InlineData("mantido por PESSOA FÍSICA", "pessoa física")]
+    public void TheIdentificationGuardReadsCaseVariations(string text, string expected)
+    {
+        Assert.Equal(expected, Assert.Single(FormerIdentificationIn(text)));
+    }
+
+    [Fact]
+    public void TheIdentificationGuardAcceptsTheNeutralText()
+    {
+        Assert.Empty(FormerIdentificationIn($"{ActiveController}, support@meetduora.com"));
     }
 
     [Fact]
@@ -63,6 +168,10 @@ public sealed class LegalDocumentTests(PostgresFixture postgres)
     // Golden master of every published text: a published version never changes. Editing a text, the controller
     // or the contact without creating a new version must break this test.
     [Theory]
+    [InlineData("terms", "2026-11-07", "pt-BR", "101bd6102a89bc32135e2cfda3f7c2bbbe739ca6e7e4a3d6024124348960e8e8")]
+    [InlineData("terms", "2026-11-07", "en-US", "b07c56cc2655f8625d5221521eaba32cfa874bd55fe6609ab66cec187f64d80e")]
+    [InlineData("privacy", "2026-11-07", "pt-BR", "3f045d877474bb9f5510fa0fdac7833ac0d7e0e5b4fd572d6f68712c2058e073")]
+    [InlineData("privacy", "2026-11-07", "en-US", "e1b3642bdadd51033dd7aff072be8be4bf849d3dc7d5072da417683d43d38d3f")]
     [InlineData("terms", "2026-10-25", "pt-BR", "07fd125aa37cea239d0dc0bf702a32892e66e2d16ed0e5a0c1908c5034f30227")]
     [InlineData("terms", "2026-10-25", "en-US", "fc36a782961b51fe8ab5b2b49ae71596763f4d365736855cd916cff38e27c8b6")]
     [InlineData("terms", "2026-10-29", "pt-BR", "7b7c64f8bb387fe287aa06018225ddda597401ce72a8b88a7742958391312ae6")]
@@ -159,4 +268,43 @@ public sealed class LegalDocumentTests(PostgresFixture postgres)
                 """, userId, document.Document, document.Version, document.Locale, document.Sha256));
         }
     }
+
+    private static async Task<TestAccount> RegisterConfirmedUnderTheActualPublicationAsync(
+        IdentityScenario scenario, DuoraWebFactory factory, LegalPublication publication)
+    {
+        using var browser = new Browser(factory);
+        var email = IdentityScenario.NewEmail();
+        await browser.FetchCsrfTokenAsync();
+        using var registered = await browser.PostJsonAsync("/api/v1/auth/register",
+            IdentityScenario.RegistrationBody(email, publication: publication));
+        Assert.Equal(HttpStatusCode.Accepted, registered.StatusCode);
+        var link = await scenario.ReadLatestLinkAsync(email, "EmailConfirmation");
+        using var confirmed = await browser.PostJsonAsync("/api/v1/auth/confirm-email",
+            new { userId = link.UserId, token = link.Token, password = IdentityScenario.ValidPassword });
+        Assert.Equal(HttpStatusCode.NoContent, confirmed.StatusCode);
+        return new TestAccount(link.UserId, email, IdentityScenario.ValidPassword);
+    }
+
+    private static async Task<bool> ReadCurrentTermsAcceptedAsync(Browser browser)
+    {
+        using var response = await browser.GetAsync("/api/v1/me");
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        var me = JsonNode.Parse(await response.Content.ReadAsStringAsync(Ct))!;
+        return me["currentTermsAccepted"]!.GetValue<bool>();
+    }
+
+    // Decodes JSON escapes in every field, known or not, so an accented phrase cannot hide as an escape.
+    private static string UnescapedJson(string json) => JsonNode.Parse(json)!.ToJsonString(
+        new JsonSerializerOptions { Encoder = JavaScriptEncoder.UnsafeRelaxedJsonEscaping });
+
+    private static string[] FormerIdentificationIn(string text)
+    {
+        var lowered = text.ToLowerInvariant();
+        var words = Word().Matches(lowered).Select(match => match.Value)
+            .Where(word => FormerIdentificationWords.Contains(Convert.ToHexStringLower(SHA256.HashData(Encoding.UTF8.GetBytes(word)))));
+        return words.Concat(FormerIdentificationPhrases.Where(phrase => lowered.Contains(phrase, StringComparison.Ordinal))).ToArray();
+    }
+
+    [GeneratedRegex(@"\p{L}+")]
+    private static partial Regex Word();
 }
