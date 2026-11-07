@@ -580,8 +580,9 @@ public sealed class SelfieSlowProviderTests(PostgresFixture postgres)
     }
 
     /// <summary>
-    /// O prazo de 3 minutos é o único limite de uma tentativa em falha: depois de uma sequência de falhas, a leitura no
-    /// último segundo ainda decide, e no instante do prazo a tentativa fecha sem nenhuma chamada, mantendo o sinal de
+    /// Numa tentativa que já tem referência, o prazo de 3 minutos é o único limite em falha (a janela mínima de captura
+    /// só encerra antes a tentativa sem referência): depois de uma sequência de falhas, a leitura no último segundo ainda
+    /// decide, e no instante do prazo a tentativa fecha sem nenhuma chamada, mantendo o sinal de
     /// instabilidade que a primeira falha gravou.
     /// </summary>
     [Theory]
@@ -647,7 +648,8 @@ public sealed class SelfieSlowProviderTests(PostgresFixture postgres)
     }
 
     /// <summary>
-    /// Pelo SDK real: erro do serviço reagenda sem mudar a tentativa. O SDK repete 5xx e throttling até 3 chamadas HTTP,
+    /// Pelo SDK real: erro do serviço reagenda a entrega e só grava na tentativa o sinal de instabilidade, sem mudar o
+    /// estado. O SDK repete 5xx e throttling até 3 chamadas HTTP,
     /// não repete <c>AccessDenied</c>, fica dentro do corte de 10 s, e nenhum log leva a mensagem do fornecedor. Os
     /// números prendem a política de retry do SDK: uma atualização que a mude quebra aqui de propósito.
     /// </summary>
