@@ -20,8 +20,14 @@ de [28/10](decisions-2026-10-28.md) e [29/10](decisions-2026-10-29.md); o que n�
      já estão com `approved: true` porque uma versão ativa não aprovada fecharia o cadastro (503).
    - **Novo aceite:** a versão nova dos Termos abre o aviso de reaceite, que não bloqueia o uso (item 3 do registro
      de 29/10). Não há fluxo de aviso para a nova versão da Privacidade.
-   - **Versões antigas:** ficam intactas no catálogo. Parar de servi-las ao público é trabalho separado, que depende
-     desta versão.
+   - **Versões antigas:** ficam intactas no catálogo. Ver o item 2.
+
+2. **Versões substituídas deixam de ser servidas ao público:** `GET /api/v1/legal-documents` devolve só as versões
+   ativas, e as rotas exatas de versão substituída passam a responder como indisponíveis. Conteúdo e digests não
+   mudam. O catálogo embutido continua com todas as versões, como evidência: um aceite antigo se comprova comparando
+   versão, idioma e SHA-256 de `identity.consent_records` com o documento retido. Quem aceitou uma versão antiga deixa
+   de ter link público para ler aquele texto no site. O texto segue no repositório público, no histórico e na imagem
+   da aplicação.
 
 SHA-256 de conteúdo da versão `2026-11-07`, fixados no teste `PublishedDocumentKeepsItsExactFingerprint`:
 

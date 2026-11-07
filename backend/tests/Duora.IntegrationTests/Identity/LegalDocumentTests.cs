@@ -37,13 +37,12 @@ public sealed partial class LegalDocumentTests(PostgresFixture postgres)
         Assert.True(catalog.RegistrationAvailable);
         Assert.Equal(CurrentTermsVersion, catalog.TermsVersion);
         Assert.Equal(CurrentPrivacyVersion, catalog.PrivacyVersion);
-        var active = catalog.Documents.Where(document => IsActive(document, catalog)).ToArray();
-        Assert.Equal(4, active.Length);
-        Assert.All(active, document => Assert.Equal(ActiveController, document.ControllerName));
-        // The superseded versions stay in the catalog so earlier acceptance evidence still resolves to its text.
-        Assert.Equal(2, catalog.Documents.Count(document => document.Document == "terms" && document.Version == "2026-10-25"));
-        Assert.Equal(2, catalog.Documents.Count(document => document.Document == "terms" && document.Version == "2026-10-29"));
-        Assert.Equal(2, catalog.Documents.Count(document => document.Document == "privacy" && document.Version == "2026-10-25"));
+        Assert.Equal(4, catalog.Documents.Count);
+        Assert.All(catalog.Documents, document =>
+        {
+            Assert.Equal(document.Document == "terms" ? catalog.TermsVersion : catalog.PrivacyVersion, document.Version);
+            Assert.Equal(ActiveController, document.ControllerName);
+        });
         Assert.All(catalog.Documents, document =>
         {
             Assert.True(document.Published);
@@ -54,17 +53,55 @@ public sealed partial class LegalDocumentTests(PostgresFixture postgres)
     }
 
     [Fact]
-    public async Task ActiveDocumentsServedByTheApiDoNotCarryTheFormerPersonalIdentification()
+    public async Task DocumentsServedByTheApiDoNotCarryTheFormerPersonalIdentification()
     {
         await using var factory = new DuoraWebFactory(postgres.ConnectionString) { LegalDocuments = null };
         using var browser = new Browser(factory);
         using var response = await browser.GetAsync("/api/v1/legal-documents");
         var catalog = await response.Content.ReadFromJsonAsync<LegalDocumentCatalogResponse>(Ct);
         Assert.NotNull(catalog);
-        var active = catalog.Documents.Where(document => IsActive(document, catalog)).ToArray();
-        Assert.Equal(4, active.Length);
+        Assert.NotEmpty(catalog.Documents);
 
-        Assert.All(active, document => Assert.Empty(FormerIdentificationIn(document)));
+        Assert.All(catalog.Documents, document => Assert.Empty(FormerIdentificationIn(document)));
+    }
+
+    [Fact]
+    public async Task SupersededVersionsAreNotServedAndTheirAcceptanceStaysVerifiableBySha256()
+    {
+        var publication = LegalPublicationResources.Load();
+        var superseded = publication.Documents.Except(publication.ActiveDocuments).ToArray();
+        Assert.Equal(6, superseded.Length);
+        await using var factory = new DuoraWebFactory(postgres.ConnectionString) { LegalDocuments = null };
+        using var browser = new Browser(factory);
+        using var response = await browser.GetAsync("/api/v1/legal-documents");
+        var body = await response.Content.ReadAsStringAsync(Ct);
+        Assert.All(superseded, document =>
+        {
+            Assert.DoesNotContain(document.Sha256, body, StringComparison.Ordinal);
+            Assert.DoesNotContain($"\"{document.Version}\"", body, StringComparison.Ordinal);
+        });
+
+        var scenario = new IdentityScenario(postgres, factory);
+        var account = await scenario.CreateConfirmedAccountAsync();
+        var accepted = Assert.Single(superseded,
+            document => document.Document == "terms" && document.Version == "2026-10-29" && document.Locale == "pt-BR");
+        await scenario.ScalarAsync(
+            """
+            with removed as (delete from identity.consent_records where user_id = $1 and document = 'Terms' returning user_id, accepted_at),
+                 inserted as (
+                     insert into identity.consent_records (id, user_id, document, version, accepted_at, document_locale, document_sha256)
+                     select gen_random_uuid(), user_id, 'Terms', $2, accepted_at, $3, $4 from removed
+                     returning 1)
+            select count(*) from inserted
+            """,
+            account.UserId, accepted.Version, accepted.Locale, accepted.Sha256);
+
+        Assert.Equal(1, await scenario.ScalarAsync("""
+            select count(*) from identity.consent_records
+            where user_id = $1 and document = 'Terms' and version = $2 and document_locale = $3 and document_sha256 = $4
+            """, account.UserId, accepted.Version, accepted.Locale,
+            Assert.Single(publication.Documents, document => document.Document == accepted.Document
+                && document.Version == accepted.Version && document.Locale == accepted.Locale).Sha256));
     }
 
     [Theory]
@@ -206,9 +243,6 @@ public sealed partial class LegalDocumentTests(PostgresFixture postgres)
                 """, userId, document.Document, document.Version, document.Locale, document.Sha256));
         }
     }
-
-    private static bool IsActive(LegalDocumentResponse document, LegalDocumentCatalogResponse catalog) =>
-        document.Version == (document.Document == "terms" ? catalog.TermsVersion : catalog.PrivacyVersion);
 
     private static string[] FormerIdentificationIn(LegalDocumentResponse document) =>
         FormerIdentificationIn(string.Join(' ',

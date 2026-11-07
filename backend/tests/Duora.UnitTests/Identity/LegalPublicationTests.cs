@@ -59,6 +59,9 @@ public sealed class LegalPublicationTests
 
         Assert.True(publication.RegistrationAvailable);
         Assert.False(publication.AcceptsTerms("terms-v1", "pt-BR", olderHash));
+        Assert.Equal(6, publication.Documents.Count);
+        Assert.Equal(4, publication.ActiveDocuments.Count);
+        Assert.DoesNotContain(publication.ActiveDocuments, document => document.Version == "terms-v1");
     }
 
     [Fact]
