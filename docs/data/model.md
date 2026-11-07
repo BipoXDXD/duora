@@ -52,7 +52,7 @@ A classe de cada tabela é a da coluna mais sensível; colunas mais sensíveis q
 
 ```mermaid
 flowchart LR
-    identity["identity<br/>conta, sessão, idade, consentimento"]
+    identity["identity<br/>conta, sessão, presença, consentimento"]
     profiles["profiles<br/>perfil, preferências, fotos"]
     events["events<br/>evento, inscrição, rodada,<br/>par e reserva (Matching)"]
     experiences["experiences<br/>catálogo e sala (game_session)"]
