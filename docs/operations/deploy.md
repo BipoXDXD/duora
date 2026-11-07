@@ -120,14 +120,16 @@ não o Caddyfile da imagem: o CSP de `/account/selfie` só chega aplicando ao ar
 `infra/caddy/Caddyfile` (as diferenças do arquivo do host estão abaixo), validando com `caddy validate` e atualizando
 `caddy_sha256`. O Caddyfile não entra no baseline do executor.
 
-O arquivo do host difere do `infra/caddy/Caddyfile` em quatro pontos (estado atual, segundo o pacote da Fase 4 opção B;
-o arquivo da VPS não foi relido ao escrever este trecho):
+O arquivo do host difere do `infra/caddy/Caddyfile` em quatro pontos (estado atual, segundo o pacote da Fase 4 opção B,
+que fica fora do repositório; o arquivo da VPS não foi relido ao escrever este trecho):
 
 - **TLS:** o site é `http://{$DUORA_DOMAIN}` e não tem `tls`, porque o Traefik termina o TLS.
 - **Proxy confiável:** o bloco global tem `servers { trusted_proxies static 172.16.1.6` e `trusted_proxies_strict }`.
-- **`header_up X-Forwarded-For {client_ip}`** em cada `reverse_proxy` (`/api/*`, `/webhooks/*`, `/hubs/*`). Sem essa
-  linha o IP real não chega ao web: no teste do PR #377 (ainda aberto) ele recebeu a cadeia de `X-Forwarded-For` como
-  veio, com o peer no fim, e com `ForwardLimit=1` o web enxerga o peer. `client_ip_headers` sozinho não substitui esse
+- **`header_up X-Forwarded-For {client_ip}`** em cada `reverse_proxy` (`/api/*`, `/webhooks/*`, `/hubs/*`). Essa
+  linha é necessária, mas hoje não basta: atrás da Cloudflare, o web ainda recebe o endereço da borda, e o rate limit
+  por IP se espalha entre as bordas até a Fase 4. Sem ela, nem esse endereço chega ao web: no teste do PR #377
+  (ainda aberto) ele recebeu a cadeia de `X-Forwarded-For` como veio, com o peer no fim, e com `ForwardLimit=1` o web
+  enxerga o peer. `client_ip_headers` sozinho não substitui esse
   `header_up` (controle `ForwardedForRewriteControlTests`).
 - **`header_up X-Forwarded-Proto https`** nos mesmos três `reverse_proxy`.
 
@@ -139,6 +141,9 @@ entre `trusted_proxies` e `trusted_proxies_strict`. É a única linha que a Fase
 (`Caddyfile.diff` do pacote). Enquanto a fase não for aplicada, o arquivo do host não tem essa linha. A cadeia de IP
 com ela está provada em teste no PR #377 (ainda aberto); a `ipAllowList` do Traefik e o comportamento da Cloudflare
 não, e a opção B depende deles.
+
+**Não aplique `client_ip_headers` sem as labels `ipAllowList` do Traefik.** Sem a `ipAllowList`, quem acessa a origem
+direto forja `Cf-Connecting-IP`. Caddyfile e labels entram e saem juntos.
 
 **Ressela.** O baseline do executor (`/var/lib/duora/executor-runtime-baseline.json`) fixa o hash do Compose
 (`context.composeSha256`). Sem selar de novo, o `duora-deploy` recusa a release com "Database/backup runtime changed".
