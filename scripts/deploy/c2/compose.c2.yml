@@ -6,7 +6,8 @@
 #   - sub-redes próprias: as fixas da produção (172.30.10/20/21.0/24) já existem no host e o Docker recusaria
 #     a sobreposição. O pg_hba e o pgbackrest-repo.conf da imagem citam o IP do backup; o c2_shadow gera as cópias
 #     com o IP sombra e elas entram por bind mount somente leitura;
-#   - LoginPerIp: todos os clientes sintéticos saem do mesmo IP (o túnel). O limite por conta continua o padrão.
+#   - LoginPerIp: todos os clientes sintéticos saem do mesmo IP (o túnel). O limite por conta continua o padrão;
+#   - s3: o dublê não existe na produção e era o único serviço sem teto; na mesma VPS, ele cede CPU e RAM aos demais.
 services:
   postgres:
     volumes:
@@ -27,6 +28,14 @@ services:
     environment:
       ReverseProxy__KnownNetworks__0: 10.231.10.0/24
       RateLimiting__LoginPerIp__PermitLimit: "100000"
+
+  s3:
+    cpu_shares: 256
+    deploy:
+      resources:
+        limits:
+          memory: 768M
+          cpus: "0.5"
 
 networks:
   edge:
