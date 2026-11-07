@@ -54,15 +54,19 @@ public sealed class LegalPublication
                 && document.Sections.Count > 0
                 && document.Sections.All(section => !string.IsNullOrWhiteSpace(section.Title)
                     && section.Paragraphs.Count > 0 && section.Paragraphs.All(paragraph => !string.IsNullOrWhiteSpace(paragraph))));
-        var active = Documents.Where(document => document.Version == (document.Document == "terms" ? termsVersion : privacyVersion)).ToArray();
-        RegistrationAvailable = valid && active.Length == 4 && active.All(IsPublished)
-            && active.Select(document => document.ControllerName).Distinct(StringComparer.Ordinal).Count() == 1
-            && active.Select(document => document.PrivacyContact).Distinct(StringComparer.Ordinal).Count() == 1;
+        ActiveDocuments = Array.AsReadOnly(Documents
+            .Where(document => document.Version == (document.Document == "terms" ? termsVersion : privacyVersion)).ToArray());
+        RegistrationAvailable = valid && ActiveDocuments.Count == 4 && ActiveDocuments.All(IsPublished)
+            && ActiveDocuments.Select(document => document.ControllerName).Distinct(StringComparer.Ordinal).Count() == 1
+            && ActiveDocuments.Select(document => document.PrivacyContact).Distinct(StringComparer.Ordinal).Count() == 1;
     }
 
     public string TermsVersion { get; }
     public string PrivacyVersion { get; }
+    /// <summary>Every retained version, including superseded ones: acceptance evidence, never served to the public.</summary>
     public IReadOnlyList<PublicLegalDocument> Documents { get; }
+    /// <summary>Only the current Terms and Privacy versions: all that the public endpoint may serve.</summary>
+    public IReadOnlyList<PublicLegalDocument> ActiveDocuments { get; }
     public bool RegistrationAvailable { get; }
 
     public bool Accepts(string termsVersion, string privacyVersion, string? termsLocale, string? privacyLocale, string? termsSha256 = null, string? privacySha256 = null) =>
