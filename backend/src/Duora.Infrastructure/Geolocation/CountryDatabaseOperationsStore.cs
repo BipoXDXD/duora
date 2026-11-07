@@ -1,5 +1,7 @@
 using System.Text.Json;
 using Duora.Infrastructure.Audit;
+using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Logging.Abstractions;
 using Npgsql;
 
 namespace Duora.Infrastructure.Geolocation;
@@ -8,8 +10,11 @@ namespace Duora.Infrastructure.Geolocation;
 /// Operations metadata only. Destructive retention needs a separately authorized maintenance data source;
 /// duora_app retains SELECT/INSERT-only access to manifests, approvals and tombstones.
 /// </summary>
-public sealed class CountryDatabaseOperationsStore(NpgsqlDataSource source, TimeProvider time)
+public sealed partial class CountryDatabaseOperationsStore(NpgsqlDataSource source, TimeProvider time,
+    ILogger<CountryDatabaseOperationsStore>? logger = null)
 {
+    private readonly ILogger _logger = logger ?? NullLogger<CountryDatabaseOperationsStore>.Instance;
+
     internal DateTimeOffset UtcNow => time.GetUtcNow();
     internal Task<CountryDatabaseFileLock> LockFilesAsync(CancellationToken ct) => CountryDatabaseFileLock.AcquireAsync(source, ct);
 
@@ -136,20 +141,38 @@ public sealed class CountryDatabaseOperationsStore(NpgsqlDataSource source, Time
                 { return; }
                 notification = new(r.GetInt64(0), r.GetString(1), r.GetInt32(2), r.GetBoolean(3), r.GetFieldValue<DateTimeOffset>(4));
             }
+            // No transport exceptions, payloads or addresses are persisted/logged, only the type: an alert that never
+            // leaves must not fail in silence. Either way the reservation retries no sooner than 15 min.
             try
             {
                 await notifier.SendAsync(notification, ct);
+            }
+            catch (OperationCanceledException) when (ct.IsCancellationRequested) { throw; }
+            catch (Exception exception)
+            {
+                LogAlertNotSent(_logger, notification.Code, exception.GetType().Name);
+                return;
+            }
+
+            try
+            {
                 await using var c = await source.OpenConnectionAsync(ct);
                 await Execute(c, "update ops.country_database_notifications set delivered_at=$2 where id=$1", ct, notification.Id, UtcNow);
             }
             catch (OperationCanceledException) when (ct.IsCancellationRequested) { throw; }
-            catch (Exception)
+            catch (Exception exception)
             {
-                // No transport exceptions, payloads or addresses are persisted/logged. Retry no sooner than 15 min.
+                LogAlertNotRecorded(_logger, notification.Code, exception.GetType().Name);
                 return;
             }
         }
     }
+
+    [LoggerMessage(Level = LogLevel.Warning, Message = "Country database alert {Code} was not sent ({Cause}); it is retried in 15 minutes.")]
+    private static partial void LogAlertNotSent(ILogger logger, string code, string cause);
+
+    [LoggerMessage(Level = LogLevel.Warning, Message = "Country database alert {Code} was sent but not recorded ({Cause}); delivery is attempted again in 15 minutes.")]
+    private static partial void LogAlertNotRecorded(ILogger logger, string code, string cause);
 
     public async Task RecordBackupFailureAsync(bool failed, CancellationToken ct)
     {

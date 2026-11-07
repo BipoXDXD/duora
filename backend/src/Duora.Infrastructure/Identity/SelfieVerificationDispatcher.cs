@@ -3,12 +3,13 @@ using Duora.Core.Identity;
 using Duora.Infrastructure.Outbox;
 using Duora.Infrastructure.Persistence;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 
 namespace Duora.Infrastructure.Identity;
 
 /// <summary>Outbox com teto, renovação e fencing; chamadas externas sempre fora de transações.</summary>
-public sealed class SelfieVerificationDispatcher
+public sealed partial class SelfieVerificationDispatcher
 {
     private static readonly TimeSpan Lease = TimeSpan.FromSeconds(30);
     private static readonly TimeSpan TransientDataRetention = TimeSpan.FromHours(24);
@@ -23,15 +24,17 @@ public sealed class SelfieVerificationDispatcher
     private readonly ISelfieProvider _provider;
     private readonly SelfieProviderOptions _options;
     private readonly TimeProvider _time;
+    private readonly ILogger<SelfieVerificationDispatcher> _logger;
 
     internal SelfieVerificationDispatcher(DuoraDbContext db, OutboxDeliveryQueue queue, ISelfieProvider provider,
-        IOptions<SelfieProviderOptions> options, TimeProvider time)
+        IOptions<SelfieProviderOptions> options, TimeProvider time, ILogger<SelfieVerificationDispatcher> logger)
     {
         _db = db;
         _queue = queue;
         _provider = provider;
         _options = options.Value;
         _time = time;
+        _logger = logger;
     }
 
     public async Task<int> DispatchBatchAsync(CancellationToken cancellationToken)
@@ -131,9 +134,10 @@ public sealed class SelfieVerificationDispatcher
                 result = await _provider.ReadAsync(row.ProviderReference, timeout.Token);
             }
         }
-        catch (Exception exception) when (exception is Amazon.Runtime.AmazonServiceException or HttpRequestException or InvalidDataException or OperationCanceledException)
+        catch (Exception exception) when (IsTransientProviderFailure(exception))
         {
             cancellationToken.ThrowIfCancellationRequested();
+            LogProviderUnavailable(_logger, exception.GetType().Name);
             await _queue.RescheduleAsync(delivery, _time.GetUtcNow().AddSeconds(5), "ProviderUnavailable", _time.GetUtcNow(), cancellationToken);
             return;
         }
@@ -153,6 +157,19 @@ public sealed class SelfieVerificationDispatcher
             await _queue.RescheduleAsync(delivery, _time.GetUtcNow().AddSeconds(5), "AwaitingCapture", _time.GetUtcNow(), cancellationToken);
         }
     }
+
+    /// <summary>Só o tipo: a mensagem de erro do fornecedor pode carregar dado (spec 19.2).</summary>
+    [LoggerMessage(Level = LogLevel.Warning, Message = "Selfie provider unavailable ({Cause}); the delivery was rescheduled.")]
+    private static partial void LogProviderUnavailable(ILogger logger, string cause);
+
+    /// <summary>
+    /// Falhas da chamada ao fornecedor que reagendam a entrega, sem mudar a tentativa nem contar reprovação. O SDK da
+    /// AWS entrega o reset de conexão como <see cref="IOException"/> e o timeout do HttpClient como
+    /// <see cref="TimeoutException"/>. Qualquer outra exceção é defeito: sobe ao loop do worker e o lease devolve a entrega.
+    /// </summary>
+    private static bool IsTransientProviderFailure(Exception exception) =>
+        exception is Amazon.Runtime.AmazonServiceException or HttpRequestException or IOException or TimeoutException
+            or InvalidDataException or OperationCanceledException;
 
     /// <summary>
     /// Na transação do resultado, sob a trava da conta (issue #300): grava a reprovação e, se ela é a décima, o pedido

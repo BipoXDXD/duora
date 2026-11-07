@@ -341,7 +341,8 @@ public sealed class LoginAuditTests(PostgresFixture postgres)
     [Fact]
     public async Task ConcurrentWrongPasswordsLeaveExactlyOneRecordEachAndOneLockout()
     {
-        await using var context = await AuditContext.CreateAsync(postgres);
+        // Custo real: a verificação do hash fica dentro da janela da corrida, e um hash rápido a estreitaria.
+        await using var context = await AuditContext.CreateAsync(postgres, realPasswordHashCost: true);
         var account = await context.Scenario.CreateConfirmedAccountAsync();
         await context.SetFailedAttemptsAsync(account.UserId, LockoutThreshold - 2);
         var browsers = Enumerable.Range(0, 6).Select(_ => new Browser(context.Factory)).ToList();
@@ -367,7 +368,8 @@ public sealed class LoginAuditTests(PostgresFixture postgres)
     [Fact]
     public async Task ConcurrentSuccessfulLoginsAreEachAuditedOnce()
     {
-        await using var context = await AuditContext.CreateAsync(postgres);
+        // Custo real: a verificação do hash fica dentro da janela da corrida, e um hash rápido a estreitaria.
+        await using var context = await AuditContext.CreateAsync(postgres, realPasswordHashCost: true);
         var account = await context.Scenario.CreateConfirmedAccountAsync();
         var browsers = Enumerable.Range(0, 4).Select(_ => new Browser(context.Factory)).ToList();
 
@@ -528,7 +530,7 @@ public sealed class LoginAuditTests(PostgresFixture postgres)
     {
         private readonly string _connectionString;
 
-        private AuditContext(string connectionString, string? accountLockTimeout)
+        private AuditContext(string connectionString, string? accountLockTimeout, bool realPasswordHashCost)
         {
             _connectionString = connectionString;
             // O log do login sem conta é Debug (a métrica faz a contagem); o teste confere o conteúdo dele.
@@ -541,7 +543,12 @@ public sealed class LoginAuditTests(PostgresFixture postgres)
                 settings["Identity:AccountLockTimeout"] = accountLockTimeout;
             }
 
-            Factory = new DuoraWebFactory(connectionString, Logs) { Time = Time, Settings = settings };
+            Factory = new DuoraWebFactory(connectionString, Logs)
+            {
+                Time = Time,
+                Settings = settings,
+                RealPasswordHashCost = realPasswordHashCost,
+            };
             Scenario = new IdentityScenario(connectionString, Factory);
         }
 
@@ -553,8 +560,9 @@ public sealed class LoginAuditTests(PostgresFixture postgres)
 
         public IdentityScenario Scenario { get; }
 
-        public static async Task<AuditContext> CreateAsync(PostgresFixture postgres, string? accountLockTimeout = null) =>
-            new(await postgres.CreateMigratedDatabaseAsync(Ct), accountLockTimeout);
+        public static async Task<AuditContext> CreateAsync(PostgresFixture postgres, string? accountLockTimeout = null,
+            bool realPasswordHashCost = false) =>
+            new(await postgres.CreateMigratedDatabaseAsync(Ct), accountLockTimeout, realPasswordHashCost);
 
         /// <summary>Chama o serviço direto, num escopo próprio: sem sessão HTTP nem antiforgery para serializar.</summary>
         public async Task<bool> RevokeOwnSessionAsync(Guid userId, Guid sessionId)
