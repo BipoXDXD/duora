@@ -1,7 +1,113 @@
 {
-  "termsVersion": "2026-10-29",
-  "privacyVersion": "2026-10-25",
+  "termsVersion": "2026-11-07",
+  "privacyVersion": "2026-11-07",
   "documents": [
+    {
+      "document": "terms",
+      "version": "2026-11-07",
+      "locale": "pt-BR",
+      "title": "Termos de uso",
+      "controllerName": "Responsável pelo Duora",
+      "privacyContact": "support@meetduora.com",
+      "approved": true,
+      "sections": [
+        {
+          "title": "O serviço",
+          "paragraphs": [
+            "O Duora oferece encontros e atividades guiadas. A disponibilidade de cada recurso é indicada na interface. O serviço não garante afinidade, conexão ou continuidade de uma relação entre participantes."
+          ]
+        },
+        {
+          "title": "Idade mínima",
+          "paragraphs": [
+            "O Duora é destinado exclusivamente a pessoas com 18 anos ou mais. Ao se cadastrar, você declara ter 18 anos ou mais."
+          ]
+        },
+        {
+          "title": "Conta e segurança",
+          "paragraphs": [
+            "Use um endereço de e-mail ao qual você tenha acesso e cumpra as etapas de confirmação e segurança apresentadas. Não compartilhe senha, códigos de autenticação ou recuperação. Não use a conta de outra pessoa."
+          ]
+        },
+        {
+          "title": "Convivência",
+          "paragraphs": [
+            "Não ameace, assedie, se passe por outra pessoa nem envie conteúdo sem autorização para utilizá-lo. Evite incluir informações sensíveis ou de terceiros em campos livres. As decisões de moderação e os recursos dependem de seus fluxos próprios; automação não constitui julgamento humano."
+          ]
+        },
+        {
+          "title": "Participação e saída",
+          "paragraphs": [
+            "As atividades respeitam as escolhas explícitas e os estados apresentados na sala. Silêncio não equivale a confirmação. A interface não oferece tradução automática de uma conversa. Voz, quando disponível, é opcional. Sair ou bloquear não exige concordância da outra pessoa."
+          ]
+        },
+        {
+          "title": "Versão e aceite",
+          "paragraphs": [
+            "Este documento é identificado por tipo, versão, idioma e resumo criptográfico. O cadastro só é admitido quando os documentos aplicáveis estão publicados e o aceite corresponde às versões e aos idiomas oferecidos. Evidências antigas sem idioma conhecido não recebem um idioma presumido."
+          ]
+        },
+        {
+          "title": "Responsável e contato",
+          "paragraphs": [
+            "O responsável pelo Duora mantém o serviço e é o controlador dos dados pessoais tratados nele. O canal para suporte e solicitações de privacidade é support@meetduora.com."
+          ]
+        }
+      ]
+    },
+    {
+      "document": "terms",
+      "version": "2026-11-07",
+      "locale": "en-US",
+      "title": "Terms of use",
+      "controllerName": "Responsável pelo Duora",
+      "privacyContact": "support@meetduora.com",
+      "approved": true,
+      "sections": [
+        {
+          "title": "The service",
+          "paragraphs": [
+            "Duora provides meetings and guided activities. The interface identifies which features are available. The service does not guarantee compatibility, a connection, or an ongoing relationship between participants."
+          ]
+        },
+        {
+          "title": "Minimum age",
+          "paragraphs": [
+            "Duora is only for people aged 18 or older. By registering, you declare that you are 18 or older."
+          ]
+        },
+        {
+          "title": "Account and security",
+          "paragraphs": [
+            "Use an email address you can access and complete the confirmation and security steps presented to you. Do not share passwords, authentication codes, or recovery codes. Do not use another person’s account."
+          ]
+        },
+        {
+          "title": "Conduct",
+          "paragraphs": [
+            "Do not threaten, harass, impersonate another person, or submit content you are not authorized to use. Avoid entering sensitive information or information about other people in free-text fields. Moderation decisions and appeals depend on their own processes; automation is not a human judgment."
+          ]
+        },
+        {
+          "title": "Participation and leaving",
+          "paragraphs": [
+            "Activities respect explicit choices and the states shown in the room. Silence is not confirmation. The interface does not provide automatic translation of a conversation. Voice, when available, is optional. Leaving or blocking does not require the other person’s agreement."
+          ]
+        },
+        {
+          "title": "Version and acceptance",
+          "paragraphs": [
+            "This document is identified by its type, version, language, and cryptographic digest. Registration is admitted only when the applicable documents are published and acceptance matches the versions and languages offered. Historical evidence with an unknown language is not assigned an inferred language."
+          ]
+        },
+        {
+          "title": "Responsible party and contact",
+          "paragraphs": [
+            "Duora is operated by the party responsible for it, who is the controller of the personal data processed in it. The support and privacy-request contact is support@meetduora.com."
+          ]
+        }
+      ]
+    },
     {
       "document": "terms",
       "version": "2026-10-29",
@@ -198,6 +304,126 @@
           "title": "Responsible party and contact",
           "paragraphs": [
             "Duora is operated by Luca Grimmer, an individual, who is responsible for the service and is the controller of the personal data processed in it. The support and privacy-request contact is support@meetduora.com."
+          ]
+        }
+      ]
+    },
+    {
+      "document": "privacy",
+      "version": "2026-11-07",
+      "locale": "pt-BR",
+      "title": "Aviso de privacidade",
+      "controllerName": "Responsável pelo Duora",
+      "privacyContact": "support@meetduora.com",
+      "approved": true,
+      "sections": [
+        {
+          "title": "Controlador e contato",
+          "paragraphs": [
+            "O controlador dos dados pessoais tratados no Duora é o responsável pelo Duora. O canal para solicitações de privacidade e para o exercício de direitos é support@meetduora.com."
+          ]
+        },
+        {
+          "title": "Cadastro, autenticação e aceites",
+          "paragraphs": [
+            "O cadastro processa e-mail e senha para criar e proteger a conta. A senha é transformada em hash pelo mecanismo de autenticação; não é uma informação pública de perfil. A confirmação utiliza o endereço informado. Os registros de aceite vinculam o tipo do documento, sua versão, o idioma efetivamente informado e o instante do aceite. Um registro histórico com idioma desconhecido permanece desconhecido."
+          ]
+        },
+        {
+          "title": "Perfil e preferências",
+          "paragraphs": [
+            "Os recursos de perfil permitem dados e escolhas como nome de apresentação, biografia, país e subdivisão opcionais, idiomas de comunicação, idioma da interface e fuso. Essas escolhas são independentes; idioma não comprova país, residência ou proficiência. Localização aproximada, quando habilitada, é apenas sugestão corrigível e não autoriza geolocalização precisa nem histórico individual de detecção."
+          ]
+        },
+        {
+          "title": "Participação e visibilidade",
+          "paragraphs": [
+            "Inscrições, salas e atividades usam os dados necessários ao respectivo contexto. Outra pessoa recebe somente a projeção autorizada para aquele recurso; não deve receber listas privadas de preferências ou escolhas ainda não reveladas. Fotografias e verificações de presença possuem etapas próprias. Uma verificação de presença ou qualidade não é verificação de idade nem autorização para coletar documento de identidade."
+          ]
+        },
+        {
+          "title": "Operação e fornecedores",
+          "paragraphs": [
+            "O serviço e seus dados, inclusive fotografias, ficam em servidor contratado da Hostinger em Boston, Estados Unidos. Cópias de segurança são cifradas antes de sair do servidor e guardadas no Backblaze B2, na região leste dos Estados Unidos; esse fornecedor não recebe as chaves de cifra. Mensagens enviadas ao suporte são recebidas pelo Zoho Mail e encaminhadas a uma caixa Gmail do responsável. A verificação de presença por selfie é processada pela Amazon Web Services (AWS) na região us-east-1, nos Estados Unidos. Para quem participa a partir do Brasil, esses tratamentos ocorrem fora do país.",
+            "E-mails transacionais (confirmação de cadastro, redefinição de senha e avisos da conta) são enviados pela Resend (Resend, Inc., Estados Unidos), a partir do domínio meetduora.com, com envio pela região sa-east-1 (São Paulo). A Resend processa o endereço do destinatário e o conteúdo da mensagem apenas para entregá-la. O rastreamento de abertura e de clique está desligado."
+          ]
+        },
+        {
+          "title": "Verificação de presença por selfie",
+          "paragraphs": [
+            "A verificação de presença por selfie usa o Amazon Rekognition Face Liveness, da AWS, na região us-east-1, sob o acordo de tratamento de dados padrão da AWS. O Duora não guarda nenhuma imagem da selfie. O resultado aprovado fica guardado enquanto a conta existir. Tentativas não aprovadas são apagadas em 30 dias."
+          ]
+        },
+        {
+          "title": "Conservação e direitos",
+          "paragraphs": [
+            "Os dados são conservados pelo tempo necessário à finalidade de cada recurso. Cópias de segurança seguem ciclo próprio; um dado apagado do serviço pode permanecer nelas até que a cópia expire. Para pedir acesso, correção ou exclusão dos seus dados, escreva para support@meetduora.com; antes de atender, pediremos uma verificação de identidade proporcional ao pedido."
+          ]
+        },
+        {
+          "title": "Alterações deste aviso",
+          "paragraphs": [
+            "Mudanças neste aviso geram uma nova versão, identificada por data e idioma. As versões anteriores continuam acessíveis no endereço próprio de cada versão."
+          ]
+        }
+      ]
+    },
+    {
+      "document": "privacy",
+      "version": "2026-11-07",
+      "locale": "en-US",
+      "title": "Privacy notice",
+      "controllerName": "Responsável pelo Duora",
+      "privacyContact": "support@meetduora.com",
+      "approved": true,
+      "sections": [
+        {
+          "title": "Controller and contact",
+          "paragraphs": [
+            "The controller of the personal data processed in Duora is the party responsible for Duora. The contact for privacy requests and for exercising your rights is support@meetduora.com."
+          ]
+        },
+        {
+          "title": "Registration, authentication, and acceptance",
+          "paragraphs": [
+            "Registration processes an email address and password to create and protect an account. The authentication mechanism transforms the password into a hash; it is not public profile information. Confirmation uses the address supplied. Acceptance records bind the document type, version, language actually supplied, and acceptance time. A historical record with an unknown language remains unknown."
+          ]
+        },
+        {
+          "title": "Profile and preferences",
+          "paragraphs": [
+            "Profile features support information and choices such as a display name, biography, optional country and subdivision, communication languages, interface language, and time zone. These choices are independent; language does not establish country, residence, or proficiency. Approximate location, when enabled, is only a correctable suggestion and does not authorize precise geolocation or an individual detection history."
+          ]
+        },
+        {
+          "title": "Participation and visibility",
+          "paragraphs": [
+            "Registrations, rooms, and activities use the information needed for their context. Another person receives only the projection authorized for that feature, not private preference lists or choices that have not been revealed. Photos and presence checks have their own steps. A presence or quality check is not an age check or permission to collect an identity document."
+          ]
+        },
+        {
+          "title": "Operations and providers",
+          "paragraphs": [
+            "The service and its data, including photos, are hosted on a server contracted from Hostinger in Boston, United States. Backups are encrypted before they leave the server and are stored in Backblaze B2, in the eastern United States region; that provider does not receive the encryption keys. Messages sent to support are received by Zoho Mail and forwarded to a Gmail inbox of the responsible party. The selfie presence check is processed by Amazon Web Services (AWS) in the us-east-1 region, in the United States. For people participating from Brazil, this processing takes place outside the country.",
+            "Transactional emails (registration confirmation, password reset and account notices) are sent through Resend (Resend, Inc., United States), from the meetduora.com domain, through the sa-east-1 (São Paulo) sending region. Resend processes the recipient's address and the message content only to deliver it. Open and click tracking are turned off."
+          ]
+        },
+        {
+          "title": "Selfie presence check",
+          "paragraphs": [
+            "The selfie presence check uses Amazon Rekognition Face Liveness, from AWS, in the us-east-1 region, under the AWS standard data processing addendum. Duora does not keep any image from the selfie. An approved result is kept for as long as the account exists. Attempts that are not approved are deleted within 30 days."
+          ]
+        },
+        {
+          "title": "Retention and requests",
+          "paragraphs": [
+            "Information is retained for as long as each feature needs it for its purpose. Backups follow their own cycle; information deleted from the service may remain in them until the backup expires. To request access to, correction of, or deletion of your information, write to support@meetduora.com; before acting, we will ask for identity verification proportionate to the request."
+          ]
+        },
+        {
+          "title": "Changes to this notice",
+          "paragraphs": [
+            "Changes to this notice create a new version, identified by date and language. Previous versions remain available at their own version address."
           ]
         }
       ]

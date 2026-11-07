@@ -1,18 +1,30 @@
 using System.Net;
 using System.Net.Http.Json;
+using System.Security.Cryptography;
+using System.Text;
+using System.Text.RegularExpressions;
 using Duora.Contracts.Identity;
 using Duora.Infrastructure.Identity;
 
 namespace Duora.IntegrationTests.Identity;
 
-public sealed class LegalDocumentTests(PostgresFixture postgres)
+public sealed partial class LegalDocumentTests(PostgresFixture postgres)
 {
-    private const string PublishedController = "Luca Grimmer";
-    private const string CurrentTermsVersion = "2026-10-29";
+    // Temporary (decisions-2026-11-07): the identification returns once there is a registered entity to publish.
+    private const string ActiveController = "Responsável pelo Duora";
+    private const string CurrentTermsVersion = "2026-11-07";
+    private const string CurrentPrivacyVersion = "2026-11-07";
+    // SHA-256 of each casefolded word of the former personal identification, so the guard does not republish it.
+    private static readonly string[] FormerIdentificationWords =
+    [
+        "6ad24e7987574a99f016032e7603f0cad2842d85c3a3162fe53a05e6e58547cb",
+        "d70f47790f689414789eeff231703429c7f88a10210775906460edbf38589d90",
+    ];
+    private static readonly string[] FormerIdentificationPhrases = ["pessoa física", "pessoa fisica", ", an individual"];
     private static CancellationToken Ct => TestContext.Current.CancellationToken;
 
     [Fact]
-    public async Task ActualPublicationIsPublishedUnderTheNamedController()
+    public async Task ActualPublicationIsPublishedUnderTheNeutralController()
     {
         await using var factory = new DuoraWebFactory(postgres.ConnectionString) { LegalDocuments = null };
         using var browser = new Browser(factory);
@@ -24,18 +36,49 @@ public sealed class LegalDocumentTests(PostgresFixture postgres)
         Assert.NotNull(catalog);
         Assert.True(catalog.RegistrationAvailable);
         Assert.Equal(CurrentTermsVersion, catalog.TermsVersion);
-        Assert.Equal(4, catalog.Documents.Count(document =>
-            document.Version == (document.Document == "terms" ? catalog.TermsVersion : catalog.PrivacyVersion)));
-        // The superseded terms stay in the catalog so earlier acceptance evidence still resolves to its text.
+        Assert.Equal(CurrentPrivacyVersion, catalog.PrivacyVersion);
+        var active = catalog.Documents.Where(document => IsActive(document, catalog)).ToArray();
+        Assert.Equal(4, active.Length);
+        Assert.All(active, document => Assert.Equal(ActiveController, document.ControllerName));
+        // The superseded versions stay in the catalog so earlier acceptance evidence still resolves to its text.
         Assert.Equal(2, catalog.Documents.Count(document => document.Document == "terms" && document.Version == "2026-10-25"));
+        Assert.Equal(2, catalog.Documents.Count(document => document.Document == "terms" && document.Version == "2026-10-29"));
+        Assert.Equal(2, catalog.Documents.Count(document => document.Document == "privacy" && document.Version == "2026-10-25"));
         Assert.All(catalog.Documents, document =>
         {
             Assert.True(document.Published);
-            Assert.Equal(PublishedController, document.ControllerName);
             Assert.Equal("support@meetduora.com", document.PrivacyContact);
             Assert.NotEmpty(document.Sections);
             Assert.Matches("^[a-f0-9]{64}$", document.Sha256);
         });
+    }
+
+    [Fact]
+    public async Task ActiveDocumentsServedByTheApiDoNotCarryTheFormerPersonalIdentification()
+    {
+        await using var factory = new DuoraWebFactory(postgres.ConnectionString) { LegalDocuments = null };
+        using var browser = new Browser(factory);
+        using var response = await browser.GetAsync("/api/v1/legal-documents");
+        var catalog = await response.Content.ReadFromJsonAsync<LegalDocumentCatalogResponse>(Ct);
+        Assert.NotNull(catalog);
+        var active = catalog.Documents.Where(document => IsActive(document, catalog)).ToArray();
+        Assert.Equal(4, active.Length);
+
+        Assert.All(active, document => Assert.Empty(FormerIdentificationIn(document)));
+    }
+
+    [Theory]
+    [InlineData("Operated by someone, an individual.", ", an individual")]
+    [InlineData("mantido por PESSOA FÍSICA", "pessoa física")]
+    public void TheIdentificationGuardReadsCaseVariations(string text, string expected)
+    {
+        Assert.Equal(expected, Assert.Single(FormerIdentificationIn(text)));
+    }
+
+    [Fact]
+    public void TheIdentificationGuardAcceptsTheNeutralText()
+    {
+        Assert.Empty(FormerIdentificationIn($"{ActiveController}, support@meetduora.com"));
     }
 
     [Fact]
@@ -63,6 +106,10 @@ public sealed class LegalDocumentTests(PostgresFixture postgres)
     // Golden master of every published text: a published version never changes. Editing a text, the controller
     // or the contact without creating a new version must break this test.
     [Theory]
+    [InlineData("terms", "2026-11-07", "pt-BR", "101bd6102a89bc32135e2cfda3f7c2bbbe739ca6e7e4a3d6024124348960e8e8")]
+    [InlineData("terms", "2026-11-07", "en-US", "b07c56cc2655f8625d5221521eaba32cfa874bd55fe6609ab66cec187f64d80e")]
+    [InlineData("privacy", "2026-11-07", "pt-BR", "aad9288cc724d5310430cea90dafb5c24cf097274e70a1e802265d9867e80b01")]
+    [InlineData("privacy", "2026-11-07", "en-US", "236e00727761937ec434356e6dcc11d6d1cf57a79a45c8830ee0ff7890eb58a7")]
     [InlineData("terms", "2026-10-25", "pt-BR", "07fd125aa37cea239d0dc0bf702a32892e66e2d16ed0e5a0c1908c5034f30227")]
     [InlineData("terms", "2026-10-25", "en-US", "fc36a782961b51fe8ab5b2b49ae71596763f4d365736855cd916cff38e27c8b6")]
     [InlineData("terms", "2026-10-29", "pt-BR", "7b7c64f8bb387fe287aa06018225ddda597401ce72a8b88a7742958391312ae6")]
@@ -159,4 +206,23 @@ public sealed class LegalDocumentTests(PostgresFixture postgres)
                 """, userId, document.Document, document.Version, document.Locale, document.Sha256));
         }
     }
+
+    private static bool IsActive(LegalDocumentResponse document, LegalDocumentCatalogResponse catalog) =>
+        document.Version == (document.Document == "terms" ? catalog.TermsVersion : catalog.PrivacyVersion);
+
+    private static string[] FormerIdentificationIn(LegalDocumentResponse document) =>
+        FormerIdentificationIn(string.Join(' ',
+            new[] { document.Title, document.ControllerName ?? "", document.PrivacyContact ?? "" }
+                .Concat(document.Sections.SelectMany(section => section.Paragraphs.Prepend(section.Title)))));
+
+    private static string[] FormerIdentificationIn(string text)
+    {
+        var lowered = text.ToLowerInvariant();
+        var words = Word().Matches(lowered).Select(match => match.Value)
+            .Where(word => FormerIdentificationWords.Contains(Convert.ToHexStringLower(SHA256.HashData(Encoding.UTF8.GetBytes(word)))));
+        return words.Concat(FormerIdentificationPhrases.Where(phrase => lowered.Contains(phrase, StringComparison.Ordinal))).ToArray();
+    }
+
+    [GeneratedRegex(@"\p{L}+")]
+    private static partial Regex Word();
 }
