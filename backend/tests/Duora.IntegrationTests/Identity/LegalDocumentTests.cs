@@ -81,7 +81,9 @@ public sealed partial class LegalDocumentTests(PostgresFixture postgres)
             Assert.DoesNotContain($"\"{document.Version}\"", body, StringComparison.Ordinal);
         });
 
-        var scenario = new IdentityScenario(postgres, factory);
+        // The registration fixture signs synthetic receipts, so the account comes from a synthetic publication.
+        await using var accounts = new DuoraWebFactory(postgres.ConnectionString);
+        var scenario = new IdentityScenario(postgres, accounts);
         var account = await scenario.CreateConfirmedAccountAsync();
         var accepted = Assert.Single(superseded,
             document => document.Document == "terms" && document.Version == "2026-10-29" && document.Locale == "pt-BR");
