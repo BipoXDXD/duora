@@ -581,11 +581,12 @@ public sealed class SelfieSlowProviderTests(PostgresFixture postgres)
 
     /// <summary>
     /// O prazo de 3 minutos é o único limite de uma tentativa em falha: depois de uma sequência de falhas, a leitura no
-    /// último segundo ainda decide, e no instante do prazo a tentativa fecha sem nenhuma chamada.
+    /// último segundo ainda decide, e no instante do prazo a tentativa fecha sem nenhuma chamada, mantendo o sinal de
+    /// instabilidade que a primeira falha gravou.
     /// </summary>
     [Theory]
     [InlineData(179, 1, "Passed|has-reference|no-feedback|closed")]
-    [InlineData(180, 0, "Expired|has-reference|no-feedback|closed")]
+    [InlineData(180, 0, "Expired|has-reference|PROVIDER_UNAVAILABLE|closed")]
     public async Task AFailureStreakLeavesTheAttemptReadableUpToItsLastSecond(int secondsAfterTheRequest, int expectedReads, string expected)
     {
         var provider = new FaultySelfieProvider(_time);
@@ -670,7 +671,7 @@ public sealed class SelfieSlowProviderTests(PostgresFixture postgres)
 
         Assert.True(elapsed < BelowTheCallTimeout, $"O lote levou {elapsed}.");
         Assert.Equal(expectedHttpCalls, transport.Calls);
-        Assert.Equal("Pending|no-reference|no-feedback|open", await AttemptAsync(scenario));
+        Assert.Equal("Pending|no-reference|PROVIDER_UNAVAILABLE|open", await AttemptAsync(scenario));
         Assert.Equal("Pending|ProviderUnavailable|1", await DeliveryAsync(scenario));
         await AssertNotReleasedAsync(scenario, host, account.UserId);
         var trace = Assert.Single(logs.Entries, entry => entry.Category == typeof(SelfieVerificationDispatcher).FullName);
