@@ -24,7 +24,9 @@ STATE = Path('/var/lib/duora-selfie-alert/state.json')
 
 # Limiares iniciais em segundos, sem medição de produção.
 OPEN_AFTER = 120
-RESTART_AFTER = 60
+# OnUnitInactiveSec conta do fim da execução: o pior intervalo é 30 + 16 (dois timeouts de 8 s) + 1 = 47 s. Assim, uma
+# leitura perdida (94 s) não recomeça a contagem.
+RESTART_AFTER = 100
 CLOSE_AFTER = 900
 BLIND_AFTER = 600
 
@@ -32,8 +34,9 @@ GUIDE = 'docs/operations/selfie-provider-alert.md'
 NOT_A_DEPLOY = 'SELFIE, NAO E DEPLOY: ignore a orientacao sobre o Coolify.'
 REASONS = {
     'selfie_provider_down': f'{NOT_A_DEPLOY} Chamadas do worker a AWS falhando ha 2 min ou mais. Ver {GUIDE}',
-    'selfie_provider_recovered': (f'{NOT_A_DEPLOY} Nenhuma falha do worker ha 15 min; com pouco trafego pode ser so '
-                                  f'falta de tentativas. Ver {GUIDE}'),
+    'selfie_provider_recovered': (f'{NOT_A_DEPLOY} A ultima falha observada tem 15 min ou mais. As leituras podem ter '
+                                  f'parado nesse intervalo, e com pouco trafego pode ser so falta de tentativas. '
+                                  f'Ver {GUIDE}'),
     'selfie_probe_blind': f'{NOT_A_DEPLOY} A consulta a fila falha ha 10 min e este alerta esta cego. Ver {GUIDE}',
     'selfie_probe_restored': f'{NOT_A_DEPLOY} A consulta a fila voltou a responder. Ver {GUIDE}',
 }
@@ -164,7 +167,7 @@ def emit(outbox: Path, event: str, anchor: float, now: float) -> None:
     fd = os.open(temporary, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o600)
     try:
         with os.fdopen(fd, 'w') as stream:
-            json.dump({'event': event, 'reason': REASONS[event], 'deployment_uuid': 'nao-se-aplica',
+            json.dump({'event': event, 'reason': REASONS[event], 'deployment_uuid': target.stem,
                        'observed_at': observed_at}, stream)
             stream.flush()
             os.fsync(stream.fileno())

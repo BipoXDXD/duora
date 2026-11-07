@@ -1,6 +1,7 @@
 # ADR-0051: Papel `postgres` na sonda do fornecedor da selfie
 
-- **Status:** Proposed (2026-11-07)
+- **Status:** Proposed (2026-11-07). A coordenação aprovou o papel com as condições da Decisão. Segue `Proposed` porque
+  a sonda ainda não foi instalada: nada disto foi conferido em produção, e o aceite vem depois da janela.
 - **Origem:** spec 10 ("Credenciais": "monitor e backup com direitos específicos", `spec.md:871`); item B2 da proposta
   de resiliência da selfie; PR #385
 - **Revisar quando:** a imagem do PostgreSQL for trocada, o `pg_hba` mudar ou a sonda precisar ler outra tabela
@@ -12,9 +13,10 @@ para monitoramento, e hoje não existe papel de monitor no banco.
 
 Alternativas consideradas:
 
-- **Papel próprio de leitura.** É o destino certo, mas exige mudar o `pg_hba` e os papéis, que vivem na imagem do
-  PostgreSQL, e provisionar o papel na produção. Agora, não reduziria o risco real: o script já roda como root com acesso
-  ao Docker.
+- **Papel próprio de leitura.** É o destino certo, mas exige criar e provisionar o papel na produção, e os papéis vivem
+  na imagem do PostgreSQL. Agora, não reduziria o risco real: o script já roda como root com acesso ao Docker.
+- **`-c role=` na conexão.** Conectaria como `postgres` e rebaixaria a sessão a um papel de leitura. Não foi testada, e o
+  efeito sobre o `pg_hba` e sobre a criação do papel segue sem conclusão.
 - **Rota anônima no web.** Superfície HTTP nova, allowlist, rate limit e deploy do backend, para responder um booleano.
 - **Ler o log do worker.** Quebra em qualquer mudança de texto.
 
@@ -27,8 +29,9 @@ limites, todos em `scripts/deploy/selfie_provider_alert.py`:
 - `statement_timeout` de 3 s e `lock_timeout` de 1 s;
 - consulta fixa no código, sem parâmetro de entrada, que lê só a fila e devolve um booleano.
 
-A spec não muda. A divergência fica como lacuna aberta, e o destino é um papel próprio de leitura quando a imagem do
-PostgreSQL for trocada.
+A spec não muda. A divergência fica como lacuna aberta. Destino: um papel próprio, só com leitura em
+`ops.outbox_deliveries`, entregue na troca da imagem do PostgreSQL pelo #353 ou na troca que o substituir. A lacuna fecha
+quando a sonda conectar com esse papel e a prova em `DatabaseObserverImageTests` passar com ele.
 
 ## Consequências
 
@@ -46,4 +49,4 @@ recebe segredo. A consulta usa os índices parciais da fila e roda a cada 30 s.
 
 `test_selfie_provider_alert.py` fixa o argv e a conexão por igualdade exata. `DatabaseObserverImageTests` roda o argv real
 na imagem derivada, como `999:999`, com o `pg_hba` do repositório, e prova a escrita recusada.
-`SelfieProviderProbeTests` roda a consulta contra o schema migrado e o dispatcher real. O papel próprio segue sem marco.
+`SelfieProviderProbeTests` roda a consulta contra o schema migrado e o dispatcher real.

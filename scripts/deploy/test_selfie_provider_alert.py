@@ -1,6 +1,8 @@
 """Alerta de fornecedor da selfie: sonda, histerese, evento no outbox e estado próprio."""
 import json
+import os
 from pathlib import Path
+import stat
 import subprocess
 import tempfile
 import unittest
@@ -70,6 +72,15 @@ class ProbeTests(unittest.TestCase):
             self.assertNotIn(column, alert.PROBE_QUERY)
 
 
+class RunnerTests(unittest.TestCase):
+    def test_each_command_is_bounded_without_inheriting_the_environment(self):
+        answer = subprocess.CompletedProcess([], 0, stdout='t\n')
+        with patch.object(alert.subprocess, 'run', return_value=answer) as run:
+            self.assertEqual(alert.run(['/usr/bin/docker', 'ps']), 't\n')
+        run.assert_called_once_with(['/usr/bin/docker', 'ps'], text=True, capture_output=True, timeout=8, check=True,
+                                    env={'PATH': '/usr/sbin:/usr/bin:/sbin:/bin', 'LC_ALL': 'C'})
+
+
 class HysteresisTests(unittest.TestCase):
     def setUp(self):
         self.memory = alert.fresh_memory()
@@ -98,19 +109,41 @@ class HysteresisTests(unittest.TestCase):
         self.opened()
         self.assertEqual(self.step(True, 1150), [])
 
-    def test_a_short_gap_does_not_restart_the_count(self):
+    def test_real_timer_intervals_do_not_restart_the_count(self):
+        for gap in (30.4, 47):
+            with self.subTest(gap=gap):
+                self.memory = alert.fresh_memory()
+                self.seen = []
+                at = 1000.0
+                while not self.seen:
+                    self.step(True, at)
+                    at += gap
+                self.assertLessEqual(at - gap - 1000, 120 + gap)
+
+    def test_alternating_failures_still_open(self):
         self.step(True, 1000)
-        self.step(False, 1030)
-        self.step(True, 1060)
+        self.step(False, 1047)
+        self.step(True, 1094)
+        self.step(False, 1141)
+        self.assertEqual(self.step(True, 1188), [DOWN])
+
+    def test_a_reading_lost_mid_outage_does_not_restart_the_count(self):
+        self.step(True, 1000)
+        self.step(None, 1047)
+        self.assertEqual(self.step(True, 1094), [])
+        self.step(None, 1141)
+        self.assertEqual(self.step(True, 1188), [DOWN])
+
+    def test_a_gap_of_exactly_the_limit_keeps_the_count(self):
+        self.step(True, 1000)
+        self.assertEqual(self.step(True, 1100), [])
         self.assertEqual(self.step(True, 1120), [DOWN])
 
-    def test_a_long_gap_restarts_the_count(self):
+    def test_a_longer_gap_restarts_the_count(self):
         self.step(True, 1000)
-        self.step(False, 1040)
-        self.step(True, 1061)
-        self.step(True, 1120)
-        self.assertEqual(self.step(True, 1180), [])
-        self.assertEqual(self.step(True, 1181), [DOWN])
+        self.step(True, 1101)
+        self.assertEqual(self.step(True, 1200), [])
+        self.assertEqual(self.step(True, 1221), [DOWN])
 
     def test_stays_open_until_fifteen_minutes_without_failure(self):
         self.opened()
@@ -128,7 +161,7 @@ class HysteresisTests(unittest.TestCase):
         self.opened()
         self.step(False, 2020)
         self.step(True, 2021)
-        self.step(True, 2081)
+        self.assertEqual(self.step(True, 2100), [])
         self.assertEqual(self.step(True, 2140), [])
         self.assertEqual(self.step(True, 2141), [DOWN])
 
@@ -162,6 +195,13 @@ class HysteresisTests(unittest.TestCase):
         self.step(None, 1600)
         self.assertEqual(self.step(False, 1630), [RESTORED])
         self.assertFalse(self.memory['blind'])
+
+    def test_recovery_after_blindness_is_anchored_on_the_last_failure_seen(self):
+        self.opened()
+        self.step(None, 1200)
+        self.step(None, 1800)
+        self.memory, events = alert.advance(self.memory, False, 2100)
+        self.assertEqual(events, [(RESTORED, 1200), (RECOVERED, 1120)])
 
     def test_the_same_transition_keeps_its_anchor_on_a_rerun(self):
         for at in (1000, 1030, 1060, 1090):
@@ -244,6 +284,7 @@ class OutboxTests(unittest.TestCase):
         event = self.pending()
         self.assertEqual(len(event), 1)
         self.assertEqual(set(event[0]), {'event', 'reason', 'deployment_uuid', 'observed_at'})
+        self.assertEqual(event[0]['deployment_uuid'], f'selfie-provider-{DOWN}-1000')
         self.assertEqual(event[0]['event'], DOWN)
         self.assertEqual(event[0]['observed_at'], '1970-01-01T00:18:40+00:00')
         self.assertIn('NAO E DEPLOY', event[0]['reason'])
@@ -255,6 +296,35 @@ class OutboxTests(unittest.TestCase):
             self.assertIn('Coolify', reason)
             self.assertTrue((ROOT / reason.rsplit(' ', 1)[1]).is_file())
             self.assertTrue(reason.isascii())
+
+    def test_recovery_does_not_claim_a_quiet_period_it_did_not_watch(self):
+        self.assertNotIn('Nenhuma falha', alert.REASONS[RECOVERED])
+        self.assertIn('leituras podem ter parado', alert.REASONS[RECOVERED])
+
+    def test_event_is_private_and_reaches_the_disk_before_it_is_visible(self):
+        self.almost_open()
+        synced = []
+        real_fsync, real_link = alert.os.fsync, alert.os.link
+
+        def fsync(fd):
+            synced.append('directory' if stat.S_ISDIR(os.fstat(fd).st_mode) else 'file')
+            real_fsync(fd)
+
+        def link(source, target):
+            synced.append('link')
+            real_link(source, target)
+        with patch.object(alert.os, 'fsync', fsync), patch.object(alert.os, 'link', link):
+            self.cycle('t\n', 1120)
+        self.assertEqual(synced, ['file', 'link', 'directory'])
+        self.assertEqual(stat.S_IMODE(next(self.outbox.glob('*.json')).stat().st_mode), 0o600)
+
+    def test_a_temporary_file_already_there_is_never_reused(self):
+        stray = self.outbox / f'.selfie-provider-{DOWN}-1000.{os.getpid()}.tmp'
+        stray.write_text('alheio')
+        with self.assertRaises(FileExistsError):
+            alert.emit(self.outbox, DOWN, 1000, 1120)
+        self.assertEqual(stray.read_text(), 'alheio')
+        self.assertEqual(self.pending(), [])
 
     def test_recovery_writes_a_second_event(self):
         self.open_alert()
@@ -298,6 +368,14 @@ class OutboxTests(unittest.TestCase):
         self.cycle('t\n', 1150)
         self.assertEqual([event['event'] for event in self.pending()], [DOWN])
 
+    def test_publication_failure_at_the_worst_interval_is_retried_by_the_next_run(self):
+        for now in (1000, 1047, 1094):
+            self.cycle('t\n', now)
+        with patch.object(alert.os, 'link', side_effect=OSError('disk')), self.assertRaises(OSError):
+            self.cycle('t\n', 1141)
+        self.cycle('t\n', 1188)
+        self.assertEqual([event['event'] for event in self.pending()], [DOWN])
+
     def test_crash_after_publishing_does_not_repeat_the_event(self):
         self.almost_open()
         with patch.object(alert, 'save_memory', side_effect=OSError('disk')), self.assertRaises(OSError):
@@ -328,15 +406,15 @@ class OutboxTests(unittest.TestCase):
 
 
 class UnitTests(unittest.TestCase):
-    def test_timer_keeps_two_samples_inside_the_restart_window(self):
+    def test_timer_counts_from_the_end_of_the_run(self):
         timer = (ROOT / 'infra/selfie-provider-alert/duora-selfie-provider-alert.timer').read_text()
-        self.assertIn('OnUnitInactiveSec=30s', timer)
-        self.assertLess(30 * 2, alert.RESTART_AFTER + 1)
+        self.assertIn('OnUnitInactiveSec=30s\n', timer)
+        self.assertEqual(alert.RESTART_AFTER, 100)
 
     def test_unit_writes_only_its_state_and_the_outbox(self):
         unit = (ROOT / 'infra/selfie-provider-alert/duora-selfie-provider-alert.service').read_text()
         self.assertIn('ProtectSystem=strict', unit)
-        self.assertIn(f'ReadWritePaths={alert.STATE.parent} {alert.OUTBOX}\n', unit)
+        self.assertIn(f'ReadWritePaths={alert.STATE.parent} -{alert.OUTBOX}\n', unit)
         self.assertIn('ExecStart=/usr/bin/python3 /opt/duora-selfie-alert/selfie_provider_alert.py\n', unit)
 
 

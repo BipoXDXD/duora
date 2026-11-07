@@ -18,8 +18,8 @@ Limiares iniciais, sem medição de produção:
 
 | Evento | Quando |
 |---|---|
-| `selfie_provider_down` | 2 min de falha, tolerando até 60 s entre leituras ruins; intervalo maior recomeça a contagem |
-| `selfie_provider_recovered` | 15 min sem falha. Com pouco tráfego, pode ser só falta de tentativas |
+| `selfie_provider_down` | 2 min de falha, tolerando até 100 s entre leituras ruins (uma leitura perdida no pior intervalo do timer, 47 s); intervalo maior recomeça a contagem |
+| `selfie_provider_recovered` | a última falha observada tem 15 min ou mais. Não garante 15 min observados: as leituras podem ter parado, e com pouco tráfego pode ser só falta de tentativas |
 | `selfie_probe_blind` | 10 min seguidos sem conseguir ler a fila |
 | `selfie_probe_restored` | primeira leitura boa depois de `selfie_probe_blind` |
 
@@ -52,7 +52,8 @@ O script só avisa enquanto roda, e não há sinal de vida. Nenhum e-mail chega 
 - o `mail.py` ou o Gmail falharem.
 
 Nesses casos só resta olhar o host: `systemctl list-timers`, `systemctl --failed` e
-`journalctl -u duora-selfie-provider-alert`. Os quatro Healthchecks externos não acompanham este script.
+`journalctl -u duora-selfie-provider-alert`. Os quatro Healthchecks externos não acompanham este script. Um quinto check
+está permitido, mas exige PR próprio: o script não faz ping, e a unit bloqueia rede com `RestrictAddressFamilies=AF_UNIX`.
 
 ## Ao receber `selfie_provider_down`
 
