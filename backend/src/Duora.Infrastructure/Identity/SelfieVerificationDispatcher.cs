@@ -122,6 +122,7 @@ public sealed partial class SelfieVerificationDispatcher
 
         if (row.ProviderReference is null && row.ExpiresAt - _time.GetUtcNow() < MinimumCaptureWindow)
         {
+            LogNoTimeToCapture(_logger);
             await ExpireAsync(row, delivery, SelfieFeedbackCodes.ProviderUnavailable, cancellationToken);
             return;
         }
@@ -181,6 +182,9 @@ public sealed partial class SelfieVerificationDispatcher
     /// <summary>Só o tipo: a mensagem de erro do fornecedor pode carregar dado (spec 19.2).</summary>
     [LoggerMessage(Level = LogLevel.Warning, Message = "Selfie provider unavailable ({Cause}); the delivery was rescheduled.")]
     private static partial void LogProviderUnavailable(ILogger logger, string cause);
+
+    [LoggerMessage(Level = LogLevel.Information, Message = "Selfie attempt expired before opening a session: too little time left to capture.")]
+    private static partial void LogNoTimeToCapture(ILogger logger);
 
     /// <summary>
     /// Falhas da chamada ao fornecedor que reagendam a entrega, sem mudar o estado da tentativa nem contar reprovação. O SDK da

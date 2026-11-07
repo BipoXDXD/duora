@@ -139,14 +139,22 @@ public sealed class SelfieSlowProviderTests(PostgresFixture postgres)
     {
         var provider = new FaultySelfieProvider(_time);
         var connection = await postgres.CreateMigratedDatabaseAsync(Ct);
-        await using var host = SelfieConcurrencyHarness.Host(connection, _time, provider);
+        var logs = new CapturingLoggerProvider();
+        await using var host = SelfieConcurrencyHarness.Host(connection, _time, provider, logs: logs);
         var scenario = new IdentityScenario(connection, host);
         var account = await scenario.CreateConfirmedAccountAsync();
         await SelfieConcurrencyHarness.RequestAsync(host, account.UserId, Ct);
+        var attemptId = (await SelfieConcurrencyHarness.CurrentAsync(host, account.UserId, Ct)).Id!.Value;
         _time.Advance(TimeSpan.FromSeconds(151));
 
         await SelfieConcurrencyHarness.DispatchAsync(host, Ct);
 
+        var trace = Assert.Single(logs.Entries, entry => entry.Category == typeof(SelfieVerificationDispatcher).FullName);
+        Assert.Equal(LogLevel.Information, trace.Level);
+        Assert.Contains("too little time", trace.Text, StringComparison.Ordinal);
+        Assert.DoesNotContain(account.UserId.ToString(), trace.Text, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain(attemptId.ToString(), trace.Text, StringComparison.OrdinalIgnoreCase);
+        Assert.Null(trace.Exception);
         Assert.Equal(0, provider.StartCalls);
         Assert.Equal("Expired|no-reference|PROVIDER_UNAVAILABLE|closed", await AttemptAsync(scenario));
         Assert.Equal("Expired|-|1", await DeliveryAsync(scenario));
@@ -271,6 +279,35 @@ public sealed class SelfieSlowProviderTests(PostgresFixture postgres)
 
         Assert.Equal(2, provider.StartCalls);
         Assert.Equal(afterFirstFailure, await VersionAsync(scenario));
+    }
+
+    /// <summary>
+    /// A tentativa muda entre a leitura e a falha, com o lease ainda válido: o sinal não pisa na mudança, e a coluna que a
+    /// consulta altera é a única prova de cada filtro.
+    /// </summary>
+    [Theory]
+    [InlineData("version = version + 1", "Capturing|has-reference|no-feedback|open")]
+    [InlineData("state = 'Expired', completed_at = expires_at", "Expired|has-reference|no-feedback|closed")]
+    public async Task AnAttemptChangedDuringTheCallDoesNotReceiveTheSignal(string change, string expected)
+    {
+        var provider = new FaultySelfieProvider(_time);
+        var connection = await postgres.CreateMigratedDatabaseAsync(Ct);
+        await using var host = SelfieConcurrencyHarness.Host(connection, _time, provider);
+        var scenario = new IdentityScenario(connection, host);
+        var account = await scenario.CreateConfirmedAccountAsync();
+        await SelfieConcurrencyHarness.RequestAsync(host, account.UserId, Ct);
+        await SelfieConcurrencyHarness.DispatchAsync(host, Ct);
+        _time.Advance(UntilNextTry);
+        provider.ReadFault = async cancellationToken =>
+        {
+            await scenario.ScalarAsync($"update identity.selfie_verifications set {change} returning 1");
+            await Unavailable(cancellationToken);
+        };
+
+        await SelfieConcurrencyHarness.DispatchAsync(host, Ct);
+
+        Assert.Equal(1, provider.ReadCalls);
+        Assert.Equal(expected, await AttemptAsync(scenario));
     }
 
     /// <summary>Worker que perdeu o lease não escreve na tentativa: quem assumiu a entrega é que decide.</summary>
