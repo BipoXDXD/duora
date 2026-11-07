@@ -19,7 +19,7 @@ internal static class LegalDocumentEndpoints
         context.Response.Headers.CacheControl = "no-store";
         context.Response.Headers.XContentTypeOptions = "nosniff";
         return TypedResults.Ok(new LegalDocumentCatalogResponse(publication.RegistrationAvailable,
-            publication.TermsVersion, publication.PrivacyVersion, publication.Documents.Select(document =>
+            publication.TermsVersion, publication.PrivacyVersion, publication.ActiveDocuments.Select(document =>
                 new LegalDocumentResponse(document.Document, document.Version, document.Locale, document.Title,
                     document.ControllerName, document.PrivacyContact, LegalPublication.IsPublished(document),
                     document.Sha256, document.Sections.Select(section => new LegalDocumentSectionResponse(section.Title, section.Paragraphs)).ToArray())

@@ -64,7 +64,7 @@ describe('owner photo index entry to review history', () => {
       'href',
       `/photos/${PHOTO}/review`,
     )
-    expect(screen.getByText('Does not meet the policy')).toBeVisible()
+    expect(screen.getByText('This photo was not approved. Check the rules and upload another photo.')).toBeVisible()
     expect(screen.queryByRole('img')).not.toBeInTheDocument()
     await userEvent.click(screen.getByRole('button', { name: 'Next page' }))
     expect(await screen.findByRole('link', { name: `Photo review history for ${OTHER}` })).toHaveAttribute(

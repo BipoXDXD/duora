@@ -44,8 +44,9 @@ em [system.md](system.md); critérios de acessibilidade, em [accessibility.md](a
 
 ## Cadastro
 
-- **Propósito:** criar uma conta com o mínimo de dados; a idade é verificada depois, pelo fornecedor
-  (spec 12.2).
+- **Propósito:** criar uma conta com o mínimo de dados. A idade não é coletada nem verificada: o cadastro só
+  pede a declaração de 18 anos ou mais ([decisões de 29/10/2026](../product/decisions-2026-10-29.md), item 1), e a
+  confirmação de e-mail e a selfie de presença vêm depois (spec 12.2).
 - **Conteúdo:** e-mail, senha (com regras visíveis antes de digitar), aceite das versões dos termos com links.
 - **Ações:** primária "Criar conta"; neutra "Já tenho conta ›".
 - **Regras:** `autocomplete="email"` e `"new-password"`; colar e gerenciador de senhas permitidos; mostrar/ocultar
@@ -76,8 +77,8 @@ em [system.md](system.md); critérios de acessibilidade, em [accessibility.md](a
 │ Já tenho conta ›                     │
 │                                      │
 │ Depois do cadastro, confirmamos seu  │
-│ e-mail e sua idade. Ninguém vê seu   │
-│ e-mail.                              │
+│ e-mail e pedimos uma selfie de       │
+│ presença. Ninguém vê seu e-mail.     │
 └──────────────────────────────────────┘
 ```
 
@@ -152,10 +153,50 @@ em [system.md](system.md); critérios de acessibilidade, em [accessibility.md](a
   aprovadas, preferências privadas. Cada bloco com rótulo "Visível para pares" ou "Só você e o sistema".
 - **Ações:** primária "Salvar alterações"; secundária "Adicionar foto"; seção Conta com e-mail, senha e MFA.
 - **Estados:** rascunho (alterações não salvas indicadas em texto; nada íntimo salvo localmente); upload
-  (progresso em texto e porcentagem); quarentena/processamento ("Em análise; ainda não aparece para ninguém");
+  (progresso em texto e porcentagem); quarentena/processamento
+  ("Em análise; ainda não aparece para outros participantes");
   rejeição (motivo comunicável e "Enviar outra"; não há recurso de fotos, e o histórico de revisão da foto é só
   leitura, sem botão de pedir revisão da decisão); conflito de edição ("Este perfil mudou em outro dispositivo"
   com "Ver versão atual" e "Reaplicar minhas alterações", spec 13.5); salvo (confirmação em `role="status"`).
+
+## Minhas fotos
+
+- **Propósito:** `/account/photos`. A pessoa envia fotos, acompanha a análise e exclui as próprias. Só ela vê esta
+  lista; a tela não mostra imagem, não escolhe foto do perfil e não expõe nada a terceiros (API-P04, ADR-0050).
+- **Lista sem miniatura:** cada foto aparece por ID e data, porque a lista e API-M02 não emitem `assetId`. Miniatura de
+  foto aprovada só quando API-M02 emitir `assetId`, lida por API-M04 (`variant=thumb`).
+- **Link:** "Minhas fotos" continua visível na conta com o upload desligado e leva ao aviso de indisponível (decisão
+  do dono, 06/11/2026). Esconder o link exigiria um sinal novo do backend.
+- **Cotas:** "até 6 fotos aprovadas" é do perfil; 3 pendentes por conta e 100 globais são cotas de envio. A tela não
+  aplica teto local de aprovadas e mostra a recusa do servidor.
+- **Gate:** o mesmo do upload. Com `Media:Review` ausente, `GET /me/photos` responde 503 `MEDIA_UPLOADS_DISABLED` e a
+  tela mostra só o aviso de indisponível. Com resultado incerto, o formulário ou o painel da exclusão fica junto do
+  aviso, para não perder a chave. Envio e exclusão aparecem depois de a lista responder 200; não há flag no frontend.
+- **Ações:** "Enviar foto" (API-M01, JPEG, PNG ou WebP até 5 MiB, recusa local antes de gastar envio); "Excluir foto"
+  (API-M03), que primeiro lê estado e ETag em API-M02 e pede confirmação sobre esse estado; "Ler estado atual".
+- **Estados:** carregando; indisponível; erro com "Ler estado atual"; vazio; em análise ("Em análise; ainda não aparece
+  para outros participantes"); rejeição (mensagem pública de [media-review.md](../api/media-review.md) e novo envio, sem pedido de
+  revisão); resultado incerto ("Repetir o mesmo pedido", com a mesma chave e os mesmos bytes, até uma resposta
+  conclusiva dessa chave); versão vencida (reler e confirmar de novo).
+- **Quem faz o quê:** `Active` e `PendingEligibility` enviam e excluem. `Restricted` e `Suspended` não enviam, mas
+  excluem (`PhotoUploadPolicy`, `PhotoOwnerAccess`). `PendingEmail` e `DeletionPending` não enviam nem excluem: a guarda
+  responde 403 no DELETE, e a tela não oferece o botão.
+- **Exclusão:** o painel fica fora da lista, uma exclusão por vez, para a intenção sobreviver a releitura e paginação.
+  Com resultado incerto, "Ler estado atual da foto" relê API-M02: `Deleted` conclui a exclusão, e qualquer outro estado
+  pede nova confirmação, com chave nova.
+- **Envio incerto:** além de "Repetir o mesmo pedido", há "Desistir", que descarta chave e bytes e avisa para conferir
+  a lista antes de enviar de novo (decisão do dono, 06/11/2026).
+- **Regras de fotos:** seção nesta tela, destino de "Consulte as regras", visível só com o gate aberto e para quem
+  envia. Hoje mostra só o marcador "Regras de fotos em preparação."; não há texto de regra. A redação precisa de
+  aprovação do dono **antes de ligar o upload** (#69).
+- **Foco:** quando o controle focado some, o foco vai ao painel da exclusão, ao título "Suas fotos" ou ao aviso de
+  indisponível.
+- **Saída da página:** com envio em curso ou resultado incerto, o navegador pede confirmação (`beforeunload`).
+- **Limite aceito pelo dono (06/11/2026):** a intenção fica só em memória. Navegar dentro da SPA, confirmar a saída ou a
+  aba cair descarta chave e bytes, e o próximo envio pode duplicar a foto. O custo é uma vaga de cota, recuperável
+  excluindo a duplicata.
+- **Limitação:** o envio mostra "Enviando…", sem a porcentagem pedida no Perfil próprio: o cliente HTTP usa `fetch`, que
+  não informa o progresso. Pendência da #370; dispensar a porcentagem exige decisão do dono.
 
 ## Eventos
 

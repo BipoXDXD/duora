@@ -10,7 +10,7 @@
 4. Autorizar somente grant enabled mais recente + moderator + conta Active/email/MFA/senha definitiva + sessão própria Administrative, stamp vigente, não revogada, não expirada e prova MFA passada. Decide/Appeal/Preserve exigem TOTP em [agora-5min,agora], respeitando janela semiaberta existente. Capacidade sem atribuição não permite evidência; não reutilizar esse serviço sozinho como leitor.
 5. Conferir histórico/auditoria append-only, falha de audit sem efeito, revogação concorrente, privilégios exatos e assets inalterados. Revisão de segurança antes de integrar; todos os checks do head final precisam passar. Publicação somente pelo fluxo automático.
 
-Luca Grimmer foi indicado como responsável pelo serviço e revisor principal. Não há cobertura independente para julgar seus recursos; isso permanece impeditivo da ativação. Nenhum nome/conta recebe grant por esse registro. M3b/M4–M7 e os critérios operacionais de #173 continuam pendentes.
+O responsável pelo serviço foi indicado como revisor principal. Não há cobertura independente para julgar seus recursos; isso permanece impeditivo da ativação. Nenhum nome/conta recebe grant por esse registro. M3b/M4–M7 e os critérios operacionais de #173 continuam pendentes.
 
 Revisão pré-código: recusar transações diferentes de READ COMMITTED para evitar snapshot anterior a revogação append-only. A leitura bloqueante de papéis após users usa FOR SHARE NOWAIT: concorrência com o trigger D13 aborta a transação inteira em vez de criar ciclo; não converter esse erro em acesso autorizado/negado com transação inválida. Cobrir UPDATE real de user_roles, não somente DELETE.
 

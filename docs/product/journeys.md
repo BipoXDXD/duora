@@ -23,7 +23,7 @@ saídas obrigatórias; nenhuma é aceita só pelo caminho feliz (spec 22, M2). E
 
 ## Entrada
 
-- **Rotas:** API-A01 a API-A04 (CSRF, cadastro, confirmação, login), API-P05/P06 (verificação etária),
+- **Rotas:** API-A01 a API-A04 (CSRF, cadastro, confirmação, login), API-P05/P06 (selfie de presença),
   API-P01/P02 (perfil).
 - **Regras:** cadastro e recuperação respondem de forma neutra, sem revelar se o e-mail existe; a confirmação
   de e-mail é `POST`, não `GET` acionável por scanner; o resultado etário nunca vem do navegador; sem
