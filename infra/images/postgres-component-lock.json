@@ -1,11 +1,11 @@
 {
   "version": 1,
   "profile": "postgres-embedded-reconcile-v1",
-  "fingerprint": "sha256:e0e99374eff9c3776450791e8275168619f8f9b5e4a9615700c52ae4ac394198",
-  "source_commit": "ebad1ec9c272d3631fed4207f65e5edf3ceb86a0",
-  "publish_run": "https://github.com/BipoXDXD/duora/actions/runs/39885198914/attempts/1",
+  "fingerprint": "sha256:7f9bf7aac0ae545f40fa28f5f88edbb037dd1af3ffa5f8fd57a68ee8f9449f77",
+  "source_commit": "a45f0c808d7ec5e600a559e9246e5e4b2fed0a83",
+  "publish_run": "https://github.com/BipoXDXD/duora/actions/runs/42073873377/attempts/1",
   "images": {
-    "amd64": "ghcr.io/bipoxdxd/duora-postgres@sha256:d32f8c4408e804bf8b57583c6fdfb8935380e6326bcc7ccb7397b1f386ada06c",
-    "arm64": "ghcr.io/bipoxdxd/duora-postgres@sha256:a626e902dfc8165bf5b866ea03fd4b6c2eec739ec7b76872154504bee99dd930"
+    "amd64": "ghcr.io/bipoxdxd/duora-postgres@sha256:b5103bfd8ac7832915eed8170ffd0bcb94d9bca834cbd659114fa25606f0434e",
+    "arm64": "ghcr.io/bipoxdxd/duora-postgres@sha256:fa94a32e8c70257f67505bad12a9da878a4df7f33cd52ba9e6319a4c91025d4f"
   }
 }

@@ -14,8 +14,11 @@ FROM postgres:18.6-trixie@sha256:74935e72241653ca55e0414067e6d8763aceb8a810eb51b
 ARG PGBACKREST_VERSION=2.59.3-1.pgdg13+1
 
 # ca-certificates: o repositório é S3 por HTTPS com verificação de certificado (repo1-storage-verify-tls, padrão y).
+# apt/libapt-pkg7.0 3.0.4 (trixie-security): o FROM fixado traz 3.0.3, com CVE-2026-109518 (HIGH, corrigível). Versão
+# exata pelo mesmo motivo do pgBackRest; sai quando o digest do FROM já trouxer 3.0.4 ou mais nova.
 RUN apt-get update \
  && apt-get install -y --no-install-recommends "pgbackrest=${PGBACKREST_VERSION}" ca-certificates \
+    apt=3.0.4 libapt-pkg7.0=3.0.4 \
  && rm -rf /var/lib/apt/lists/* \
  && pgbackrest version \
  && install -d -m 0755 /usr/local/share/duora \

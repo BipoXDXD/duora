@@ -8,8 +8,3 @@
 # Exemplo (não ativo):
 #   # Só afeta o parser de X, que não usamos; aceito por @responsavel em 2026-10-15
 #   CVE-2026-00000 exp:2027-01-15
-
-# apt/libapt-pkg7.0 3.0.3 da imagem duora-postgres. Exige ataque na rede durante um apt install; o apt só roda no build
-# da imagem, nunca em runtime, e o container roda como 999. Ponte até o lock do componente corrigido, que remove esta
-# entrada (POSTGRES_COMPONENT.md pede atualizar, não suprimir). Risco aceito pelo dono (BipoXDXD) em 2026-11-05.
-CVE-2026-109518 exp:2026-12-05
