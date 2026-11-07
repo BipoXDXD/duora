@@ -71,7 +71,7 @@ ou executor de produção é alterado. O código afeta somente a coleta de evid�
 
 `DatabaseObserverImageTests` executa automaticamente no passo existente de privilégios nas duas
 arquiteturas, sem mudar o workflow. Cria um cluster PostgreSQL descartável, usuário 999, rede `none`,
-TCP loopback e dados sintéticos, sem portas do host ou armazenamento persistente. Três cenários:
+TCP loopback e dados sintéticos, sem portas do host ou armazenamento persistente. Quatro cenários:
 
 1. Injetar atraso de 2,2 segundos no lançamento de cada exec Docker: o algoritmo original excede os dois
    segundos apesar do banco saudável; o observador persistente abre o transporte antes da janela e
@@ -80,6 +80,8 @@ TCP loopback e dados sintéticos, sem portas do host ou armazenamento persistent
    deadline de dois segundos. Não reutiliza o resultado anterior.
 3. Suspender somente o processo servidor, mantendo o shell e o transporte ativos: sondagens novas
    retornam código 2 (sem resposta) e a cobertura reprova, sem confundir isso com falha do transporte.
+4. Sonda do [alerta da selfie](selfie-provider-alert.md): troca o cluster por um com o `pg_hba` da imagem e roda o argv
+   real como `999:999`. Prova `f`, `t`, escrita recusada, rede recusada e falta de evidência com o banco parado.
 
 Os testes de processo/protocolo cobrem observador silencioso, resposta parcial, EOF, status não pronto,
 saída malformada, inicialização sem resposta, resposta/greeting tardios apesar de readability, timestamp de

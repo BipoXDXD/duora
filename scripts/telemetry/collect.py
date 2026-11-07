@@ -17,22 +17,6 @@ TIMERS = ('duora-backup-full.timer', 'duora-backup-diff.timer', 'duora-backup-ve
           'duora-backup-verify-repo.timer', 'duora-backup-verify-repo-full.timer',
           'duora-backup-media.timer', 'duora-backup-media-verify.timer',
           'duora-backup-media-check.timer')
-SELFIE_PROVIDER = 'selfie:provider'
-SELFIE_PROBE = 'selfie:probe'
-# Peer no socket do próprio container, como duora-deploy: nenhuma credencial nem rota nova.
-SELFIE_CONNECTION = ("dbname=duora user=postgres connect_timeout=3 application_name=duora-collect "
-                     "options='-c default_transaction_read_only=on -c statement_timeout=3000 -c lock_timeout=1000'")
-# Uma tentativa falha agora se a última chamada ao fornecedor falhou. `available_at` e o lease provam que o worker
-# gravou isso há pouco: com o worker parado o marcador envelhece, e quem alerta é service:worker. Lê só a fila, por
-# dois exists para usar os índices parciais de cada status, e nunca de quem é a tentativa.
-SELFIE_PROVIDER_QUERY = """
-select exists (select 1 from ops.outbox_deliveries
-               where consumer = 'selfie-provider' and status = 'Pending'
-                 and available_at >= now() - interval '60 seconds' and last_error = 'ProviderUnavailable')
-    or exists (select 1 from ops.outbox_deliveries
-               where consumer = 'selfie-provider' and status = 'InFlight'
-                 and lease_expires_at >= now() and last_error = 'ProviderUnavailable')
-"""
 
 
 def run(args):
@@ -58,27 +42,6 @@ def marker(path, now, maximum):
         return math.isfinite(age) and 0 <= age <= maximum
     except (ValueError, OSError):
         return False
-
-
-def selfie_provider_failing(runner):
-    ids = runner(['/usr/bin/docker', 'ps', '-aq', '--filter', 'label=com.docker.compose.project=duora', '--filter',
-                  'label=com.docker.compose.service=postgres']).split()
-    if len(ids) != 1:
-        raise ValueError('missing or duplicate')
-    answer = runner(['/usr/bin/docker', 'exec', ids[0], 'psql', '--no-psqlrc', '--no-password', '--quiet',
-                     '--tuples-only', '--no-align', '--dbname', SELFIE_CONNECTION,
-                     '--command', SELFIE_PROVIDER_QUERY]).strip()
-    if answer not in ('t', 'f'):
-        raise ValueError('unexpected probe answer')
-    return answer == 't'
-
-
-def selfie_checks(runner):
-    """Sonda quebrada não é fornecedor caído: sem a resposta, selfie:provider fica de fora em vez de mentir."""
-    try:
-        return {SELFIE_PROBE: True, SELFIE_PROVIDER: not selfie_provider_failing(runner)}
-    except (OSError, ValueError, subprocess.SubprocessError):
-        return {SELFIE_PROBE: False}
 
 
 def collect(runner=run, state=Path('/var/lib/duora'), now=None, include_gateway=True):
@@ -117,7 +80,6 @@ def collect(runner=run, state=Path('/var/lib/duora'), now=None, include_gateway=
             checks[f'unit:{unit}'] = False
     checks['backup:verified-recently'] = marker(state / '.backup-verify-ok', now, 3600)
     checks['media:verified-recently'] = marker(state / '.media-verify-ok', now, 30 * 3600)
-    checks.update(selfie_checks(runner))
     return {'collected_at': now, 'checks': checks}
 
 

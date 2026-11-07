@@ -6,7 +6,7 @@ using Npgsql;
 namespace Duora.IntegrationTests.Identity;
 
 /// <summary>
-/// A consulta que <c>scripts/telemetry/collect.py</c> roda a cada 15 s, contra o schema migrado e o dispatcher real:
+/// A consulta que <c>scripts/deploy/selfie_provider_alert.py</c> roda a cada 30 s, contra o schema migrado e o dispatcher real:
 /// se a fila mudar de forma, o alerta do fornecedor quebra aqui, e não em silêncio na produção. O texto vem do próprio
 /// script, para não existir uma cópia que envelheça.
 /// </summary>
@@ -110,8 +110,8 @@ public sealed class SelfieProviderProbeTests(PostgresFixture postgres)
 
     private static string ProbeQuery()
     {
-        var script = File.ReadAllText(Path.Combine(RepositoryRoot.Find(), "scripts", "telemetry", "collect.py"));
-        return Assert.Single(Regex.Matches(script, "SELFIE_PROVIDER_QUERY = \"\"\"(.*?)\"\"\"", RegexOptions.Singleline)).Groups[1].Value;
+        var script = File.ReadAllText(Path.Combine(RepositoryRoot.Find(), "scripts", "deploy", "selfie_provider_alert.py"));
+        return Assert.Single(Regex.Matches(script, "PROBE_QUERY = \"\"\"(.*?)\"\"\"", RegexOptions.Singleline)).Groups[1].Value;
     }
 
     private async Task<OpenAttempt> OpenAttemptAsync(FakeTimeProvider time)
