@@ -5,13 +5,16 @@ import os
 from pathlib import Path
 import re
 import ssl
-from collect import SERVICES, UNITS, TIMERS
+from collect import SELFIE_PROBE, SELFIE_PROVIDER, SERVICES, UNITS, TIMERS
 
 MAX_BYTES = 16384
 MAX_AGE = 120
 CHECKS = frozenset([*(f'service:{s}' for s in SERVICES), 'web:ready',
                     *(f'unit:{u}' for u in UNITS + TIMERS),
                     'backup:verified-recently', 'media:verified-recently'])
+# Opcionais de propósito: emissor e receptor são instalados em momentos diferentes, e a igualdade exata transformaria
+# essa diferença em falso alerta. A ausência é falta de evidência, nunca fornecedor saudável.
+OPTIONAL_CHECKS = frozenset([SELFIE_PROVIDER, SELFIE_PROBE])
 
 
 def decode(raw):
@@ -40,9 +43,10 @@ def snapshot(value, now):
     if type(stamp) not in (int, float) or not 0 < stamp <= now or now - stamp > MAX_AGE or not math.isfinite(stamp):
         raise ValueError('invalid snapshot age')
     checks = value['checks']
-    if type(checks) is not dict or set(checks) != CHECKS or any(type(v) is not bool for v in checks.values()):
+    if (type(checks) is not dict or set(checks) - OPTIONAL_CHECKS != CHECKS
+            or any(type(v) is not bool for v in checks.values())):
         raise ValueError('unexpected snapshot checks')
-    return {'collected_at': stamp, 'checks': {key: checks[key] for key in sorted(CHECKS)}}
+    return {'collected_at': stamp, 'checks': {key: checks[key] for key in sorted(checks)}}
 
 
 def bounded_read(path):

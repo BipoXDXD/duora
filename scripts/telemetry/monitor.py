@@ -10,10 +10,22 @@ import time
 import urllib.error
 import urllib.parse
 import urllib.request
-from collect import atomic
+from collect import SELFIE_PROBE, SELFIE_PROVIDER, atomic
 
 LOG = logging.getLogger('duora-observer')
 BAD = {'failure', 'timed_out', 'cancelled', 'action_required', 'startup_failure', 'stale'}
+# Limiares iniciais em segundos, sem medição de produção: docs/operations/telemetry.md.
+SELFIE_OPEN_AFTER = 120
+SELFIE_RESTART_AFTER = 60
+SELFIE_CLOSE_AFTER = 900
+# Fornecedor externo caído não é o monitor caído: o dead-man continua dizendo só que este processo vive.
+HEARTBEAT_IGNORES = frozenset([SELFIE_PROVIDER])
+GUIDE = 'docs/operations/telemetry.md#fornecedor-da-selfie'
+DETAILS = {
+    (SELFIE_PROVIDER, False): f'chamadas à AWS falhando há 2 min ou mais; selfies novas tendem a expirar. Ver {GUIDE}',
+    (SELFIE_PROVIDER, True): 'nenhuma falha há 15 min; com pouco tráfego pode ser só falta de tentativas',
+    (SELFIE_PROBE, False): f'a consulta à fila falhou e o alerta do fornecedor está cego. Ver {GUIDE}',
+}
 
 
 class NoRedirect(urllib.request.HTTPRedirectHandler):
@@ -88,6 +100,25 @@ def github_runs(repo, token, fetch=request):
     return result
 
 
+def gate_selfie_provider(checks, state, now):
+    """Troca a leitura instantânea do coletor pelo alerta com histerese; sem leitura, nada muda."""
+    if SELFIE_PROVIDER not in checks:
+        return checks
+    memory = state.setdefault('selfie_provider', {'since': None, 'last': None, 'open': False})
+    if not checks[SELFIE_PROVIDER]:
+        if not memory['open'] and (memory['last'] is None or now - memory['last'] > SELFIE_RESTART_AFTER):
+            memory['since'] = now
+        memory['last'] = now
+        memory['open'] = memory['open'] or now - memory['since'] >= SELFIE_OPEN_AFTER
+    elif memory['open'] and now - memory['last'] >= SELFIE_CLOSE_AFTER:
+        memory.update(since=None, last=None, open=False)
+    return {**checks, SELFIE_PROVIDER: not memory['open']}
+
+
+def heartbeat_due(checks):
+    return all(good for key, good in checks.items() if key not in HEARTBEAT_IGNORES)
+
+
 def deliver(checks, failures, state, send, now):
     """Persist only acknowledged delivery. Retry pending alerts; bounded reminder cadence."""
     sent = state.setdefault('checks', {})
@@ -98,7 +129,8 @@ def deliver(checks, failures, state, send, now):
             continue
         if previous and previous['good'] == good and (good or now - previous['at'] < 3600):
             continue
-        send(f"Duora {'RECUPERADO' if good else 'ALERTA'}: {key}")
+        detail = DETAILS.get((key, good))
+        send(f"Duora {'RECUPERADO' if good else 'ALERTA'}: {key}" + (f' - {detail}' if detail else ''))
         sent[key] = {'good': good, 'at': now}
     seen = state.setdefault('runs', [])
     for repo, run in failures:
@@ -147,6 +179,7 @@ def main():
                     gh_checks[f'github:{repo}:reachable'] = False
                     LOG.error('github_poll_failed repo=%s', repo)
             next_github = now + 60
+        checks = gate_selfie_provider(checks, state, now)
         checks.update(gh_checks)
         failures = [(repo, run) for repo, runs in runs_by_repo.items() for run in runs if run['failed'] and run['updated_at'] >= state['monitoring_since']]
         def send(message):
@@ -164,7 +197,7 @@ def main():
             'collected_at': now, 'checks': checks,
             'github': {repo: runs[:20] for repo, runs in runs_by_repo.items()}})
         # Optional independent external dead-man endpoint, never interpreted by an processamento externo.
-        if config.get('heartbeat_url') and all(checks.values()):
+        if config.get('heartbeat_url') and heartbeat_due(checks):
             try:
                 heartbeat = config['heartbeat_url']
                 if urllib.parse.urlsplit(heartbeat).scheme != 'https':
