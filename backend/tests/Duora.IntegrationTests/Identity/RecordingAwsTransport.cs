@@ -8,9 +8,14 @@ namespace Duora.IntegrationTests.Identity;
 /// Transporte do SDK da AWS só de teste: registra host e Authorization de cada chamada e responde sem rede. Prova
 /// qual credencial assinou o pedido (o Authorization SigV4 traz <c>Credential=&lt;AccessKeyId&gt;/...</c>).
 /// </summary>
-internal sealed class RecordingAwsTransport(Func<HttpRequestMessage, HttpResponseMessage> respond) : HttpClientFactory
+internal sealed class RecordingAwsTransport(Func<HttpRequestMessage, CancellationToken, Task<HttpResponseMessage>> send) : HttpClientFactory
 {
-    private readonly Func<HttpRequestMessage, HttpResponseMessage> _respond = respond;
+    private readonly Func<HttpRequestMessage, CancellationToken, Task<HttpResponseMessage>> _send = send;
+
+    public RecordingAwsTransport(Func<HttpRequestMessage, HttpResponseMessage> respond)
+        : this((request, _) => Task.FromResult(respond(request)))
+    {
+    }
 
     public sealed record Call(string Host, string Authorization);
 
@@ -31,7 +36,7 @@ internal sealed class RecordingAwsTransport(Func<HttpRequestMessage, HttpRespons
         {
             var authorization = request.Headers.TryGetValues("Authorization", out var values) ? string.Join(",", values) : "";
             owner.Calls.Enqueue(new(request.RequestUri!.Host, authorization));
-            return Task.FromResult(owner._respond(request));
+            return owner._send(request, cancellationToken);
         }
     }
 }
