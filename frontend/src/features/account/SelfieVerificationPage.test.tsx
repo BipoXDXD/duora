@@ -167,3 +167,96 @@ it('após expirar solicita credenciais novas para a nova tentativa', async () =>
   expect(await screen.findByText(`Camera session: ${secondId}`)).toBeInTheDocument()
   expect(screen.queryByText(`Camera session: ${firstId}`)).not.toBeInTheDocument()
 })
+
+describe('fornecedor instável (PROVIDER_UNAVAILABLE)', () => {
+  const attemptId = '0199f1a2-3b4c-7d5e-8f60-718293a4b5c6'
+  const OUTAGE_NOTICE = /serviço de verificação está instável/
+  const EXPIRED_BY_OUTAGE_NOTICE = /tentativa expirou por instabilidade/
+  const QUALITY_ADVICE = /Ajuste a iluminação/
+  interface Step {
+    readonly state: string
+    readonly nextStep: string
+    readonly feedbackCode: string | null
+  }
+
+  function serveSelfie(step: () => Step): void {
+    server.use(
+      http.get(`${API}/me`, () => HttpResponse.json(withSessionContext(pendingAccount))),
+      http.get(`${API}/me/selfie-verifications/current`, () =>
+        HttpResponse.json({ id: attemptId, ...step(), expiresAt: '2026-10-19T15:00:00Z' }),
+      ),
+    )
+  }
+
+  async function findNotice(text: RegExp): Promise<HTMLElement> {
+    return screen.findByText(text, {}, { timeout: ROUTE_CHUNK_TIMEOUT_MS })
+  }
+
+  it('na espera avisa da instabilidade, em região anunciada, sem culpar a captura', async () => {
+    serveSelfie(() => ({ state: 'Pending', nextStep: 'Wait', feedbackCode: 'PROVIDER_UNAVAILABLE' }))
+
+    await renderApp('/account/selfie')
+
+    const notice = await findNotice(OUTAGE_NOTICE)
+    expect(notice.closest('[role="status"]')).not.toBeNull()
+    expect(notice).toHaveTextContent('não conta como reprovação')
+    expect(screen.getByText('Aguardando verificação…')).toBeInTheDocument()
+    expect(screen.queryByText(QUALITY_ADVICE)).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'Iniciar captura' })).not.toBeInTheDocument()
+  })
+
+  it('com a sessão aberta avisa e mantém a câmera disponível', async () => {
+    serveSelfie(() => ({ state: 'Capturing', nextStep: 'Capture', feedbackCode: 'PROVIDER_UNAVAILABLE' }))
+
+    await renderApp('/account/selfie')
+
+    expect(await findNotice(OUTAGE_NOTICE)).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Abrir câmera' })).toBeInTheDocument()
+  })
+
+  it('na expiração troca o conselho de luz pela instabilidade e oferece nova captura', async () => {
+    serveSelfie(() => ({ state: 'Expired', nextStep: 'Recapture', feedbackCode: 'PROVIDER_UNAVAILABLE' }))
+
+    await renderApp('/account/selfie')
+
+    const notice = await findNotice(EXPIRED_BY_OUTAGE_NOTICE)
+    expect(notice.closest('[role="status"]')).not.toBeNull()
+    expect(screen.queryByText(QUALITY_ADVICE)).not.toBeInTheDocument()
+    expect(screen.queryByText(OUTAGE_NOTICE)).not.toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Iniciar captura' })).toBeInTheDocument()
+  })
+
+  it('sem o marcador a expiração continua pedindo ajuste de luz e enquadramento', async () => {
+    serveSelfie(() => ({ state: 'Expired', nextStep: 'Recapture', feedbackCode: null }))
+
+    await renderApp('/account/selfie')
+
+    expect(await findNotice(QUALITY_ADVICE)).toBeInTheDocument()
+    expect(screen.queryByText(EXPIRED_BY_OUTAGE_NOTICE)).not.toBeInTheDocument()
+  })
+
+  it('código desconhecido na espera não vira aviso de instabilidade', async () => {
+    serveSelfie(() => ({ state: 'Pending', nextStep: 'Wait', feedbackCode: 'NOVO_CODIGO' }))
+
+    await renderApp('/account/selfie')
+
+    expect(await findNotice(/Aguardando verificação/)).toBeInTheDocument()
+    expect(screen.queryByText(OUTAGE_NOTICE)).not.toBeInTheDocument()
+  })
+
+  it('quando o serviço volta, o aviso some na leitura seguinte', async () => {
+    let feedbackCode: string | null = 'PROVIDER_UNAVAILABLE'
+    serveSelfie(() => ({ state: 'Capturing', nextStep: 'Capture', feedbackCode }))
+    await renderApp('/account/selfie')
+    await findNotice(OUTAGE_NOTICE)
+
+    feedbackCode = null
+
+    await vi.waitFor(
+      () => {
+        expect(screen.queryByText(OUTAGE_NOTICE)).not.toBeInTheDocument()
+      },
+      { timeout: 5000 },
+    )
+  })
+})

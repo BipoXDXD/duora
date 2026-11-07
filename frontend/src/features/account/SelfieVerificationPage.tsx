@@ -14,7 +14,9 @@ import {
   completeSelfie,
   currentSelfie,
   SELFIE_ATTEMPT_PROBLEMS,
+  SELFIE_PROVIDER_UNAVAILABLE,
   startSelfie,
+  type SelfieStatus,
   type SelfieAttempts,
   type SelfieCapture as Capture,
 } from './selfie-verification-api'
@@ -32,6 +34,10 @@ const COPY = {
     waiting: 'Aguardando verificação…',
     done: 'Presença confirmada.',
     retry: 'Não foi possível concluir. Ajuste a iluminação e o enquadramento antes de tentar novamente.',
+    providerRetrying:
+      'O serviço de verificação está instável. Seguimos tentando por alguns instantes e isso não conta como reprovação. Mantenha esta página aberta.',
+    providerExpired:
+      'Esta tentativa expirou por instabilidade no serviço de verificação. Não foi um problema da sua imagem e isso não conta como reprovação. Aguarde alguns minutos antes de iniciar uma nova captura.',
     help: 'Sem câmera compatível ou com dificuldade de acessibilidade? Você pode cancelar e tentar outro dispositivo. Nenhum documento será solicitado.',
     back: 'Voltar à conta',
     loading: 'Preparando a página de captura…',
@@ -47,6 +53,10 @@ const COPY = {
     waiting: 'Waiting for verification…',
     done: 'Presence confirmed.',
     retry: 'The check could not be completed. Adjust lighting and framing before trying again.',
+    providerRetrying:
+      'The verification service is unstable. We will keep trying for a moment and this does not count as a failed check. Keep this page open.',
+    providerExpired:
+      'This attempt expired because the verification service is unstable. It was not a problem with your image and it does not count as a failed check. Wait a few minutes before starting a new capture.',
     help: 'No compatible camera or an accessibility difficulty? You can cancel and try another device. We will not request documents.',
     back: 'Back to account',
     loading: 'Preparing the capture page…',
@@ -110,15 +120,14 @@ function SelfieJourney({ userId }: { readonly userId: string }): React.JSX.Eleme
   const status = query.data
   const attempts = status?.attempts
   const blocked = attempts?.state === 'CoolingDown' || attempts?.state === 'Exhausted'
+  const notice = blocked ? null : attemptNotice(copy, status, captureFailed)
   return (
     <Page title={copy.title}>
       <p>{copy.intro}</p>
       <p>{copy.guidance}</p>
       <p>{copy.help}</p>
       {error ? <RequestFailureAlert failure={classifyRequestFailure(error)} /> : null}
-      {(captureFailed || status?.nextStep === 'Recapture') && !blocked ? (
-        <Alert variant="info">{copy.retry}</Alert>
-      ) : null}
+      {notice ? <Alert variant="info">{notice}</Alert> : null}
       {attempts && status.state !== 'Passed' ? <AttemptsNotice attempts={attempts} /> : null}
       {status?.state === 'Passed' ? <Alert variant="success">{copy.done}</Alert> : null}
       {query.isPending || status?.nextStep === 'Wait' ? <p role="status">{copy.waiting}</p> : null}
@@ -169,6 +178,22 @@ function SelfieJourney({ userId }: { readonly userId: string }): React.JSX.Eleme
       <TextLink to={paths.account}>{copy.back}</TextLink>
     </Page>
   )
+}
+
+/**
+ * Na instabilidade do fornecedor a pessoa não recebe o conselho de luz e enquadramento: a captura nem foi julgada. O
+ * sinal vem antes da falha local porque, com o serviço instável, o erro da câmera também é consequência dele.
+ */
+function attemptNotice(
+  copy: (typeof COPY)[keyof typeof COPY],
+  status: SelfieStatus | undefined,
+  captureFailed: boolean,
+): string | null {
+  const recapture = status?.nextStep === 'Recapture'
+  if (status?.feedbackCode === SELFIE_PROVIDER_UNAVAILABLE) {
+    return recapture ? copy.providerExpired : copy.providerRetrying
+  }
+  return captureFailed || recapture ? copy.retry : null
 }
 
 /** Uma leitura por minuto na pausa; o Query cancela o intervalo ao desmontar ou mudar de estado. */
