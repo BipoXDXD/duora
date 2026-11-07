@@ -54,13 +54,14 @@ Política e contratos: [retenção](../../retention.md), [mapa de dados](../../d
 ## Consistência com documentos e contratos
 
 Os avisos publicados de 25/10/2026, em [PT-BR](../../../legal/privacy/2026-10-25/pt-BR.md) e
-[EN-US](../../../legal/privacy/2026-10-25/en-US.md), não distinguem os dois conjuntos de registros e não
+[EN-US](../../../legal/privacy/2026-10-25/en-US.md), e seus sucessores de
+[07/11/2026](../../../legal/privacy/2026-11-07/pt-BR.md), não distinguem os dois conjuntos de registros e não
 explicam a suspensão automatizada. Eles ficam intactos para preservar a identidade do conteúdo já aceito.
 As minutas acrescentam os mesmos fatos nos mesmos dez títulos de seção correspondentes. Preservam controlador,
 contato, fornecedores e demais parágrafos existentes, sem aproveitar a revisão para mudar outras finalidades.
 
-Os Termos ativos de 29/10/2026, em [PT-BR](../../../legal/terms/2026-10-29/pt-BR.md) e
-[EN-US](../../../legal/terms/2026-10-29/en-US.md), remetem moderação e recursos a fluxos próprios e distinguem
+Os Termos ativos de 07/11/2026, em [PT-BR](../../../legal/terms/2026-11-07/pt-BR.md) e
+[EN-US](../../../legal/terms/2026-11-07/en-US.md), remetem moderação e recursos a fluxos próprios e distinguem
 automação de julgamento humano. Não foi encontrada incompatibilidade textual com a explicação proposta.
 Não se altera a declaração de maioridade nem se apresenta presença como verificação de idade ou identidade.
 Necessidade jurídica de atualizar também os Termos continua sendo decisão do controlador, sem reescrita silenciosa.
@@ -92,7 +93,7 @@ Quando houver autorização própria para publicar:
 2. Copiar os textos para `docs/legal/privacy/<nova-versao>/pt-BR.md` e `en-US.md`, substituir a versão provisória
    nos metadados e usar `approved: true` somente após essa aprovação. Não editar os arquivos de 25/10/2026.
 3. Atualizar `privacyVersion` e incluir os dois caminhos em `docs/legal/catalog.json`, mantendo os documentos
-   anteriores para resolução exata dos aceites. Os Termos ativos permanecem em 29/10/2026 salvo decisão própria.
+   anteriores para resolução exata dos aceites. Os Termos ativos permanecem em 07/11/2026 salvo decisão própria.
 4. Regenerar o catálogo incorporado com `python3 scripts/supply-chain/legal_documents.py --write`. Obter os novos
    digests pela implementação de `PublicLegalDocument.Sha256`: SHA-256 do JSON compacto UTF-8 com serialização
    web do .NET, na ordem `document`, `version`, `locale`, `title`, `controllerName`, `privacyContact`, `sections`
