@@ -3,6 +3,13 @@ namespace Duora.Contracts.Identity;
 public sealed record StartSelfieVerificationRequest;
 public sealed record CompleteSelfieVerificationRequest;
 public sealed record SelfieCaptureRequest;
+
+/// <summary>
+/// Situação da selfie. <c>FeedbackCode</c>: código aberto e opcional, sem texto do fornecedor. <c>CAPTURE_QUALITY</c> e
+/// <c>PRESENCE_INCONCLUSIVE</c> vêm de um resultado lido; <c>PROVIDER_UNAVAILABLE</c> diz que a verificação não pôde
+/// ser feita por instabilidade, não conta como reprovação e sai quando o serviço responde. Valor desconhecido deve ser
+/// ignorado.
+/// </summary>
 public sealed record SelfieVerificationResponse(
     Guid? Id,
     string State,
