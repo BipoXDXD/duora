@@ -40,4 +40,4 @@ The approval coordinator and committed-candidate retention remain later slices.
 
 All data is synthetic and all heavy tests/builds run on GitHub. No Docker, installs or builds on the Mac.
 This plan does not close #173 or activate HumanReview; HTTP, appeals, deletion/restore, backup composition and
-independent appeal coverage remain required. Luca Grimmer is owner/principal; no real account grants follow.
+independent appeal coverage remain required. The service owner is the principal reviewer; no real account grants follow.

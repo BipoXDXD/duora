@@ -3,7 +3,7 @@
   "document": "privacy",
   "version": "draft-selfie-failures-304",
   "locale": "en-US",
-  "controllerName": "Luca Grimmer",
+  "controllerName": "Responsável pelo Duora",
   "privacyContact": "support@meetduora.com",
   "approved": false
 }
@@ -13,7 +13,7 @@
 
 ## Controller and contact
 
-The controller of the personal data processed in Duora is Luca Grimmer, an individual. The contact for privacy requests and for exercising your rights is support@meetduora.com.
+The controller of the personal data processed in Duora is the party responsible for Duora. The contact for privacy requests and for exercising your rights is support@meetduora.com.
 
 ## Registration, authentication, and acceptance
 

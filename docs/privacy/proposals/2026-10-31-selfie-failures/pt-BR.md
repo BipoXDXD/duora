@@ -3,7 +3,7 @@
   "document": "privacy",
   "version": "draft-selfie-failures-304",
   "locale": "pt-BR",
-  "controllerName": "Luca Grimmer",
+  "controllerName": "Responsável pelo Duora",
   "privacyContact": "support@meetduora.com",
   "approved": false
 }
@@ -13,7 +13,7 @@
 
 ## Controlador e contato
 
-O controlador dos dados pessoais tratados no Duora é Luca Grimmer, pessoa física. O canal para solicitações de privacidade e para o exercício de direitos é support@meetduora.com.
+O controlador dos dados pessoais tratados no Duora é o responsável pelo Duora. O canal para solicitações de privacidade e para o exercício de direitos é support@meetduora.com.
 
 ## Cadastro, autenticação e aceites
 
