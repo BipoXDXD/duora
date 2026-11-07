@@ -6867,8 +6867,8 @@ export interface components {
         /**
          * @description Situação da selfie. `FeedbackCode`: código aberto e opcional, sem texto do fornecedor. `CAPTURE_QUALITY` e
          *     `PRESENCE_INCONCLUSIVE` vêm de um resultado lido; `PROVIDER_UNAVAILABLE` diz que a verificação não pôde
-         *     ser feita por instabilidade, não conta como reprovação e sai quando o serviço responde. Valor desconhecido deve ser
-         *     ignorado.
+         *     ser feita por falha do fornecedor ou por atraso interno, e não conta como reprovação. Na tentativa aberta, sai
+         *     quando o fornecedor responde; na tentativa expirada, fica. Valor desconhecido deve ser ignorado.
          */
         SelfieVerificationResponse: {
             /** Format: uuid */
