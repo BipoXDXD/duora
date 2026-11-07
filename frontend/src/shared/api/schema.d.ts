@@ -6864,6 +6864,12 @@ export interface components {
             region: string;
             credentials: components["schemas"]["SelfieCaptureCredentialsResponse"];
         };
+        /**
+         * @description Situação da selfie. `FeedbackCode`: código aberto e opcional, sem texto do fornecedor. `CAPTURE_QUALITY` e
+         *     `PRESENCE_INCONCLUSIVE` vêm de um resultado lido; `PROVIDER_UNAVAILABLE` diz que a verificação não pôde
+         *     ser feita por falha do fornecedor ou por atraso interno, e não conta como reprovação. Na tentativa aberta, sai
+         *     quando o fornecedor responde; na tentativa expirada, fica. Valor desconhecido deve ser ignorado.
+         */
         SelfieVerificationResponse: {
             /** Format: uuid */
             id: null | string;

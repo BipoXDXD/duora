@@ -6,7 +6,8 @@ namespace Duora.Worker;
 /// <summary>
 /// Verifica periodicamente se o worker alcança o banco: sucesso em Debug, falha em Warning com a causa.
 /// Serve de modelo para os jobs: um escopo de DI por iteração (serviços scoped, como o DbContext, não atravessam
-/// iterações), TimeProvider injetado e intervalo com jitter.
+/// iterações), TimeProvider injetado e intervalo com jitter. A sonda não lança; o resto do passo (escopo de DI) pode, e o
+/// erro inesperado vira log, para o heartbeat não parar o worker que ele existe para observar.
 /// </summary>
 internal sealed partial class HeartbeatService(
     IServiceScopeFactory scopeFactory,
@@ -19,8 +20,20 @@ internal sealed partial class HeartbeatService(
     {
         while (!stoppingToken.IsCancellationRequested)
         {
-            await ReportAsync(stoppingToken);
+            await ReportSafelyAsync(stoppingToken);
             await Task.Delay(Interval.NextDelay(Random.Shared.NextDouble()), timeProvider, stoppingToken);
+        }
+    }
+
+    private async Task ReportSafelyAsync(CancellationToken stoppingToken)
+    {
+        try
+        {
+            await ReportAsync(stoppingToken);
+        }
+        catch (Exception exception) when (exception is not OutOfMemoryException && !stoppingToken.IsCancellationRequested)
+        {
+            LogUnexpectedFailure(logger, exception.GetType().Name, ExceptionFrames.Describe(exception));
         }
     }
 
@@ -45,4 +58,7 @@ internal sealed partial class HeartbeatService(
 
     [LoggerMessage(Level = LogLevel.Warning, Message = "Worker ativo; banco inacessível")]
     private static partial void LogDatabaseUnavailable(ILogger logger, Exception exception);
+
+    [LoggerMessage(Level = LogLevel.Error, Message = "Heartbeat falhou de forma inesperada ({Cause}); tenta de novo no próximo intervalo. Frames: {Frames}")]
+    private static partial void LogUnexpectedFailure(ILogger logger, string cause, string frames);
 }

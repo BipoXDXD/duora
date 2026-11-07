@@ -1,4 +1,5 @@
 using System.Data.Common;
+using Duora.Infrastructure;
 using Duora.Infrastructure.Identity;
 using Microsoft.EntityFrameworkCore;
 

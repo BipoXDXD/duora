@@ -8,7 +8,7 @@ Execução da ADR-0035/media-review, após M3a. Serviço interno não registrado
 4. Atribuição não concede permissão e não renova prazo. Alvo exige moderator Active/email/MFA/senha definitiva e grants Evidence/Decide, sem exigir sessão ativa antes de começar a agir. Leituras exigem Evidence e atribuição atual; só metadados mínimos, default50/max100, cursor interno tipado. Bytes auditados/revogáveis são M3c, sem URL temporária como atalho.
 5. Negativos de ator UUID maior que titular/alvo, revogação entre fases/espera e atribuições cruzadas concorrentes comprovam a ordem. Nenhuma mudança em M3a que torne autorização permissiva. Revisão independente, todos os checks no head/base finais e publicação somente automática após merge autorizado.
 
-Não expor fila global de não atribuídos neste recorte: o filtro explícito precisa de contrato M5 e capacidade Assign específica. Decisões/recurso, retenção/restore e composição continuam M4/M6/M7. Luca Grimmer é responsável e principal; cobertura independente continua necessária para ativação. Nenhum grant real é criado por este plano.
+Não expor fila global de não atribuídos neste recorte: o filtro explícito precisa de contrato M5 e capacidade Assign específica. Decisões/recurso, retenção/restore e composição continuam M4/M6/M7. O responsável pelo serviço é o revisor principal; cobertura independente continua necessária para ativação. Nenhum grant real é criado por este plano.
 
 ## Evidência antes do produto
 
