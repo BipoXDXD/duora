@@ -185,6 +185,33 @@ public sealed class StorageOperationBoundaryTests
         Assert.Equal(2, stream.Length);
     }
 
+    /// <summary>
+    /// A client that stops reading must not keep one of the host's 16 slots past the operation budget. The budget's
+    /// own 30 s timer is not injectable, so the clock is the caller's token, which the budget is linked to: it fires
+    /// inside the write, and the write has to see it through the token the operation was handed.
+    /// </summary>
+    [Theory]
+    [InlineData(0, "frame length")]
+    [InlineData(1, "frame payload")]
+    [InlineData(2, "body")]
+    public async Task AClientThatStopsReadingLosesTheWriteToTheOperationBudget(int stalledWrite, string part)
+    {
+        using var stop = new CancellationTokenSource();
+        await using var stream = new StalledClientStream(stalledWrite, stop);
+        using var errors = new StringWriter();
+        var budget = CancellationToken.None;
+
+        await StorageOperationBoundary.RunAsync(stream, errors, token =>
+        {
+            budget = token;
+            return Task.FromResult(Confirmed([1, 2, 3]));
+        }, stop.Token);
+
+        Assert.True(stream.Stalled, part);
+        Assert.Equal(budget, stream.StalledToken);
+        Assert.Equal($"STORAGE_REPLY_INTERRUPTED OperationCanceledException{Environment.NewLine}", errors.ToString());
+    }
+
     private static int FrameLength(PrivateGenerationReply reply) =>
         sizeof(int) + JsonSerializer.SerializeToUtf8Bytes(reply, PrivateGenerationWire.Json).Length;
 
@@ -223,6 +250,32 @@ public sealed class StorageOperationBoundaryTests
             await base.WriteAsync(buffer[..(capacity - (int)Length)], cancellationToken);
             _cut = true;
             throw failure;
+        }
+    }
+
+    /// <summary>
+    /// At one write the client's window is full: time runs out there, and only the token handed to the write can end
+    /// it. A write holding a token that never fires carries on, which the test sees at once instead of hanging.
+    /// </summary>
+    private sealed class StalledClientStream(int stalledWrite, CancellationTokenSource clock) : MemoryStream
+    {
+        private int _writes;
+
+        public bool Stalled { get; private set; }
+
+        public CancellationToken StalledToken { get; private set; }
+
+        public override async ValueTask WriteAsync(ReadOnlyMemory<byte> buffer,
+            CancellationToken cancellationToken = default)
+        {
+            if (_writes++ == stalledWrite)
+            {
+                Stalled = true;
+                StalledToken = cancellationToken;
+                await clock.CancelAsync();
+                cancellationToken.ThrowIfCancellationRequested();
+            }
+            await base.WriteAsync(buffer, cancellationToken);
         }
     }
 
