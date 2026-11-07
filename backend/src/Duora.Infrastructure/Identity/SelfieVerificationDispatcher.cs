@@ -15,6 +15,13 @@ public sealed partial class SelfieVerificationDispatcher
     private static readonly TimeSpan TransientDataRetention = TimeSpan.FromHours(24);
 
     /// <summary>
+    /// Prazo mínimo para abrir sessão: menos que isso gera um Capturing que a pessoa não consegue usar. HIPÓTESE, não
+    /// medida: nem o repositório nem o SDK trazem a duração real do início à captura, que inclui passos humanos e a
+    /// leitura do resultado antes do prazo. Calibrar com medição antes de tratar o valor como requisito.
+    /// </summary>
+    private static readonly TimeSpan MinimumCaptureWindow = TimeSpan.FromSeconds(30);
+
+    /// <summary>
     /// Decisões do dono em 28/10/2026 (issue #93): tentativa não aprovada sai 30 dias depois; o Passed fica enquanto a
     /// conta existir e mantém a participação.
     /// </summary>
@@ -109,8 +116,14 @@ public sealed partial class SelfieVerificationDispatcher
 
         if (row.ExpiresAt <= _time.GetUtcNow())
         {
-            await ApplyAsync(row, delivery, null, new(SelfieState.Expired, null, row.PolicyVersion), cancellationToken);
-            await _queue.SettleAsync(delivery, OutboxDeliveryStatus.Expired, null, _time.GetUtcNow(), cancellationToken);
+            await ExpireAsync(row, delivery, null, cancellationToken);
+            return;
+        }
+
+        if (row.ProviderReference is null && row.ExpiresAt - _time.GetUtcNow() < MinimumCaptureWindow)
+        {
+            LogNoTimeToCapture(_logger);
+            await ExpireAsync(row, delivery, SelfieFeedbackCodes.ProviderUnavailable, cancellationToken);
             return;
         }
 
@@ -138,6 +151,7 @@ public sealed partial class SelfieVerificationDispatcher
         {
             cancellationToken.ThrowIfCancellationRequested();
             LogProviderUnavailable(_logger, exception.GetType().Name);
+            await SignalProviderUnavailableAsync(row, delivery, cancellationToken);
             await _queue.RescheduleAsync(delivery, _time.GetUtcNow().AddSeconds(5), "ProviderUnavailable", _time.GetUtcNow(), cancellationToken);
             return;
         }
@@ -158,18 +172,64 @@ public sealed partial class SelfieVerificationDispatcher
         }
     }
 
+    private async Task ExpireAsync(SelfieVerificationRecord row, ClaimedDelivery delivery, string? feedbackCode,
+        CancellationToken cancellationToken)
+    {
+        await ApplyAsync(row, delivery, null, new(SelfieState.Expired, feedbackCode, row.PolicyVersion), cancellationToken);
+        await _queue.SettleAsync(delivery, OutboxDeliveryStatus.Expired, null, _time.GetUtcNow(), cancellationToken);
+    }
+
     /// <summary>Só o tipo: a mensagem de erro do fornecedor pode carregar dado (spec 19.2).</summary>
     [LoggerMessage(Level = LogLevel.Warning, Message = "Selfie provider unavailable ({Cause}); the delivery was rescheduled.")]
     private static partial void LogProviderUnavailable(ILogger logger, string cause);
 
+    [LoggerMessage(Level = LogLevel.Information, Message = "Selfie attempt expired before opening a session: too little time left to capture.")]
+    private static partial void LogNoTimeToCapture(ILogger logger);
+
     /// <summary>
-    /// Falhas da chamada ao fornecedor que reagendam a entrega, sem mudar a tentativa nem contar reprovação. O SDK da
+    /// Falhas da chamada ao fornecedor que reagendam a entrega, sem mudar o estado da tentativa nem contar reprovação. O SDK da
     /// AWS entrega o reset de conexão como <see cref="IOException"/> e o timeout do HttpClient como
     /// <see cref="TimeoutException"/>. Qualquer outra exceção é defeito: sobe ao loop do worker e o lease devolve a entrega.
     /// </summary>
     private static bool IsTransientProviderFailure(Exception exception) =>
         exception is Amazon.Runtime.AmazonServiceException or HttpRequestException or IOException or TimeoutException
             or InvalidDataException or OperationCanceledException;
+
+    /// <summary>
+    /// Grava o sinal na tentativa aberta para a tela diferenciar a instabilidade da espera normal. Com lease e versão
+    /// conferidos, um worker que perdeu a entrega não escreve; e só a primeira falha da sequência grava.
+    /// </summary>
+    private async Task SignalProviderUnavailableAsync(SelfieVerificationRecord previous, ClaimedDelivery delivery,
+        CancellationToken cancellationToken)
+    {
+        if (previous.FeedbackCode == SelfieFeedbackCodes.ProviderUnavailable)
+        {
+            return;
+        }
+
+        await using var transaction = await _db.Database.BeginTransactionAsync(cancellationToken);
+        if (!await OwnsDeliveryAsync(delivery, _time.GetUtcNow(), cancellationToken))
+        {
+            return;
+        }
+
+        await _db.Set<SelfieVerificationRecord>().Where(v => v.Id == previous.Id && v.Version == previous.Version
+                && (v.State == SelfieState.Pending || v.State == SelfieState.Capturing || v.State == SelfieState.Processing))
+            .ExecuteUpdateAsync(set => set.SetProperty(v => v.FeedbackCode, SelfieFeedbackCodes.ProviderUnavailable)
+                .SetProperty(v => v.Version, v => v.Version + 1), cancellationToken);
+        await transaction.CommitAsync(cancellationToken);
+    }
+
+    /// <summary>Trava a entrega até o fim da transação: falso quando o lease venceu ou outro worker a assumiu.</summary>
+    private async Task<bool> OwnsDeliveryAsync(ClaimedDelivery delivery, DateTimeOffset now, CancellationToken cancellationToken)
+    {
+        var owned = await _db.Database.SqlQuery<int>($"""
+            select 1 as "Value" from ops.outbox_deliveries
+            where id = {delivery.Id} and fencing_token = {delivery.FencingToken}
+                and status = 'InFlight' and lease_expires_at > {now} for update
+            """).ToListAsync(cancellationToken);
+        return owned.Count == 1;
+    }
 
     /// <summary>
     /// Na transação do resultado, sob a trava da conta (issue #300): grava a reprovação e, se ela é a décima, o pedido
@@ -194,12 +254,7 @@ public sealed partial class SelfieVerificationDispatcher
     {
         await using var transaction = await _db.Database.BeginTransactionAsync(cancellationToken);
         var now = _time.GetUtcNow();
-        var owned = await _db.Database.SqlQuery<int>($"""
-            select 1 as "Value" from ops.outbox_deliveries
-            where id = {delivery.Id} and fencing_token = {delivery.FencingToken}
-                and status = 'InFlight' and lease_expires_at > {now} for update
-            """).ToListAsync(cancellationToken);
-        if (owned.Count == 0)
+        if (!await OwnsDeliveryAsync(delivery, now, cancellationToken))
         {
             return false;
         }
@@ -222,6 +277,7 @@ public sealed partial class SelfieVerificationDispatcher
         else if (session is not null)
         {
             record.ProviderReference = session.Reference;
+            record.FeedbackCode = null;
             record.ExpiresAt = session.ExpiresAt < record.ExpiresAt ? session.ExpiresAt : record.ExpiresAt;
             record.State = SelfieState.Capturing;
         }
