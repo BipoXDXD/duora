@@ -43,4 +43,4 @@ Os dados são conservados pelo tempo necessário à finalidade de cada recurso. 
 
 ## Alterações deste aviso
 
-Mudanças neste aviso geram uma nova versão, identificada por data e idioma. As versões anteriores continuam acessíveis no endereço próprio de cada versão.
+Mudanças neste aviso geram uma nova versão, identificada por data e idioma.

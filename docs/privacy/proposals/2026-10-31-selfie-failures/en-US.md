@@ -61,4 +61,4 @@ Information is retained for as long as each feature needs it for its purpose. Ba
 
 ## Changes to this notice
 
-Changes to this notice create a new version, identified by date and language. Previous versions remain available at their own version address.
+Changes to this notice create a new version, identified by date and language.
