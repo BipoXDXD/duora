@@ -162,7 +162,8 @@ public sealed class EmailConfirmationResendTests(PostgresFixture postgres)
     {
         var email = IdentityScenario.NewEmail();
         var barrier = new TwoLookups(email);
-        await using var factory = WithInterceptor(barrier, unlimitedMemoryCounters: true);
+        // Custo real: a verificação do hash fica dentro da janela da corrida, e um hash rápido a estreitaria.
+        await using var factory = WithInterceptor(barrier, unlimitedMemoryCounters: true, realPasswordHashCost: true);
         var scenario = new IdentityScenario(postgres, factory);
         using var first = new Browser(factory);
         using var second = new Browser(factory);
@@ -263,9 +264,11 @@ public sealed class EmailConfirmationResendTests(PostgresFixture postgres)
         Assert.NotNull(response.Headers.RetryAfter);
     }
 
-    private DuoraWebFactory WithInterceptor(IInterceptor interceptor, bool unlimitedMemoryCounters = false) =>
+    private DuoraWebFactory WithInterceptor(IInterceptor interceptor, bool unlimitedMemoryCounters = false,
+        bool realPasswordHashCost = false) =>
         new(postgres.ConnectionString)
         {
+            RealPasswordHashCost = realPasswordHashCost,
             TestServices = services => services.ConfigureDbContext<DuoraDbContext>(options => options.AddInterceptors(interceptor)),
             Settings = unlimitedMemoryCounters ? new Dictionary<string, string?>
             {

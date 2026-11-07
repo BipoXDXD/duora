@@ -37,7 +37,7 @@ public sealed class LoginConcurrencyTests(PostgresFixture postgres)
     [InlineData(false)]
     public async Task TheFailureFloorStartsWhenTheTurnIsReleasedNotWhenTheLoginArrives(bool exists)
     {
-        // Hash rápido: com o hash lento dos outros testes o próprio hash cobria o piso e escondia de onde ele conta.
+        // Hash rápido explícito: um hash lento cobriria o piso e esconderia de onde ele conta.
         var normalizer = new SignallingNormalizer();
         await using var factory = new DuoraWebFactory(postgres.ConnectionString)
         {

@@ -13,13 +13,17 @@ public static class BrowserScenarioSeed
 {
     private static readonly string[] Names = ["alice", "bob", "third"];
 
+    // Custo real, calculado uma vez por processo: a seed roda por teste e cada banco é isolado.
+    private static readonly Lazy<string> PasswordHash = new(
+        () => new PasswordHasher<object>().HashPassword(new object(), "frase longa o bastante"));
+
     public static async Task<ParticipationSeed> InitializeAsync(string connectionString, DateTimeOffset now, CancellationToken ct,
         string emailSuffix = "", bool declarePreferences = false)
     {
         await using var connection = new NpgsqlConnection(connectionString);
         await connection.OpenAsync(ct);
         Guid[] users = [Guid.NewGuid(), Guid.NewGuid(), Guid.NewGuid()];
-        var password = new PasswordHasher<object>().HashPassword(new object(), "frase longa o bastante");
+        var password = PasswordHash.Value;
         foreach (var (user, name) in users.Zip(Names))
         {
             var email = name + emailSuffix + "@example.com";

@@ -1,5 +1,6 @@
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using Npgsql;
 
@@ -47,7 +48,10 @@ public static class CountryDatabaseRuntimeRegistration
                 p.GetRequiredService<IOptions<CountryDatabaseRuntimeOptions>>().Value.ApprovedInitialHash));
         }
         if (flags.MonitorEnabled || flags.RetentionEnabled)
-        { services.AddSingleton(p => new CountryDatabaseOperationsStore(p.GetRequiredService<NpgsqlDataSource>(), p.GetRequiredService<TimeProvider>())); }
+        {
+            services.AddSingleton(p => new CountryDatabaseOperationsStore(p.GetRequiredService<NpgsqlDataSource>(), p.GetRequiredService<TimeProvider>(),
+                p.GetRequiredService<ILogger<CountryDatabaseOperationsStore>>()));
+        }
         if (flags.MonitorEnabled)
         {
             services.AddSingleton<ICountryDatabaseMailTransport>(p => new GmailCountryDatabaseMailTransport(
