@@ -181,7 +181,8 @@ public sealed class SelfieConcurrencyTests(PostgresFixture postgres)
         Assert.Equal("Capturing", (await CurrentAsync(restarted, account.UserId, ct)).State);
         time.Advance(TimeSpan.FromSeconds(6));
         await DispatchAsync(restarted, ct);
-        await AssertCompletedAsync(scenario, restarted, account.UserId, ct);
+        // Uma versão a mais que o caminho sem falha: a resposta perdida grava o sinal de instabilidade.
+        await AssertCompletedAsync(scenario, restarted, account.UserId, ct, expectedVersion: 3);
         Assert.Equal(2, provider.StartCalls);
         Assert.Equal(1, provider.Sessions);
         Assert.Equal(1, provider.ReadCalls);
@@ -233,11 +234,11 @@ public sealed class SelfieConcurrencyTests(PostgresFixture postgres)
         Assert.Equal(1, provider.Sessions);
     }
 
-    private static async Task AssertCompletedAsync(IdentityScenario scenario, DuoraWebFactory host, Guid userId, CancellationToken ct)
+    private static async Task AssertCompletedAsync(IdentityScenario scenario, DuoraWebFactory host, Guid userId, CancellationToken ct, int expectedVersion = 2)
     {
         Assert.True(await EligibleAsync(host, userId, ct));
         Assert.Equal(1, await scenario.ScalarAsync("select count(*) from identity.users where id = $1 and status = 'Active' and email_confirmed", userId));
-        Assert.Equal(1, await scenario.ScalarAsync("select count(*) from identity.selfie_verifications where user_id = $1 and state = 'Passed' and version = 2 and completed_at is not null", userId));
+        Assert.Equal(1, await scenario.ScalarAsync("select count(*) from identity.selfie_verifications where user_id = $1 and state = 'Passed' and version = $2 and completed_at is not null", userId, (long)expectedVersion));
         Assert.Equal(1, await scenario.ScalarAsync("select count(*) from ops.outbox_deliveries where consumer = 'selfie-provider' and status = 'Delivered'"));
         Assert.Equal(0, await scenario.ScalarAsync("select count(*) from identity.age_verifications where user_id = $1", userId));
     }
