@@ -37,7 +37,7 @@ const COPY = {
     providerRetrying:
       'O serviço de verificação está instável. Seguimos tentando por alguns instantes e isso não conta como reprovação. Mantenha esta página aberta.',
     providerExpired:
-      'Esta tentativa expirou por instabilidade no serviço de verificação. Não foi um problema da sua imagem e isso não conta como reprovação. Aguarde alguns minutos antes de iniciar uma nova captura.',
+      'Esta tentativa expirou por instabilidade no serviço de verificação. Sua imagem não foi avaliada e isso não conta como reprovação. Aguarde alguns minutos antes de iniciar uma nova captura.',
     help: 'Sem câmera compatível ou com dificuldade de acessibilidade? Você pode cancelar e tentar outro dispositivo. Nenhum documento será solicitado.',
     back: 'Voltar à conta',
     loading: 'Preparando a página de captura…',
@@ -56,7 +56,7 @@ const COPY = {
     providerRetrying:
       'The verification service is unstable. We will keep trying for a moment and this does not count as a failed check. Keep this page open.',
     providerExpired:
-      'This attempt expired because the verification service is unstable. It was not a problem with your image and it does not count as a failed check. Wait a few minutes before starting a new capture.',
+      'This attempt expired because the verification service is unstable. Your image was not evaluated and this does not count as a failed check. Wait a few minutes before starting a new capture.',
     help: 'No compatible camera or an accessibility difficulty? You can cancel and try another device. We will not request documents.',
     back: 'Back to account',
     loading: 'Preparing the capture page…',

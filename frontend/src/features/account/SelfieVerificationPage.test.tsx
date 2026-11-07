@@ -221,9 +221,22 @@ describe('fornecedor instável (PROVIDER_UNAVAILABLE)', () => {
 
     const notice = await findNotice(EXPIRED_BY_OUTAGE_NOTICE)
     expect(notice.closest('[role="status"]')).not.toBeNull()
+    expect(notice).toHaveTextContent('Sua imagem não foi avaliada')
     expect(screen.queryByText(QUALITY_ADVICE)).not.toBeInTheDocument()
     expect(screen.queryByText(OUTAGE_NOTICE)).not.toBeInTheDocument()
     expect(screen.getByRole('button', { name: 'Iniciar captura' })).toBeInTheDocument()
+  })
+
+  it.each([
+    ['Pending', 'Wait', /verification service is unstable/],
+    ['Expired', 'Recapture', /Your image was not evaluated/],
+  ])('em en-US o estado %s usa o texto em inglês', async (state, nextStep, text) => {
+    serveSelfie(() => ({ state, nextStep, feedbackCode: 'PROVIDER_UNAVAILABLE' }))
+
+    await renderApp('/account/selfie', undefined, 'en-US')
+
+    expect(await findNotice(text)).toBeInTheDocument()
+    expect(screen.queryByText(/Adjust lighting/)).not.toBeInTheDocument()
   })
 
   it('sem o marcador a expiração continua pedindo ajuste de luz e enquadramento', async () => {
