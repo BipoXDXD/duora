@@ -45,17 +45,22 @@ internal sealed class SuspendedRegistrationScenario(ScratchDatabase database, Pa
         return await new ParticipationService(named, clock).RegisterAsync(EventId, user, checkIn, Token);
     }
 
-    public async Task WaitForWaiterAsync(string application, string queryPart)
+    public Task WaitForWaiterAsync(string application, string queryPart) => WaitUntilAsync("""
+        select exists(select 1 from pg_stat_activity where application_name=$1
+          and cardinality(pg_blocking_pids(pid))>0 and query like '%'||$2||'%')
+        """, application, queryPart);
+
+    /// <summary>Por pid, para a sessão que não é nomeada: <c>pg_blocking_pids</c> enxerga qualquer papel.</summary>
+    public Task WaitForBlockedAsync(int pid) => WaitUntilAsync("select cardinality(pg_blocking_pids($1))>0", pid);
+
+    private async Task WaitUntilAsync(string condition, params object[] values)
     {
         using var timeout = CancellationTokenSource.CreateLinkedTokenSource(Token);
         timeout.CancelAfter(TimeSpan.FromSeconds(5));
         await using var connection = await source.OpenConnectionAsync(timeout.Token);
         while (true)
         {
-            await using var query = Command(connection, """
-                select exists(select 1 from pg_stat_activity where application_name=$1
-                  and cardinality(pg_blocking_pids(pid))>0 and query like '%'||$2||'%')
-                """, application, queryPart);
+            await using var query = Command(connection, condition, values);
             if ((bool)(await query.ExecuteScalarAsync(timeout.Token))!)
             {
                 return;

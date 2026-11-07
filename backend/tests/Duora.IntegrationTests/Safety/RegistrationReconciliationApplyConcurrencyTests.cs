@@ -481,8 +481,9 @@ public sealed class RegistrationReconciliationApplyConcurrencyTests(PostgresFixt
     }
 
     /// <summary>
-    /// Inversão provocada de propósito por um terceiro: a aplicação tem a guarda e quer o evento; o outro tem o evento e quer
-    /// a guarda. O PostgreSQL derruba um dos dois; a aplicação não repete e responde Busy, sem efeito.
+    /// Inversão provocada de propósito por um terceiro: a aplicação tem o run e quer o evento; o outro tem o evento e quer o
+    /// run. A aplicação não repete e responde Busy, sem efeito. O PostgreSQL aborta quem roda a checagem, e cada espera a
+    /// roda uma só vez: o outro já está parado antes de a aplicação começar a esperar o evento, e nunca faz a própria.
     /// </summary>
     [Fact]
     public async Task ADeadlockIsBusyWithoutRetryAndWithoutEffect()
@@ -491,44 +492,60 @@ public sealed class RegistrationReconciliationApplyConcurrencyTests(PostgresFixt
         var s = a.S;
         await a.CountAttemptsAsync(s.Seed.Alice);
         var before = await a.FingerprintAsync();
-        await using var hold = await a.HoldEventAsync();
+        await using var gate = await a.HoldGateAsync();
+        await a.AsMigratorAsync($"""
+            create function ops.test_guard_barrier() returns trigger language plpgsql as $f$
+            begin perform ops.test_gate(); return new; end $f$;
+            create trigger test_guard_barrier before insert on safety.user_guards for each row
+              when (new.user_id = '{s.Seed.Alice}') execute function ops.test_guard_barrier();
+            """);
+        await using var hold = await a.HoldWithoutDeadlockCheckAsync(postgres, "select 1 from events.events where id=$1 for update", s.EventId);
         var applying = a.ApplyAsync(application: Apply);
-        await s.WaitForWaiterAsync(Apply, "events.events");
+        await s.WaitForWaiterAsync(Apply, "safety.user_guards");
+        var inverted = hold.ExecuteAsync("select 1 from ops.registration_reconciliation_runs where id=$1 for update", a.Run);
+        await s.WaitForBlockedAsync(hold.Connection.ProcessID);
 
-        var inverted = hold.ExecuteAsync("select 1 from safety.user_guards where user_id=$1 for update", s.Seed.Alice);
-        var outcome = await applying;
+        await gate.CommitAsync();
 
-        Assert.IsType<ReconciliationApplyOutcome.Busy>(outcome);
+        // Com o outro já fora, uma repetição indevida passaria pelo run, contaria a segunda tentativa e aplicaria.
         await inverted;
         await hold.RollbackAsync();
+        Assert.IsType<ReconciliationApplyOutcome.Busy>(await applying);
         Assert.Equal(1, await a.AttemptsAsync());
         Assert.Single(a.CoordinatorLogs.Entries, entry => entry.Level == Microsoft.Extensions.Logging.LogLevel.Error
             && entry.Text.Contains("Deadlock", StringComparison.Ordinal));
         await a.AssertNoEffectAsync(before);
     }
 
-    /// <summary>O gatilho prende o <c>:close</c> no UPDATE, já com o run trancado, e quem segura a trava pede o run.</summary>
+    /// <summary>
+    /// O gatilho prende o <c>:close</c> no UPDATE, já com o run trancado, e quem segura a trava pede o run. A mesma ordem do
+    /// caso acima: o portão só abre com o outro parado, e a espera pela trava é a que roda a checagem.
+    /// </summary>
     [Fact]
     public async Task ADeadlockOnTheCloseIsBusyAndLogged()
     {
         await using var a = await ReconciliationApplyScenario.CreateAsync(postgres);
         var s = a.S;
+        await using var gate = await a.HoldGateAsync();
         await a.AsMigratorAsync("""
             create function ops.test_close_barrier() returns trigger language plpgsql as $f$
-            begin perform pg_advisory_xact_lock(321322); return new; end $f$;
+            begin perform ops.test_gate(); perform pg_advisory_xact_lock(321322); return new; end $f$;
             create trigger test_close_barrier before update on ops.registration_reconciliation_runs
               for each row execute function ops.test_close_barrier();
             """);
-        await using var hold = await a.HoldAsync("select pg_advisory_xact_lock(321322)");
+        await using var hold = await a.HoldWithoutDeadlockCheckAsync(postgres, "select pg_advisory_xact_lock(321322)");
         var closing = a.PostCloseAsync();
         await s.WaitForWaiterAsync("", "update ops.registration_reconciliation_runs");
-
         var inverted = hold.ExecuteAsync("select 1 from ops.registration_reconciliation_runs where id=$1 for update", a.Run);
-        using var response = await closing;
+        await s.WaitForBlockedAsync(hold.Connection.ProcessID);
 
-        await ProblemAssert.IsProblemAsync(response, System.Net.HttpStatusCode.ServiceUnavailable, "TEMPORARILY_UNAVAILABLE");
+        await gate.CommitAsync();
+
+        // Com o outro já fora, uma repetição indevida passaria pelo run e fecharia: 200 em vez de 503.
         await inverted;
         await hold.RollbackAsync();
+        using var response = await closing;
+        await ProblemAssert.IsProblemAsync(response, System.Net.HttpStatusCode.ServiceUnavailable, "TEMPORARILY_UNAVAILABLE");
         Assert.Single(a.HostLogs.Entries, entry => entry.Level == Microsoft.Extensions.Logging.LogLevel.Error
             && entry.Text.Contains("Deadlock", StringComparison.Ordinal));
         Assert.Equal("Open", await s.TextAsync("select state from ops.registration_reconciliation_runs where id=$1", a.Run));
