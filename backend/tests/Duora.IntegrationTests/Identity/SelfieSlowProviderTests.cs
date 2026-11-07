@@ -21,8 +21,8 @@ namespace Duora.IntegrationTests.Identity;
 /// <summary>
 /// T-17: fornecedor da selfie lento ou indisponível, no PostgreSQL real. A conta não libera participação, nada fica
 /// pela metade e cada chamada tem tempo limitado. Sem rede: o SDK real fala com um transporte sintético, e os demais
-/// casos usam um fornecedor falso. O corte de 10 s do dispatcher usa o relógio real, então os dois testes de stall
-/// esperam esse tempo de verdade, sem CPU.
+/// casos usam um fornecedor falso. O corte de 10 s do dispatcher usa o relógio real, então os testes que deixam esse
+/// corte agir esperam o tempo de verdade, sem CPU.
 /// </summary>
 public sealed class SelfieSlowProviderTests(PostgresFixture postgres)
 {
@@ -48,9 +48,6 @@ public sealed class SelfieSlowProviderTests(PostgresFixture postgres)
     private const int AttemptsAboveTheRetrySpacing = 7;
 
     private const int CallsToMeasureTheRate = 6;
-
-    /// <summary>A chamada original mais as repetições do SDK; muda com a política de retry dele, e isso é para aparecer aqui.</summary>
-    private const int MostHttpCallsPerDelivery = 3;
 
     private static readonly TimeSpan FastEmailPoll = TimeSpan.FromMilliseconds(100);
 
@@ -423,6 +420,7 @@ public sealed class SelfieSlowProviderTests(PostgresFixture postgres)
         var older = await scenario.CreateConfirmedAccountAsync();
         var newer = await scenario.CreateConfirmedAccountAsync();
         await SelfieConcurrencyHarness.RequestAsync(host, older.UserId, Ct);
+        var olderAttempt = (await SelfieConcurrencyHarness.CurrentAsync(host, older.UserId, Ct)).Id!.Value;
         await SelfieConcurrencyHarness.DispatchAsync(host, Ct);
         _time.Advance(TimeSpan.FromSeconds(170));
         await SelfieConcurrencyHarness.RequestAsync(host, newer.UserId, Ct);
@@ -435,22 +433,25 @@ public sealed class SelfieSlowProviderTests(PostgresFixture postgres)
 
         Assert.Equal(2, provider.StartCalls);
         Assert.Equal(newerAttempt, provider.StartedAttempts.Last());
-        Assert.Equal("Expired", (await SelfieConcurrencyHarness.CurrentAsync(host, older.UserId, Ct)).State);
+        Assert.Equal(1, await scenario.ScalarAsync(
+            "select count(*) from identity.selfie_verifications where id = $1 and state = 'Expired' and completed_at is not null",
+            olderAttempt));
         Assert.Equal("Capturing", (await SelfieConcurrencyHarness.CurrentAsync(host, newer.UserId, Ct)).State);
         await AssertNotReleasedAsync(scenario, host, older.UserId);
     }
 
     /// <summary>
-    /// Pelo SDK real: erro do serviço reagenda sem mudar a tentativa, o SDK faz um número limitado de chamadas HTTP
-    /// dentro do corte de 10 s, e o log leva o tipo, nunca a mensagem do fornecedor.
+    /// Pelo SDK real: erro do serviço reagenda sem mudar a tentativa. O SDK repete 5xx e throttling até 3 chamadas HTTP,
+    /// não repete <c>AccessDenied</c>, fica dentro do corte de 10 s, e nenhum log leva a mensagem do fornecedor. Os
+    /// números prendem a política de retry do SDK: uma atualização que a mude quebra aqui de propósito.
     /// </summary>
     [Theory]
-    [InlineData(HttpStatusCode.ServiceUnavailable, "ServiceUnavailableException")]
-    [InlineData(HttpStatusCode.InternalServerError, "InternalServerError")]
-    [InlineData(HttpStatusCode.BadRequest, "ThrottlingException")]
-    [InlineData(HttpStatusCode.BadRequest, "ProvisionedThroughputExceededException")]
-    [InlineData(HttpStatusCode.BadRequest, "AccessDeniedException")]
-    public async Task AServiceErrorThroughTheRealSdkIsRequeuedWithinTheCallTimeout(HttpStatusCode status, string error)
+    [InlineData(HttpStatusCode.ServiceUnavailable, "ServiceUnavailableException", 3)]
+    [InlineData(HttpStatusCode.InternalServerError, "InternalServerError", 3)]
+    [InlineData(HttpStatusCode.BadRequest, "ThrottlingException", 3)]
+    [InlineData(HttpStatusCode.BadRequest, "ProvisionedThroughputExceededException", 3)]
+    [InlineData(HttpStatusCode.BadRequest, "AccessDeniedException", 1)]
+    public async Task AServiceErrorThroughTheRealSdkIsRequeuedWithinTheCallTimeout(HttpStatusCode status, string error, int expectedHttpCalls)
     {
         var connection = await postgres.CreateMigratedDatabaseAsync(Ct);
         var transport = new SyntheticAwsTransport(_ => ServiceError(status, error));
@@ -463,13 +464,14 @@ public sealed class SelfieSlowProviderTests(PostgresFixture postgres)
         var elapsed = await TimedDispatchAsync(host);
 
         Assert.True(elapsed < BelowTheCallTimeout, $"O lote levou {elapsed}.");
-        Assert.InRange(transport.Calls, 1, MostHttpCallsPerDelivery);
+        Assert.Equal(expectedHttpCalls, transport.Calls);
         Assert.Equal("Pending|no-reference|no-feedback|open", await AttemptAsync(scenario));
         Assert.Equal("Pending|ProviderUnavailable|1", await DeliveryAsync(scenario));
         await AssertNotReleasedAsync(scenario, host, account.UserId);
         var trace = Assert.Single(logs.Entries, entry => entry.Category == typeof(SelfieVerificationDispatcher).FullName);
-        Assert.DoesNotContain(TransportCanary, trace.Text, StringComparison.Ordinal);
         Assert.Null(trace.Exception);
+        Assert.DoesNotContain(logs.Entries, entry => entry.Text.Contains(TransportCanary, StringComparison.Ordinal)
+            || entry.Exception?.ToString().Contains(TransportCanary, StringComparison.Ordinal) == true);
     }
 
     /// <summary>
@@ -495,27 +497,30 @@ public sealed class SelfieSlowProviderTests(PostgresFixture postgres)
             services.AddSingleton<ISelfieProvider>(provider);
         });
         var lifetime = workerHost.Services.GetRequiredService<IHostApplicationLifetime>();
-        var watch = Stopwatch.StartNew();
 
         await workerHost.StartAsync(Ct);
         await WaitWhileRunningAsync(lifetime, () => Task.FromResult(provider.StartCalls >= CallsToMeasureTheRate));
-        var elapsed = watch.Elapsed;
-        var calls = provider.StartCalls;
         await workerHost.StopAsync(Ct);
 
-        Assert.True(elapsed >= TimeSpan.FromSeconds(calls - 1), $"{calls} chamadas em {elapsed}.");
+        var calls = provider.StartTimestamps.ToArray();
+        var elapsed = Stopwatch.GetElapsedTime(calls[0], calls[^1]);
+        Assert.True(elapsed >= TimeSpan.FromSeconds(calls.Length - 1), $"{calls.Length} chamadas em {elapsed}.");
     }
 
-    /// <summary>A fila da selfie tem laço próprio: o e-mail sai enquanto a chamada ao fornecedor segue presa.</summary>
+    /// <summary>
+    /// A fila da selfie tem laço próprio: o e-mail sai enquanto a chamada ao fornecedor segue presa. A chamada ignora o
+    /// cancelamento, então o corte de 10 s não abre uma corrida com a entrega do e-mail: só o teste a libera.
+    /// </summary>
     [Fact]
     public async Task AStalledSelfieCallDoesNotHoldTheEmailQueue()
     {
         var provider = new FaultySelfieProvider(_time);
         var entered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
-        provider.StartFault = cancellationToken =>
+        var release = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        provider.StartFault = _ =>
         {
             entered.TrySetResult();
-            return Task.Delay(Timeout.Infinite, cancellationToken);
+            return release.Task;
         };
         var connection = await postgres.CreateMigratedDatabaseAsync(Ct);
         await using var web = SelfieConcurrencyHarness.Host(connection, _time, provider);
@@ -531,19 +536,27 @@ public sealed class SelfieSlowProviderTests(PostgresFixture postgres)
         var lifetime = workerHost.Services.GetRequiredService<IHostApplicationLifetime>();
 
         await workerHost.StartAsync(Ct);
-        await entered.Task.WaitAsync(CallCeiling, Ct);
-        await WaitWhileRunningAsync(lifetime, async () => await EmailAsync(scenario, "<>") == 0);
-        var delivered = await EmailAsync(scenario, "=");
-        using (var browser = new Browser(web))
-        using (var registered = await IdentityScenario.RegisterAsync(browser, IdentityScenario.NewEmail()))
+        try
         {
-            Assert.Equal(HttpStatusCode.Accepted, registered.StatusCode);
+            await entered.Task.WaitAsync(CallCeiling, Ct);
+            await WaitWhileRunningAsync(lifetime, async () => await EmailAsync(scenario, "<>") == 0);
+            var delivered = await EmailAsync(scenario, "=");
+            using (var browser = new Browser(web))
+            using (var registered = await IdentityScenario.RegisterAsync(browser, IdentityScenario.NewEmail()))
+            {
+                Assert.Equal(HttpStatusCode.Accepted, registered.StatusCode);
+            }
+
+            await WaitWhileRunningAsync(lifetime, async () => await EmailAsync(scenario, "=") > delivered);
+
+            Assert.Equal("InFlight|-|1", await DeliveryAsync(scenario));
+            Assert.Equal(1, provider.StartCalls);
+        }
+        finally
+        {
+            release.TrySetResult();
         }
 
-        await WaitWhileRunningAsync(lifetime, async () => await EmailAsync(scenario, "=") > delivered);
-
-        Assert.Equal("InFlight|-|1", await DeliveryAsync(scenario));
-        Assert.Equal(1, provider.StartCalls);
         await workerHost.StopAsync(Ct);
     }
 
@@ -690,6 +703,7 @@ public sealed class SelfieSlowProviderTests(PostgresFixture postgres)
     private sealed class FaultySelfieProvider(FakeTimeProvider time) : ISelfieProvider
     {
         private readonly ConcurrentQueue<Guid> _startedAttempts = new();
+        private readonly ConcurrentQueue<long> _startTimestamps = new();
         private int _startCalls;
         private int _readCalls;
 
@@ -703,12 +717,15 @@ public sealed class SelfieSlowProviderTests(PostgresFixture postgres)
 
         public IReadOnlyCollection<Guid> StartedAttempts => _startedAttempts;
 
+        public IReadOnlyCollection<long> StartTimestamps => _startTimestamps;
+
         public int ReadCalls => Volatile.Read(ref _readCalls);
 
         public async Task<SelfieSession> StartAsync(Guid attemptId, CancellationToken cancellationToken)
         {
             Interlocked.Increment(ref _startCalls);
             _startedAttempts.Enqueue(attemptId);
+            _startTimestamps.Enqueue(Stopwatch.GetTimestamp());
             await (StartFault?.Invoke(cancellationToken) ?? Task.CompletedTask);
             return new SelfieSession(attemptId.ToString("D"), time.GetUtcNow().AddMinutes(3));
         }
