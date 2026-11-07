@@ -5,7 +5,14 @@ import type { OperationHandle } from '@/shared/session-context'
 import { http, HttpResponse } from 'msw'
 import { describe, expect, it } from 'vitest'
 import { server } from '@/test/msw'
-import { fetchReviewHistory, fetchReviewItem, sendReviewIntent } from './photo-review-api'
+import {
+  deleteOwnerPhoto,
+  fetchOwnerPhotoVersion,
+  fetchReviewHistory,
+  fetchReviewItem,
+  sendReviewIntent,
+  uploadOwnerPhoto,
+} from './photo-review-api'
 
 const operations: OperationHandle[] = []
 function operation(): OperationHandle {
@@ -87,5 +94,100 @@ describe('M7 localized HTTP boundary', () => {
         command: { type: 'decision', decision: 'approve' },
       }),
     ).rejects.toThrow()
+  })
+})
+
+describe('fronteira das fotos do titular (API-M01 a M03)', () => {
+  const PHOTO_TAG = '"photo-bbbbbbbb-3"'
+  const KEY = 'replay-1'
+  const upload = {
+    key: KEY,
+    photo: { contentType: 'image/png', bytes: new Uint8Array([9, 8, 7]).buffer },
+  } as const
+
+  it('envia o corpo cru com tipo e chave, sem JSON, e devolve a foto aceita', async () => {
+    let seen: { type: string | null; key: string | null; bytes: number[] } | null = null
+    server.use(
+      http.post('/api/v1/me/photos', async ({ request }) => {
+        seen = {
+          type: request.headers.get('Content-Type'),
+          key: request.headers.get('Idempotency-Key'),
+          bytes: [...new Uint8Array(await request.arrayBuffer())],
+        }
+        return HttpResponse.json({ photoId: PHOTO, status: 'Quarantined' }, { status: 202 })
+      }),
+    )
+
+    await expect(uploadOwnerPhoto(operation(), upload)).resolves.toEqual({ photoId: PHOTO, status: 'Quarantined' })
+    expect(seen).toEqual({ type: 'image/png', key: KEY, bytes: [9, 8, 7] })
+  })
+
+  it('não aceita recibo de envio fora do contrato', async () => {
+    server.use(http.post('/api/v1/me/photos', () => HttpResponse.json({ photoId: 'x', status: 1 }, { status: 202 })))
+
+    await expect(uploadOwnerPhoto(operation(), upload)).rejects.toThrow()
+  })
+
+  it('lê status e ETag da foto em API-M02', async () => {
+    server.use(
+      http.get(`/api/v1/me/photos/${PHOTO}/status`, () =>
+        HttpResponse.json(
+          { photoId: PHOTO, status: 'Rejected', rejectionCode: 'PHOTO_REVIEW_REJECTED' },
+          { headers: { ETag: PHOTO_TAG } },
+        ),
+      ),
+    )
+
+    await expect(fetchOwnerPhotoVersion(operation(), PHOTO)).resolves.toEqual({
+      photoId: PHOTO,
+      status: 'Rejected',
+      rejectionCode: 'PHOTO_REVIEW_REJECTED',
+      eTag: PHOTO_TAG,
+    })
+  })
+
+  it.each([
+    ['ausente', {}],
+    ['fraco', { ETag: 'W/"photo-1"' }],
+    ['lista', { ETag: '"a", "b"' }],
+    ['curinga', { ETag: '*' }],
+  ])('recusa a leitura com ETag %s, que o DELETE não aceitaria', async (_name, headers: Record<string, string>) => {
+    server.use(
+      http.get(`/api/v1/me/photos/${PHOTO}/status`, () =>
+        HttpResponse.json({ photoId: PHOTO, status: 'Approved', rejectionCode: null }, { headers }),
+      ),
+    )
+
+    await expect(fetchOwnerPhotoVersion(operation(), PHOTO)).rejects.toThrow()
+  })
+
+  it('recusa status de outra foto mesmo com ETag válido', async () => {
+    server.use(
+      http.get(`/api/v1/me/photos/${PHOTO}/status`, () =>
+        HttpResponse.json(
+          { photoId: OTHER, status: 'Approved', rejectionCode: null },
+          { headers: { ETag: PHOTO_TAG } },
+        ),
+      ),
+    )
+
+    await expect(fetchOwnerPhotoVersion(operation(), PHOTO)).rejects.toThrow()
+  })
+
+  it('exclui sem corpo, com If-Match e Idempotency-Key', async () => {
+    let seen: { ifMatch: string | null; key: string | null; body: string } | null = null
+    server.use(
+      http.delete(`/api/v1/me/photos/${PHOTO}`, async ({ request }) => {
+        seen = {
+          ifMatch: request.headers.get('If-Match'),
+          key: request.headers.get('Idempotency-Key'),
+          body: await request.text(),
+        }
+        return new HttpResponse(null, { status: 204, headers: { ETag: '"photo-bbbbbbbb-4"' } })
+      }),
+    )
+
+    await expect(deleteOwnerPhoto(operation(), { photoId: PHOTO, eTag: PHOTO_TAG, key: KEY })).resolves.toBeUndefined()
+    expect(seen).toEqual({ ifMatch: PHOTO_TAG, key: KEY, body: '' })
   })
 })

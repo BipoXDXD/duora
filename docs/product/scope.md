@@ -18,7 +18,7 @@ saída, confirmação de presença e revisão de incidentes fazem parte do fluxo
 | Capacidade | Base obrigatória | Fora da primeira entrega |
 |---|---|---|
 | Conta | Cadastro, confirmação de e-mail, login, recuperação, gestão de sessões e exclusão | Servidor OAuth próprio; múltiplos provedores sociais simultâneos |
-| Perfil | Nome de exibição, faixa etária pública, região aproximada, descrição curta, fotos aprovadas e preferências privadas | Geolocalização precisa, importação de redes sociais e enriquecimento de dados |
+| Perfil | Nome de exibição, região aproximada, descrição curta, fotos aprovadas e preferências privadas | Geolocalização precisa, importação de redes sociais e enriquecimento de dados |
 | Eventos | Publicação administrativa, inscrição, lista de espera, check-in, rodadas e cancelamento | Marketplace de organizadores e eventos de terceiros |
 | Pareamento | Elegibilidade bilateral, bloqueios, não repetição no evento, justiça de espera e rastreabilidade técnica | Ranking de atratividade, inferência de orientação e recomendação por processamento externo |
 | Experiências | Uma experiência completa na primeira fatia; a segunda antes da expansão do piloto; cenários e personagens, trilha, ambiente e vozes pré-geradas com transcrição, 3D offline e, por experiência, 3D em tempo real com fallback 2D ([ADR-0027](../architecture/adr/0027-midia-das-experiencias-cenario-audio-e-3d.md)) | Vídeo, scripts arbitrários, TTS ao vivo e qualquer geração ao vivo no caminho crítico |
@@ -148,7 +148,7 @@ Um termo, um significado. A coluna "No código" dá o nome usado em tipos, tabel
 | Sessão de login | `LoginSession`, `login_sessions` | Sessão autenticada revogável de uma conta num navegador; tem expiração ociosa e absoluta. Não confundir com sessão de jogo |
 | Elegibilidade | `Eligibility` | Condição de uma conta para participar: estado `Active`, e-mail confirmado e selfie de presença aprovada e ausência de sanção impeditiva |
 | Selfie de presença | `SelfieVerification` | Captura de qualidade e prova de presença sem idade, documento ou identificação facial (ADR-0029) |
-| Perfil | `Profile` | Dados exibíveis da conta: nome de exibição, faixa etária, região aproximada, descrição e fotos aprovadas |
+| Perfil | `Profile` | Dados exibíveis da conta: nome de exibição, região aproximada, descrição e fotos aprovadas |
 | Preferências | `Preferences` | Critérios privados de compatibilidade informados pela pessoa; nunca aparecem no DTO de outra pessoa |
 | Evento | `Event` | Encontro publicado por administração, com horário, capacidade e rodadas |
 | Inscrição | `Registration` | Participação de uma conta num evento; confirmada ou em lista de espera |
