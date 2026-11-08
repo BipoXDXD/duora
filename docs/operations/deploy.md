@@ -117,8 +117,10 @@ Repetir o procedimento com o arquivo já ligado gera os mesmos bytes e o mesmo h
 
 **Caddyfile.** O edge de produção monta `/opt/duora/Caddyfile.duora-web.coolify` (fixado por `caddy_sha256` no pin),
 não o Caddyfile da imagem: o CSP de `/account/selfie` só chega aplicando ao arquivo do host o mesmo diff do
-`infra/caddy/Caddyfile` (o arquivo do host difere só no TLS atrás do Traefik e nos `trusted_proxies`), validando com
-`caddy validate` e atualizando `caddy_sha256`. O Caddyfile não entra no baseline do executor.
+`infra/caddy/Caddyfile` (o arquivo do host difere no TLS atrás do Traefik, nos `trusted_proxies` e, em cada
+`reverse_proxy`, no `header_up X-Forwarded-For {client_ip}` e no `header_up X-Forwarded-Proto https`; a forma que o
+teste `scripts/deploy/test_caddy_client_ip.py` monta acrescenta o `client_ip_headers Cf-Connecting-IP` da Fase 4),
+validando com `caddy validate` e atualizando `caddy_sha256`. O Caddyfile não entra no baseline do executor.
 
 **Ressela.** O baseline do executor (`/var/lib/duora/executor-runtime-baseline.json`) fixa o hash do Compose
 (`context.composeSha256`). Sem selar de novo, o `duora-deploy` recusa a release com "Database/backup runtime changed".
