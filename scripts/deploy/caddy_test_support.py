@@ -6,6 +6,8 @@ O porquê de cada diretiva e de cada feature está em docs/operations/deploy.md 
 
 from __future__ import annotations
 
+import difflib
+import hashlib
 import shutil
 import subprocess
 from collections.abc import Callable, Iterable
@@ -117,6 +119,58 @@ def _replace_exactly(text: str, old: str, new: str, count: int) -> str:
     if found != count:
         raise ValueError(f"esperava {count} ocorrência(s) de {old!r} no Caddyfile; achei {found}")
     return text.replace(old, new)
+
+
+# Cópia byte a byte de /opt/duora/Caddyfile.duora-web.coolify e o hash dela, conferido na janela contra o caddy_sha256 do
+# pin. Só a janela do dono gera os dois e troca o marcador (docs/operations/deploy.md).
+HOST_COPY = REPO / "scripts" / "deploy" / "fixtures" / "caddy-host" / "Caddyfile.duora-web.coolify"
+HOST_COPY_DIGEST = HOST_COPY.with_name(HOST_COPY.name + ".sha256")
+HOST_COPY_PENDING = True
+HOST_COPY_MISSING = ("cópia do host ausente, gerar na janela (docs/operations/deploy.md, "
+                     "\"Cópia versionada do Caddyfile do host\", issue #396)")
+HOST_COMMENT_LINE = "# Generated for Coolify TLS termination; trust only verified proxy IP.\n"
+# IP fixo do coolify-proxy na rede coolify. A janela confere; outro valor no host aparece como divergência.
+HOST_TRAEFIK_PEER = "172.16.1.6"
+
+
+class HostCopyPending(Exception):
+    """A janela do dono ainda não gerou a cópia: nada foi comparado."""
+
+
+class HostCopyMismatch(AssertionError):
+    """A cópia existe, ou deveria existir, e não prova que a fixture é o arquivo do host."""
+
+
+def expected_host_caddyfile(source: str) -> str:
+    """O arquivo do host previsto depois da Fase 4 opção B: a fixture com o peer real e o comentário da linha 1."""
+    return HOST_COMMENT_LINE + caddyfile_behind_traefik(source, HOST_TRAEFIK_PEER)
+
+
+def host_copy_differences(copy: str, source: str) -> list[str]:
+    """Diff unificado entre o esperado e a cópia; vazio só quando os dois são iguais."""
+    return list(difflib.unified_diff(expected_host_caddyfile(source).splitlines(), copy.splitlines(),
+                                     "fixture", "cópia do host", lineterm=""))
+
+
+def verify_host_copy(copy: Path, digest: Path, source: str, *, pending: bool) -> None:
+    """Termina sem erro só com cópia, hash e fixture coerentes.
+
+    O marcador é versionado para que apagar a cópia não vire pulo: pendente sem cópia é HostCopyPending; os demais
+    desencontros entre marcador e arquivos são HostCopyMismatch.
+    """
+    if pending:
+        if copy.exists() or digest.exists():
+            raise HostCopyMismatch("a cópia do host existe e HOST_COPY_PENDING continua True: desligue o marcador")
+        raise HostCopyPending(HOST_COPY_MISSING)
+    if not copy.exists() or not digest.exists():
+        raise HostCopyMismatch(HOST_COPY_MISSING)
+    content = copy.read_bytes()
+    recorded = digest.read_text(encoding="utf-8").strip()
+    if hashlib.sha256(content).hexdigest() != recorded:
+        raise HostCopyMismatch(f"sha256 de {copy.name} difere do registrado na janela ({recorded})")
+    differences = host_copy_differences(content.decode("utf-8"), source)
+    if differences:
+        raise HostCopyMismatch("a fixture diverge da cópia do host:\n" + "\n".join(differences))
 
 
 def docker_available() -> bool:
