@@ -66,6 +66,13 @@ Exceção ativa, aceita pelo dono em 2026-11-05: `CVE-2026-109518` (HIGH) em `ap
 build da imagem. É ponte, não correção: corrigir exige requalificar o componente
 ([POSTGRES_COMPONENT.md](../../scripts/release/POSTGRES_COMPONENT.md)), e o PR do lock novo remove a entrada.
 
+Exceção ativa, aceita pelo dono em 2026-11-08: `CVE-2026-76844` e `CVE-2026-85091` (HIGH) em `zlib1g`
+1:1.3.dfsg+really1.3.1-1+b1 da imagem `duora-postgres`, corrigidas em `+deb13u1`, válidas até 2026-11-15 (7 dias).
+As duas são heap overflow na API `gz*` de escrita da zlib (`gzwrite`/`gzprintf` depois de uma falha de `write()`),
+que na imagem só os clientes `pg_dump`/`pg_basebackup` usam; o servidor `postgres` e o `pgbackrest` não, e o banco
+não publica porta. É ponte, não correção: o lock do componente corrigido (#353) remove as entradas antes do vencimento,
+ou o dono decide de novo.
+
 ### Licenças: `scripts/supply-chain/license-policy.json`
 
 - `allowed`: licenças permissivas aceitas sem discussão (MIT, MIT-0, Apache-2.0, BSD-2-Clause, BSD-3-Clause,
