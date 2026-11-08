@@ -59,17 +59,15 @@ public sealed class SelfieConcurrencyTests(PostgresFixture postgres)
         try
         {
             await barrier.WaitForEntryAsync(ct);
-            time.Advance(TimeSpan.FromSeconds(31));
+            Assert.Equal(1, await ExpireSelfieLeaseAsync(scenario));
         }
         finally
         {
             barrier.Release();
             await stale;
         }
-        // O relógio passou do lease com a chamada em voo: o corte de 10 s do mesmo relógio a encerrou antes de qualquer
-        // resposta, e o dono vencido não escreveu nem reagendou. A escrita depois do lease em si é coberta por
-        // SelfieSlowProviderTests.AnAnswerAfterTheLeaseExpiredIsDiscardedAndReadAgainOnce.
-        Assert.Equal(0, provider.StartResponses);
+        Assert.Equal(1, provider.StartResponses);
+        // No other owner/version/terminal-state guard can hide an expired-lease write here.
         Assert.Equal("Pending", (await CurrentAsync(second, account.UserId, ct)).State);
         Assert.False(await EligibleAsync(second, account.UserId, ct));
         Assert.Equal(1, await scenario.ScalarAsync("select count(*) from identity.selfie_verifications where user_id = $1 and version = 0 and provider_reference is null", account.UserId));
@@ -100,7 +98,7 @@ public sealed class SelfieConcurrencyTests(PostgresFixture postgres)
         try
         {
             await barrier.WaitForEntryAsync(ct);
-            time.Advance(TimeSpan.FromSeconds(31));
+            Assert.Equal(1, await ExpireSelfieLeaseAsync(scenario));
             Assert.Equal(1, await DispatchAsync(second, ct));
             Assert.Equal("Capturing", (await CurrentAsync(second, account.UserId, ct)).State);
         }
@@ -109,8 +107,7 @@ public sealed class SelfieConcurrencyTests(PostgresFixture postgres)
             barrier.Release();
             await stale;
         }
-        // Só a chamada do novo dono respondeu: a do dono vencido foi cortada aos 10 s do mesmo relógio.
-        Assert.Equal(1, provider.StartResponses);
+        Assert.Equal(2, provider.StartResponses);
         Assert.Equal(1, await scenario.ScalarAsync("select count(*) from identity.selfie_verifications where user_id = $1 and version = 1", account.UserId));
         time.Advance(TimeSpan.FromSeconds(6));
         await DispatchAsync(second, ct);
@@ -144,7 +141,7 @@ public sealed class SelfieConcurrencyTests(PostgresFixture postgres)
         try
         {
             await barrier.WaitForEntryAsync(ct);
-            time.Advance(TimeSpan.FromSeconds(31));
+            Assert.Equal(1, await ExpireSelfieLeaseAsync(scenario));
             Assert.Equal(1, await DispatchAsync(second, ct));
             Assert.Equal("Inconclusive", (await CurrentAsync(second, account.UserId, ct)).State);
         }
@@ -160,8 +157,7 @@ public sealed class SelfieConcurrencyTests(PostgresFixture postgres)
         Assert.Equal(1, await scenario.ScalarAsync("select count(*) from ops.outbox_deliveries where consumer = 'selfie-provider' and status = 'Delivered'"));
         Assert.Equal(1, provider.StartCalls);
         Assert.Equal(2, provider.ReadCalls);
-        // A leitura do dono vencido foi cortada aos 10 s do mesmo relógio, antes de responder.
-        Assert.Equal(1, provider.ReadResponses);
+        Assert.Equal(2, provider.ReadResponses);
     }
 
     [Fact]
@@ -340,6 +336,16 @@ public sealed class SelfieConcurrencyTests(PostgresFixture postgres)
         Assert.Equal(afterResult, await QueueFootprintAsync(scenario, account.UserId));
         Assert.Equal((1, 1), (provider.StartCalls, provider.ReadCalls));
     }
+
+    /// <summary>
+    /// Vence o lease pelo banco, com o relógio parado: avançar o relógio dispararia o corte de 10 s, a chamada em voo não
+    /// chegaria a responder e o guarda de lease da gravação deixaria de ser exercitado.
+    /// </summary>
+    private static Task<long> ExpireSelfieLeaseAsync(IdentityScenario scenario) => scenario.ScalarAsync("""
+        update ops.outbox_deliveries set lease_expires_at = lease_expires_at - interval '31 seconds'
+        where consumer = 'selfie-provider' and status = 'InFlight'
+        returning 1
+        """);
 
     private static async Task<string> CompleteAsync(Browser browser, Guid attempt, CancellationToken ct)
     {
