@@ -226,7 +226,7 @@ não passa pelo guarda, de propósito: parar no meio dela seria pior que termina
 | --- | --- |
 | Sonda `ready` | `docker exec duora-edge-1 wget --quiet --spider --timeout=5 http://duora-web:8080/health/ready`, a sonda do deploy. A linha de base é a mediana de 5 leituras no preflight, e falha nelas recusa. Para com 2 leituras ruins seguidas, sejam falha ou acima de `max(3 × base, base + 500 ms)` |
 | CPU do host | Delta de `/proc/stat` desde a leitura anterior: para se idle + iowait ficar abaixo de 10% |
-| Por container | `cpu.pressure` de todo container fora do sombra, em `/sys/fs/cgroup/system.slice/docker-<id>.scope`, só leitura, com teto 40 do `OTHER_APPS_PSI` |
+| Por container | `cpu.pressure` de todo container fora do sombra, em `/sys/fs/cgroup/system.slice/docker-<id>.scope`, só leitura, com teto 40 do `OTHER_APPS_PSI`, exceto os do Coolify (plano de controle, dono `coolify` em `capacity_inventory.classify_container` por nome e projeto); os apps que ele implanta continuam protegidos |
 | Containers do início | Todo container visto no preflight, mais web, worker e postgres, vira obrigatório. Sem ele, sem o cgroup ou com arquivo ilegível, para. `docker ps` tem 10 s de timeout |
 | OOM | Qualquer aumento de `oom_kill` em `/proc/vmstat` |
 | Memória e IO | PSI `some avg10` acima de 40 |

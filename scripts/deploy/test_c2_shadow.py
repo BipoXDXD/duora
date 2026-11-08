@@ -345,6 +345,7 @@ CALM = shadow.HostPressure(cpu=1.0, memory=0.0, io=0.0)
 # ociosa, enquanto o `duora-web-1` marcava no máximo 0,83 e o `ready` respondia em 10 ms.
 VPS_AT_THE_REAL_STOP = shadow.HostPressure(cpu=71.79, memory=0.09, io=0.02)
 WEB_ID, WORKER_ID, POSTGRES_ID, NEIGHBOR_ID, SHADOW_ID = ("a" * 64, "b" * 64, "c" * 64, "d" * 64, "e" * 64)
+COOLIFY_ID, OTHER_ID = "f" * 64, "0" * 64
 PRODUCTION_ROWS = [(WEB_ID, "duora-web-1", "duora"), (WORKER_ID, "duora-worker-1", "duora"), (POSTGRES_ID, "duora-postgres-1", "duora"),
                    (NEIGHBOR_ID, "stillon-api-1", "stillon"), (SHADOW_ID, "duora-c2-postgres-1", "duora-c2")]
 
@@ -778,6 +779,47 @@ class SwapRehearsalResourceTests(SwapRehearsalFixture):
         resources = dataclasses.replace(HEALTHY, container_pressure=lambda identifier: seen.append(identifier) or (99.0 if identifier == SHADOW_ID else 0.0))
         self.assertTrue(self.rehearse(resources=resources)["photoStable"])
         self.assertNotIn(SHADOW_ID, seen)
+
+    def test_coolify_control_plane_above_the_ceiling_does_not_stop(self) -> None:
+        for name, project in (("coolify", "source"), ("coolify-proxy", "proxy"), ("coolify-realtime", "")):
+            with self.subTest(name=name):
+                self.setUp()
+                self.docker.rows.append((COOLIFY_ID, name, project))
+                resources = dataclasses.replace(HEALTHY, container_pressure=lambda identifier: 41.0 if identifier == COOLIFY_ID else 0.0)
+                result = self.rehearse(resources=resources)
+                self.assertTrue(result["photoStable"])
+                self.assertEqual(result["containerCpuPressureMax"], 0.0)
+
+    def test_protected_neighbor_at_41_stops_even_beside_coolify(self) -> None:
+        for name, project in (("goblinshift-web-1", "goblinshift"), ("openclaw-gateway", ""), ("app-coolify-1", "app")):
+            with self.subTest(name=name):
+                self.setUp()
+                self.docker.rows += [(COOLIFY_ID, "coolify", "source"), (OTHER_ID, name, project)]
+                resources = dataclasses.replace(HEALTHY, container_pressure=lambda identifier: 41.0 if identifier == OTHER_ID else 0.0)
+                with self.assertRaisesRegex(shadow.ShadowError, f"PSI de CPU de {name}"):
+                    self.rehearse(resources=resources)
+                self.assertEqual(self.stops(), [])
+
+    def test_neighbor_project_rule_precedes_coolify_name_rule(self) -> None:
+        for project in ("stillon", "goblinshift"):
+            with self.subTest(project=project):
+                self.setUp()
+                self.docker.rows.append((COOLIFY_ID, "coolify-x", project))
+                resources = dataclasses.replace(HEALTHY, container_pressure=lambda identifier: 41.0 if identifier == COOLIFY_ID else 0.0)
+                with self.assertRaisesRegex(shadow.ShadowError, "PSI de CPU de coolify-x"):
+                    self.rehearse(resources=resources)
+                self.assertEqual(self.stops(), [])
+
+    def test_unreadable_neighbor_still_refuses_beside_coolify(self) -> None:
+        self.docker.rows.append((COOLIFY_ID, "coolify", "source"))
+
+        def unreadable(identifier: str) -> float:
+            if identifier == NEIGHBOR_ID:
+                raise FileNotFoundError("sem cgroup")
+            return 0.0
+        with self.assertRaisesRegex(shadow.ShadowError, "cgroup de stillon-api-1"):
+            self.rehearse(resources=dataclasses.replace(HEALTHY, container_pressure=unreadable))
+        self.assertEqual(self.stops(), [])
 
     def test_ceiling_matches_the_window_guard_of_the_harness(self) -> None:
         self.assertEqual(shadow.SWAP_MAX_CONTAINER_CPU_PRESSURE, c2_harness.Limits().other_cpu_psi_max)

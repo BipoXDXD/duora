@@ -39,6 +39,7 @@ from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 import c2_probe
+import capacity_inventory
 import duora_secrets
 from postgres_swap import SWAP_COMPATIBILITY_SQL, SWAP_COMPATIBLE_FIELDS, SWAP_PHOTO_SQL
 
@@ -481,12 +482,15 @@ SWAP_MAX_DISK_PERCENT = 85
 # presos na própria cota, com CPU 91% ociosa, e `duora-web-1` em 0,83. Medido localmente, um único cgroup preso levou o global
 # acima de 90 com o alvo em 0,00, e nenhum teto abaixo de 100 separa os dois casos.
 # Por isso, a falta real de CPU vem do delta de /proc/stat: idle + iowait abaixo de 10% significa host sem folga para ninguém,
-# inclusive para o que não é container (sshd, receiver, gateway). Cada container fora do sombra mantém o teto 40 do
-# OTHER_APPS_PSI, mas ele sozinho não basta: a revisão mediu p99 22 vezes maior num alvo leve com PSI do alvo em 22,54. Só a
-# sonda `ready` vê a latência que o usuário sente, com a regra do harness (health_latency_*, health_consecutive_failures).
+# inclusive para o que não é container (sshd, receiver, gateway). Cada container fora do sombra, menos o Coolify (plano de
+# controle), mantém o teto 40 do OTHER_APPS_PSI, mas ele sozinho não basta: a revisão mediu p99 22 vezes maior num alvo
+# leve com PSI do alvo em 22,54. Só a sonda `ready` vê a latência que o usuário sente, com a regra do harness
+# (health_latency_*, health_consecutive_failures).
 # A volta à origem não passa por este guarda, de propósito: parar no meio dela seria pior que terminar.
 SWAP_MAX_STALL_PRESSURE = 40.0
 SWAP_MAX_CONTAINER_CPU_PRESSURE = 40.0
+# Dono do plano de controle em capacity_inventory.CONTAINER_RULES: fora do teto por container, como no OTHER_APPS_PSI.
+SWAP_CONTROL_PLANE_OWNER = "coolify"
 SWAP_MIN_CPU_IDLE_PERCENT = 10.0
 SWAP_PRODUCTION_CONTAINERS = ("duora-web-1", "duora-worker-1", "duora-postgres-1")
 SWAP_CONTAINER_ID = re.compile(r"[0-9a-f]{64}")
@@ -728,7 +732,8 @@ class SwapGuard:
             raise ShadowError(f"PSI de CPU de {name} em {worst}, acima de {SWAP_MAX_CONTAINER_CPU_PRESSURE}")
 
     def _container_pressures(self) -> dict[str, float]:
-        """Todo container fora do sombra. Falha fechada: sem a leitura de um deles, não há como afirmar que ele vai bem."""
+        """Todo container fora do sombra, menos o Coolify. Falha fechada: sem a leitura de um deles, não há como afirmar
+        que ele vai bem."""
         pressures: dict[str, float] = {}
         listing = self._run(list(c2_probe.PS_COMMAND), timeout=SWAP_DOCKER_PS_TIMEOUT_SECONDS)
         for row in listing.splitlines():
@@ -737,6 +742,8 @@ class SwapGuard:
                 continue  # O próprio preenchimento pressiona o sombra de propósito.
             if not SWAP_CONTAINER_ID.fullmatch(identifier):
                 raise ShadowError(f"cgroup de {name}: id de container fora do formato")
+            if capacity_inventory.classify_container({"name": name, "project": project}) == SWAP_CONTROL_PLANE_OWNER:
+                continue  # Plano de controle, não vizinho: mesma regra de dono do inventário C1, só por nome e projeto.
             try:
                 pressures[name] = self._resources.container_pressure(identifier)
             except (OSError, ValueError, KeyError, IndexError) as error:
