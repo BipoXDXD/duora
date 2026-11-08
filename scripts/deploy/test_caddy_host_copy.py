@@ -1,7 +1,8 @@
 """Compara a fixture "atrás do Traefik" com a cópia versionada do arquivo do host (issue #396), sem Docker.
 
-Só a janela do dono gera a cópia (docs/operations/deploy.md, "Cópia versionada do Caddyfile do host"). Enquanto ela não
-existe, a comparação real sai como skipped, nunca como ok; os testes sintéticos abaixo rodam sempre e provam o comparador.
+Só a janela do dono gera a cópia (docs/operations/deploy.md, "Cópia versionada do Caddyfile do host"). Enquanto ela
+não existe, a comparação real sai como skipped, nunca como ok; os testes sintéticos abaixo rodam sempre e provam o
+comparador.
 
     python3 -m unittest discover -s scripts/deploy -p 'test_caddy_host_copy.py' -v
 """
@@ -9,9 +10,11 @@ existe, a comparação real sai como skipped, nunca como ok; os testes sintétic
 from __future__ import annotations
 
 import hashlib
+import sys
 import tempfile
 import unittest
 from pathlib import Path
+from unittest import mock
 
 from caddy_test_support import (
     CADDYFILE,
@@ -68,6 +71,26 @@ class HostCopyDifferencesTests(unittest.TestCase):
 
                 self.assertTrue(any(line in difference for difference in differences), differences)
 
+    def test_every_difference_splitlines_would_hide_is_reported(self) -> None:
+        cases = {
+            "CRLF": self.expected.replace("\n", "\r\n"),
+            "CRLF numa linha só": self.expected.replace("\n", "\r\n", 1),
+            "sem o \\n final": self.expected.removesuffix("\n"),
+            "CR sozinho": self.expected.replace("\n", "\r", 1),
+            "VT": self.expected.replace("\n", "\x0b", 1),
+            "FF": self.expected.replace("\n", "\x0c", 1),
+            "NEL": self.expected.replace("\n", "\x85", 1),
+            "LS": self.expected.replace("\n", "\u2028", 1),
+        }
+        for name, copy in cases.items():
+            with self.subTest(name):
+                self.assertNotEqual([], host_copy_differences(copy, REPO_CADDYFILE))
+
+    def test_an_invisible_character_is_shown_escaped(self) -> None:
+        differences = host_copy_differences(self.expected.replace("\n", "\r\n", 1), REPO_CADDYFILE)
+
+        self.assertTrue(any(difference.endswith("IP.\\x0d") for difference in differences), differences)
+
 
 class VerifyHostCopyTests(unittest.TestCase):
     def setUp(self) -> None:
@@ -77,8 +100,11 @@ class VerifyHostCopyTests(unittest.TestCase):
         self.digest = Path(directory.name) / "Caddyfile.sha256"
 
     def _write(self, content: str) -> None:
-        self.copy.write_text(content, encoding="utf-8")
-        self.digest.write_text(hashlib.sha256(content.encode()).hexdigest() + "\n", encoding="utf-8")
+        self._write_bytes(content.encode())
+
+    def _write_bytes(self, content: bytes) -> None:
+        self.copy.write_bytes(content)
+        self.digest.write_text(hashlib.sha256(content).hexdigest() + "\n", encoding="utf-8")
 
     def _verify(self, *, pending: bool) -> None:
         verify_host_copy(self.copy, self.digest, REPO_CADDYFILE, pending=pending)
@@ -98,6 +124,12 @@ class VerifyHostCopyTests(unittest.TestCase):
 
     def test_pending_with_only_the_digest_fails(self) -> None:
         self.digest.write_text("0" * 64 + "\n", encoding="utf-8")
+
+        with self.assertRaises(HostCopyMismatch):
+            self._verify(pending=True)
+
+    def test_pending_with_only_the_copy_fails(self) -> None:
+        self.copy.write_text(expected_host_caddyfile(REPO_CADDYFILE), encoding="utf-8")
 
         with self.assertRaises(HostCopyMismatch):
             self._verify(pending=True)
@@ -131,6 +163,20 @@ class VerifyHostCopyTests(unittest.TestCase):
 
         self.assertIn("client_ip_headers", str(caught.exception))
 
+    def test_a_copy_with_other_line_endings_and_its_own_digest_fails(self) -> None:
+        self._write_bytes(expected_host_caddyfile(REPO_CADDYFILE).replace("\n", "\r\n").encode())
+
+        with self.assertRaises(HostCopyMismatch) as caught:
+            self._verify(pending=False)
+
+        self.assertIn("byte a byte", str(caught.exception))
+
+    def test_a_copy_that_is_not_utf8_fails_as_a_divergence(self) -> None:
+        self._write_bytes(expected_host_caddyfile(REPO_CADDYFILE).encode() + b"\xff\n")
+
+        with self.assertRaises(HostCopyMismatch):
+            self._verify(pending=False)
+
     def test_a_matching_copy_with_its_digest_is_accepted(self) -> None:
         self._write(expected_host_caddyfile(REPO_CADDYFILE))
 
@@ -143,6 +189,47 @@ class VersionedHostCopyTests(unittest.TestCase):
             verify_host_copy(HOST_COPY, HOST_COPY_DIGEST, REPO_CADDYFILE, pending=HOST_COPY_PENDING)
         except HostCopyPending as pending:
             self.skipTest(str(pending))
+
+
+class VersionedHostCopyWrapperTests(unittest.TestCase):
+    """Roda o teste real com caminhos e marcador simulados: `skipped` tem de ser `skipped`, não `ok`."""
+
+    def setUp(self) -> None:
+        directory = tempfile.TemporaryDirectory()
+        self.addCleanup(directory.cleanup)
+        self.copy = Path(directory.name) / "Caddyfile"
+        self.digest = Path(directory.name) / "Caddyfile.sha256"
+
+    def _run_wrapper(self, *, pending: bool) -> unittest.TestResult:
+        module = sys.modules[__name__]
+        result = unittest.TestResult()
+        test = VersionedHostCopyTests("test_the_fixture_matches_the_copy_of_the_host_file")
+        with mock.patch.multiple(module, HOST_COPY=self.copy, HOST_COPY_DIGEST=self.digest, HOST_COPY_PENDING=pending):
+            test.run(result)
+        return result
+
+    def test_pending_without_the_copy_is_skipped_with_the_instruction(self) -> None:
+        result = self._run_wrapper(pending=True)
+
+        self.assertEqual([HOST_COPY_MISSING], [reason for _, reason in result.skipped])
+        self.assertEqual(([], []), (result.failures, result.errors))
+
+    def test_without_the_marker_and_without_the_copy_it_fails_and_is_not_skipped(self) -> None:
+        result = self._run_wrapper(pending=False)
+
+        self.assertEqual(1, len(result.failures))
+        self.assertIn(HOST_COPY_MISSING, result.failures[0][1])
+        self.assertEqual([], result.skipped)
+
+    def test_a_matching_copy_passes_without_skipping(self) -> None:
+        content = expected_host_caddyfile(REPO_CADDYFILE).encode()
+        self.copy.write_bytes(content)
+        self.digest.write_text(hashlib.sha256(content).hexdigest() + "\n", encoding="utf-8")
+
+        result = self._run_wrapper(pending=False)
+
+        self.assertTrue(result.wasSuccessful())
+        self.assertEqual((1, []), (result.testsRun, result.skipped))
 
 
 if __name__ == "__main__":

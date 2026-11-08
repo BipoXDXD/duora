@@ -121,8 +121,8 @@ def _replace_exactly(text: str, old: str, new: str, count: int) -> str:
     return text.replace(old, new)
 
 
-# Cópia byte a byte de /opt/duora/Caddyfile.duora-web.coolify e o hash dela, conferido na janela contra o caddy_sha256 do
-# pin. Só a janela do dono gera os dois e troca o marcador (docs/operations/deploy.md).
+# Cópia byte a byte de /opt/duora/Caddyfile.duora-web.coolify e o hash dela, conferido na janela contra o
+# caddy_sha256 do pin. Só a janela do dono gera os dois e troca o marcador (docs/operations/deploy.md).
 HOST_COPY = REPO / "scripts" / "deploy" / "fixtures" / "caddy-host" / "Caddyfile.duora-web.coolify"
 HOST_COPY_DIGEST = HOST_COPY.with_name(HOST_COPY.name + ".sha256")
 HOST_COPY_PENDING = True
@@ -131,6 +131,8 @@ HOST_COPY_MISSING = ("cópia do host ausente, gerar na janela (docs/operations/d
 HOST_COMMENT_LINE = "# Generated for Coolify TLS termination; trust only verified proxy IP.\n"
 # IP fixo do coolify-proxy na rede coolify. A janela confere; outro valor no host aparece como divergência.
 HOST_TRAEFIK_PEER = "172.16.1.6"
+# Controles e separadores de linha aparecem escapados no diff; o tab do Caddyfile fica como está.
+_INVISIBLE = {code: f"\\x{code:02x}" for code in (*range(32), 0x7f, 0x85, 0x2028, 0x2029) if code != ord("\t")}
 
 
 class HostCopyPending(Exception):
@@ -142,14 +144,19 @@ class HostCopyMismatch(AssertionError):
 
 
 def expected_host_caddyfile(source: str) -> str:
-    """O arquivo do host previsto depois da Fase 4 opção B: a fixture com o peer real e o comentário da linha 1."""
+    """O arquivo do host com a Fase 4 opção B e este Caddyfile aplicados: a fixture, o peer real e o comentário."""
     return HOST_COMMENT_LINE + caddyfile_behind_traefik(source, HOST_TRAEFIK_PEER)
 
 
 def host_copy_differences(copy: str, source: str) -> list[str]:
     """Diff unificado entre o esperado e a cópia; vazio só quando os dois são iguais."""
-    return list(difflib.unified_diff(expected_host_caddyfile(source).splitlines(), copy.splitlines(),
+    return list(difflib.unified_diff(_visible_lines(expected_host_caddyfile(source)), _visible_lines(copy),
                                      "fixture", "cópia do host", lineterm=""))
+
+
+def _visible_lines(text: str) -> list[str]:
+    """Corta só em \\n, porque splitlines() igualaria CRLF, CR, VT, NEL e a falta do \\n final."""
+    return [line.translate(_INVISIBLE) for line in text.split("\n")]
 
 
 def verify_host_copy(copy: Path, digest: Path, source: str, *, pending: bool) -> None:
@@ -168,9 +175,9 @@ def verify_host_copy(copy: Path, digest: Path, source: str, *, pending: bool) ->
     recorded = digest.read_text(encoding="utf-8").strip()
     if hashlib.sha256(content).hexdigest() != recorded:
         raise HostCopyMismatch(f"sha256 de {copy.name} difere do registrado na janela ({recorded})")
-    differences = host_copy_differences(content.decode("utf-8"), source)
-    if differences:
-        raise HostCopyMismatch("a fixture diverge da cópia do host:\n" + "\n".join(differences))
+    if content != expected_host_caddyfile(source).encode("utf-8"):
+        differences = host_copy_differences(content.decode("utf-8", errors="replace"), source)
+        raise HostCopyMismatch("a cópia do host difere byte a byte da fixture:\n" + "\n".join(differences))
 
 
 def docker_available() -> bool:

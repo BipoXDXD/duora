@@ -166,8 +166,9 @@ direto forja `Cf-Connecting-IP`. Caddyfile e labels entram e saem juntos.
 
 **Cópia versionada do Caddyfile do host (#396).** Nada compara a fixture `caddyfile_behind_traefik` com o arquivo real
 até esta cópia existir. `test_caddy_host_copy.py` sai como `skipped`, com "cópia do host ausente, gerar na janela", e
-isso quer dizer que nada foi provado. A cópia só é gerada numa janela administrativa do dono, **depois** da Fase 4 opção
-B e da ressela: antes dela, o arquivo do host não tem o `client_ip_headers` e a comparação acusa essa linha.
+isso quer dizer que nada foi provado. A cópia só é gerada numa janela administrativa do dono e só bate com a Fase 4
+opção B aplicada e ressalada **e** com o `infra/caddy/Caddyfile` da `main` já aplicado ao arquivo do host. Sem a Fase
+4, falta o `client_ip_headers`; com o host atrás da `main`, a comparação acusa o diff que faltou aplicar.
 
 1. No host, só leitura, confira o peer e o hash fixado. O peer tem de ser `172.16.1.6`, o `HOST_TRAEFIK_PEER` de
    `scripts/deploy/caddy_test_support.py`; outro valor é decisão do dono, não ajuste da cópia.
@@ -200,9 +201,17 @@ B e da ressela: antes dela, o arquivo do host não tem o `client_ip_headers` e a
    python3 -m unittest discover -s scripts/deploy -p 'test_caddy_host_copy.py' -v
    ```
 
-   O teste `test_the_fixture_matches_the_copy_of_the_host_file` tem de sair `ok`, não `skipped`. Com diff, não ajuste a
-   cópia nem o teste: o diff é o achado, e os arquivos não vão para o repositório. O arquivo tem as variáveis
-   `{$...}`, e um diff vazio garante que ele não traz nada além do que a fixture já publica.
+   O teste `test_the_fixture_matches_the_copy_of_the_host_file` tem de sair `ok`, não `skipped`. A comparação é byte a
+   byte: fim de linha e `\n` final contam. Com diff, registre o achado fora do repositório, apague os dois arquivos e
+   volte o marcador para `True`, sem ajustar a cópia nem o teste:
+
+   ```sh
+   rm "$D/Caddyfile.duora-web.coolify" "$D/Caddyfile.duora-web.coolify.sha256"
+   git checkout -- scripts/deploy/caddy_test_support.py
+   ```
+
+   O arquivo só tem as variáveis `{$...}` que a fixture já publica: é o diff vazio que garante isso, e por essa razão
+   nada vai para o repositório antes dele.
 
 4. Abra o PR com a cópia, o `.sha256` e o marcador. Depois dele, mudar o `infra/caddy/Caddyfile` deixa o teste vermelho
    até a cópia nova entrar no mesmo PR, gerada numa janela que aplique o mesmo diff no host.
