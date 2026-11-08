@@ -4,7 +4,7 @@ import { focusManager, QueryClientProvider } from '@tanstack/react-query'
 import { screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { delay, http, HttpResponse } from 'msw'
-import { useState } from 'react'
+import { Profiler, useState } from 'react'
 import { MemoryRouter } from 'react-router'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { AccountContext } from '@/features/session/account-context'
@@ -40,9 +40,11 @@ const stored = {
 interface MountOptions {
   readonly status?: AccountStatus
   readonly locale?: 'pt-BR' | 'en-US'
+  /** Roda dentro de cada commit da tela, depois do DOM aplicado e antes dos efeitos passivos desse commit. */
+  readonly onCommit?: () => void
 }
 
-function mount({ status = 'Active', locale = 'pt-BR' }: MountOptions = {}) {
+function mount({ status = 'Active', locale = 'pt-BR', onCommit }: MountOptions = {}) {
   const me = installTestMe({
     id: 'dddddddd-dddd-4ddd-8ddd-dddddddddddd',
     email: 'owner@example.test',
@@ -57,7 +59,9 @@ function mount({ status = 'Active', locale = 'pt-BR' }: MountOptions = {}) {
       <AccountContext value={me}>
         <PrivateOperationProvider owner={me.owner}>
           <MemoryRouter>
-            <PhotoReviewOwnerIndex />
+            <Profiler id="owner-photos" onRender={() => onCommit?.()}>
+              <PhotoReviewOwnerIndex />
+            </Profiler>
           </MemoryRouter>
         </PrivateOperationProvider>
       </AccountContext>
@@ -1356,6 +1360,56 @@ describe('saída segura da exclusão incerta', () => {
     await confirmDeletion()
     await repeatButton()
     await userEvent.click(screen.getByRole('button', { name: REREAD }))
+
+    await waitFor(() => {
+      expect(screen.getAllByRole('alert')).toHaveLength(2)
+    })
+    await userEvent.click(await repeatButton())
+    await screen.findByText('Foto excluída. A remoção dos arquivos termina em seguida.')
+    expect(deletes[1]).toEqual(deletes[0])
+  })
+
+  /**
+   * O commit que mostra a incerteza vem da resposta do DELETE, sem prioridade de evento: o React aplica o DOM e deixa os
+   * efeitos passivos para outra tarefa, e um clique pode chegar entre as duas. Este clique acontece nessa janela.
+   */
+  function rereadAsSoonAsShown(): () => void {
+    let clicked = false
+    return () => {
+      const reread = screen.queryByRole('button', { name: REREAD })
+      if (clicked || reread === null) return
+      clicked = true
+      reread.click()
+    }
+  }
+
+  it('reler antes dos efeitos do commit decide pela leitura nova: Deleted conclui a exclusão', async () => {
+    let reads = 0
+    server.use(
+      http.get(PHOTOS, () => {
+        reads += 1
+        return reads === 1 ? listing(stored) : listing()
+      }),
+    )
+    useStatusSequence(statusOf('AwaitingReview', TAG_V1), statusOf('Deleted', TAG_V2))
+    const deletes = useDeletes(serverError)
+    mount({ onCommit: rereadAsSoonAsShown() })
+
+    await askToDelete()
+    await confirmDeletion()
+
+    await expectFocusedNotice('Foto excluída. A remoção dos arquivos termina em seguida.')
+    expect(deletes).toHaveLength(1)
+  })
+
+  it('reler antes dos efeitos do commit decide pela leitura nova: M02 indisponível mantém a repetição', async () => {
+    useList(stored)
+    useStatusSequence(statusOf('AwaitingReview', TAG_V1), serverError)
+    const deletes = useDeletes(serverError, deleted)
+    mount({ onCommit: rereadAsSoonAsShown() })
+
+    await askToDelete()
+    await confirmDeletion()
 
     await waitFor(() => {
       expect(screen.getAllByRole('alert')).toHaveLength(2)
