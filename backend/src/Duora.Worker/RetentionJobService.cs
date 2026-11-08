@@ -1,3 +1,5 @@
+using System.Data.Common;
+using Duora.Infrastructure;
 using Duora.Infrastructure.Operations;
 
 namespace Duora.Worker;
@@ -9,7 +11,10 @@ internal sealed partial class RetentionJobService(
     private static partial void LogReview(ILogger logger, long unreviewedFailures, long failedJobs);
 
     [LoggerMessage(Level = LogLevel.Warning, Message = "Retention operation failed; persisted leases and bounded retries preserve recovery.")]
-    private static partial void LogFailure(ILogger logger);
+    private static partial void LogDatabaseFailure(ILogger logger);
+
+    [LoggerMessage(Level = LogLevel.Error, Message = "Retention operation failed unexpectedly ({Cause}); persisted leases and bounded retries preserve recovery. Frames: {Frames}")]
+    private static partial void LogUnexpectedFailure(ILogger logger, string cause, string frames);
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
@@ -40,9 +45,9 @@ internal sealed partial class RetentionJobService(
                     {
                         return;
                     }
-                    catch (Exception)
+                    catch (Exception exception)
                     {
-                        LogFailure(logger);
+                        LogFailure(exception);
                     }
                 }
                 job = await retention.ClaimAsync(stoppingToken);
@@ -55,9 +60,9 @@ internal sealed partial class RetentionJobService(
             {
                 return;
             }
-            catch (Exception)
+            catch (Exception exception)
             {
-                LogFailure(logger); // Never log provider exceptions, SQL, identifiers or connection strings.
+                LogFailure(exception);
                 if (job is not null)
                 {
                     try
@@ -68,13 +73,25 @@ internal sealed partial class RetentionJobService(
                     {
                         return;
                     }
-                    catch (Exception)
+                    catch (Exception retryFailure)
                     {
-                        LogFailure(logger); // Lease expiry remains the fallback if retry persistence fails.
+                        LogFailure(retryFailure); // Lease expiry remains the fallback if retry persistence fails.
                     }
                 }
             }
             await Task.Delay(TimeSpan.FromSeconds(1), stoppingToken);
         }
+    }
+
+    /// <summary>Never logs provider exceptions, SQL, identifiers or connection strings: only the type and the frames.</summary>
+    private void LogFailure(Exception exception)
+    {
+        if (exception is DbException)
+        {
+            LogDatabaseFailure(logger);
+            return;
+        }
+
+        LogUnexpectedFailure(logger, exception.GetType().Name, ExceptionFrames.Describe(exception));
     }
 }

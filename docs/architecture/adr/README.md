@@ -58,7 +58,8 @@ da spec. A partir do 0016, os ADRs resolvem lacunas encontradas na spec.
 | [0047](0047-autoridade-exclusiva-de-geracoes-privadas.md) | Autoridade exclusiva, revogações externas e prova de varredura das gerações privadas | Accepted para o desenho; candidato restrito a Testing | Qualificação de custódia, encerramento de escritores, restore e ativação |
 | [0048](0048-leitura-de-sessao-sem-toque-na-previa-de-reconciliacao.md) | Leitura de sessão sem toque na prévia da reconciliação (#321) | Accepted | Outra rota sem toque, mudança da janela administrativa ou novas fatias da #321 |
 | [0049](0049-execucao-da-reconciliacao-de-inscricoes-legadas.md) | Execução da reconciliação de inscrições legadas (#321) | Accepted para o desenho; implementação com revisão humana | Prévia real com volume, consumidor da #320, retenção da outbox ou política de suspensão |
-| [0050](0050-foto-de-perfil-para-outra-pessoa-api-p04.md) | Foto de perfil vista por outra pessoa (API-P04): momento, contexto, faixa etária e escopo | Proposed; decisões do dono (D1 a D4) pendentes | Decisão do dono, Connections integrado ou issue própria do P04 |
+| [0050](0050-foto-de-perfil-para-outra-pessoa-api-p04.md) | Foto de perfil vista por outra pessoa (API-P04): momento, contexto, faixa etária e escopo | Proposed; escolhas D1 a D5 registradas em 06/11/2026; contrato, migração, risco R e política de privacidade com o dono | Decisão do dono, Connections integrado ou issue própria do P04 |
+| [0051](0051-papel-postgres-na-sonda-da-selfie.md) | Papel `postgres` na sonda do fornecedor da selfie, como exceção à spec 10 | Proposed | Troca da imagem do PostgreSQL ou mudança do `pg_hba` |
 
 ## Regras
 

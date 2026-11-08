@@ -2,6 +2,7 @@ using System.Net;
 using System.Text.Json;
 using Duora.Infrastructure.Audit;
 using Duora.Infrastructure.Geolocation;
+using Microsoft.Extensions.Logging;
 using Npgsql;
 
 namespace Duora.IntegrationTests.Geolocation;
@@ -555,6 +556,56 @@ public sealed class CountryDatabaseOperationsTests(PostgresFixture postgres)
     private static Task<long> Generation(NpgsqlDataSource source) =>
         Count(source, "select active_fencing_token from ops.country_database_state where singleton");
 
+    [Fact]
+    public async Task AnAlertThatCannotBeSentLeavesATraceWithoutTheTransportText()
+    {
+        await using var h = await Prepared();
+        var logs = new CapturingLoggerProvider();
+        using var loggers = LoggerFactory.Create(builder => builder.AddProvider(logs));
+        var store = new CountryDatabaseOperationsStore(h.Source, h.Time, loggers.CreateLogger<CountryDatabaseOperationsStore>());
+        await store.RecordBackupFailureAsync(true, Ct);
+
+        await new CountryDatabaseHealthService(store, h.Validator, h.Root, new Notices { Fail = true }, enabled: true).RunOnceAsync(Ct);
+
+        var warning = Assert.Single(logs.Entries, entry => entry.Category == typeof(CountryDatabaseOperationsStore).FullName);
+        Assert.Equal(LogLevel.Warning, warning.Level);
+        Assert.Contains(nameof(IOException), warning.Text, StringComparison.Ordinal);
+        Assert.DoesNotContain(TransportText, warning.Text, StringComparison.Ordinal);
+        Assert.Null(warning.Exception);
+    }
+
+    /// <summary>O envio saiu e só a marca de entrega falhou: quem lê o log não pode procurar um defeito no transporte.</summary>
+    [Fact]
+    public async Task AnAlertSentButNotRecordedIsLoggedApartFromAFailedSend()
+    {
+        await using var h = await Prepared();
+        var clock = new ScriptedClock(h.Time);
+        var logs = new CapturingLoggerProvider();
+        using var loggers = LoggerFactory.Create(builder => builder.AddProvider(logs));
+        var store = new CountryDatabaseOperationsStore(h.Source, clock, loggers.CreateLogger<CountryDatabaseOperationsStore>());
+        await store.RecordBackupFailureAsync(true, Ct);
+        await new CountryDatabaseHealthService(store, h.Validator, h.Root, new Notices { Fail = true }, enabled: true).RunOnceAsync(Ct);
+        h.Time.Advance(TimeSpan.FromMinutes(15));
+        var notices = new Notices();
+        clock.ExplodeOnRead(UpdateDeliveredAtRead);
+
+        await store.DeliverAsync(notices, Ct);
+
+        Assert.Single(notices.Items, n => n.Code == "Backup");
+        Assert.Equal(0L, await Count(h.Source, "select count(*) from ops.country_database_notifications where code='Backup' and delivered_at is not null"));
+        var entries = logs.Entries.Where(entry => entry.Category == typeof(CountryDatabaseOperationsStore).FullName).ToArray();
+        Assert.Equal(2, entries.Length);
+        Assert.Contains("was not sent", entries[0].Text, StringComparison.Ordinal);
+        Assert.Contains("was sent but not recorded", entries[1].Text, StringComparison.Ordinal);
+        Assert.Contains(nameof(ScriptedClockException), entries[1].Text, StringComparison.Ordinal);
+        Assert.DoesNotContain(ScriptedClock.MessageCanary, entries[1].Text, StringComparison.Ordinal);
+    }
+
+    /// <summary>As duas primeiras leituras são da reserva da notificação; a terceira é a da marca de entrega.</summary>
+    private const int UpdateDeliveredAtRead = 3;
+
+    private const string TransportText = "Synthetic transport failure; never persist exception text.";
+
     private sealed class Notices : ICountryDatabaseNotifier
     {
         public List<CountryDatabaseNotification> Items { get; } = [];
@@ -563,7 +614,7 @@ public sealed class CountryDatabaseOperationsTests(PostgresFixture postgres)
         {
             if (Fail)
             {
-                throw new IOException("Synthetic transport failure; never persist exception text.");
+                throw new IOException(TransportText);
             }
             lock (Items)
             {

@@ -26,6 +26,9 @@ export const SELFIE_ATTEMPT_PROBLEMS: ReadonlySet<string> = new Set([
   'SELFIE_ATTEMPTS_EXHAUSTED',
 ])
 
+/** `feedbackCode` da instabilidade do serviço: a captura não foi julgada e nada conta como reprovação. */
+export const SELFIE_PROVIDER_UNAVAILABLE = 'PROVIDER_UNAVAILABLE'
+
 const statusSchema = z.object({
   id: z.uuid().nullable(),
   state: z.enum([
