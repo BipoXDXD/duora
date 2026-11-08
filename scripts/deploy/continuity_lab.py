@@ -1,9 +1,11 @@
 """Disposable Actions-only end-to-end qualification, never a production entry point."""
 
+from collections.abc import Callable
 import hashlib
 import json
 import os
 from pathlib import Path
+import re
 import selectors
 import shutil
 import subprocess
@@ -21,6 +23,27 @@ import reconcile_payload as payload
 import runtime_guard as guard
 import smoke_local
 from continuity_trials import TrialCpuLoad, save_qualification, validate_trial
+
+
+# Issue #403: one GHCR timeout on the historical pull failed main. Three attempts with 5 s and 15 s between them ride out
+# a registry hiccup. The waiting is at most 20 s per pull: 4 pulls per trial make 80 s inside that trial's 1200 s root lab,
+# and 240 s over the 3 trials. A pull that hangs past command()'s own 180 s limit raises TimeoutExpired and is not retried:
+# only an answered daemon error is.
+PULL_MAX_ATTEMPTS = 3
+PULL_BACKOFF_SECONDS = (5, 15)
+PULL_LOG_PREFIX = "[lab-pull]"
+DIGEST_REFERENCE = re.compile(r"[^@\s]+@sha256:[0-9a-f]{64}")
+# Checked first: a missing digest or refused access will not heal by waiting, even if the text also says "timeout".
+# A 429 is here on purpose (coordination decision): the rate limit is not a network hiccup, and more calls count against it.
+PERMANENT_PULL_FAILURE = re.compile(
+    r"manifest unknown|not found|does not exist|denied|unauthorized|forbidden|toomanyrequests|too many requests", re.IGNORECASE)
+TRANSIENT_PULL_FAILURES = (
+    ("timeout", re.compile(r"timeout|deadline exceeded", re.IGNORECASE)),
+    ("connection refused", re.compile(r"connection refused", re.IGNORECASE)),
+    ("connection reset", re.compile(r"connection reset", re.IGNORECASE)),
+    ("5xx", re.compile(r"\b5\d\d (?:Internal Server Error|Bad Gateway|Service Unavailable|Gateway Timeout)\b"
+                       r"|status: 5\d\d\b", re.IGNORECASE)),
+)
 
 
 class DatabaseObservationError(RuntimeError):
@@ -162,6 +185,32 @@ def command(argv: list[str]) -> str:
     return result.stdout.strip()
 
 
+def pull_by_digest(reference: str, *, sleep: Callable[[float], None] = time.sleep) -> None:
+    """`docker pull` of an immutable digest, retried only on transient registry failures; the last error is re-raised as is."""
+    if not DIGEST_REFERENCE.fullmatch(reference):
+        raise RuntimeError("Historical image reference is not pinned by digest")
+    for attempt in range(1, PULL_MAX_ATTEMPTS + 1):
+        print(f"{PULL_LOG_PREFIX} attempt {attempt}/{PULL_MAX_ATTEMPTS}: {reference}", file=sys.stderr, flush=True)
+        try:
+            command(["docker", "pull", "--quiet", reference])
+            return
+        except RuntimeError as error:
+            reason = transient_pull_failure(str(error))
+            if reason is None or attempt == PULL_MAX_ATTEMPTS:
+                raise
+            delay = PULL_BACKOFF_SECONDS[attempt - 1]
+            print(f"{PULL_LOG_PREFIX} attempt {attempt}/{PULL_MAX_ATTEMPTS}: transient failure ({reason}), retrying in {delay} s",
+                  file=sys.stderr, flush=True)
+            sleep(delay)
+
+
+def transient_pull_failure(message: str) -> str | None:
+    """The transient class of a failed pull, or None when waiting cannot help."""
+    if PERMANENT_PULL_FAILURE.search(message):
+        return None
+    return next((name for name, pattern in TRANSIENT_PULL_FAILURES if pattern.search(message)), None)
+
+
 def _instances(compose: list[str]) -> dict:
     identifiers = command(compose + ["ps", "--all", "--quiet"]).split()
     values = json.loads(command(["docker", "inspect", *identifiers]))
@@ -181,9 +230,17 @@ def run_preservation_lab(*, trial: int = 1) -> dict:
             check=False, timeout=1200)
         if result.returncode:
             raise RuntimeError("Disposable root lab failed: " + (result.stdout + result.stderr)[-6000:])
+        _reemit_pull_log(result.stderr)
         line = next(line for line in reversed(result.stdout.splitlines()) if line.startswith("LAB_RESULT="))
         return json.loads(line.removeprefix("LAB_RESULT="))
     return _root_lab(trial=trial)
+
+
+def _reemit_pull_log(child_stderr: str) -> None:
+    """The root child's pipes are captured, so a retry that ended well would otherwise leave no trace in the job log."""
+    for line in child_stderr.splitlines():
+        if line.startswith(PULL_LOG_PREFIX):
+            print(line, file=sys.stderr, flush=True)
 
 
 def _with_s3_double(compose: str, *, key: str, secret: str, certificates: Path) -> str:
@@ -377,7 +434,7 @@ def _root_lab(*, trial: int = 1) -> dict:
             raise RuntimeError("Historical v1 fixture exceeds the qualified legacy boundary")
         for role in ("web", "worker", "edge", "migrator"):
             reference = legacy_images[role]
-            command(["docker", "pull", "--quiet", reference])
+            pull_by_digest(reference)
             item = payload._inspect("image", reference, payload.capture_binary)
             labels = item["Config"]["Labels"]
             if (reference not in item.get("RepoDigests", []) or item["Architecture"] != architecture
