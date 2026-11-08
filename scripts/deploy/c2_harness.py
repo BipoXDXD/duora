@@ -33,6 +33,7 @@ from typing import Any, Protocol, TextIO
 
 import c2_load
 import c2_probe
+import capacity_inventory
 
 CONFIG_SCHEMA = "duora.c2-config/v1"
 MANIFEST_SCHEMA = "duora.c2-run/v1"
@@ -45,6 +46,11 @@ PROBE_BUFFER_SECONDS = 2 * 3600
 EXIT_OK, EXIT_CONFIG, EXIT_ABORTED, EXIT_INTERRUPTED = 0, 2, 3, 4
 SECTOR_BYTES = 512
 MIB = 1024 * 1024
+# Só o container do painel do Coolify fica fora do OTHER_APPS_PSI (decisão do dono): dono `coolify` em
+# capacity_inventory.CONTAINER_RULES e nome exato. coolify-proxy (Traefik de todos os sites), -realtime e -db
+# seguem guardados.
+CONTROL_PLANE_OWNER = "coolify"
+CONTROL_PLANE_CONTAINER = "coolify"
 PERCENTILES = (50, 95, 99)
 FAILURE_CLASSES = frozenset(("server", "transport"))
 
@@ -236,11 +242,27 @@ def derive(previous: dict[str, Any], current: dict[str, Any]) -> dict[str, Any]:
     cgroups, cgroup_oom = _cgroup_rates(previous.get("cgroups") or {}, current.get("cgroups") or {}, dt)
     derived["cgroups"] = cgroups
     derived["oom_kills"] = (host_oom or 0) + cgroup_oom
-    others = [values["cpu_psi"] for values in cgroups.values() if values["owner"] == "other"
-              and values["cpu_psi"] is not None]
+    raw_cgroups = current.get("cgroups") or {}
+    others = [values["cpu_psi"] for name, values in cgroups.items()
+              if _is_protected_neighbor(name, raw_cgroups[name]) and values["cpu_psi"] is not None]
     derived["others_cpu_psi_max"] = max(others) if others else None
     derived["database"] = _database_rates(previous.get("database"), current.get("database"))
     return derived
+
+
+def _is_protected_neighbor(name: str, raw: dict[str, Any]) -> bool:
+    """Container fora do sombra que o OTHER_APPS_PSI protege. Só o painel do Coolify fica de fora.
+
+    A exclusão exige as duas coisas: nome exatamente `coolify` e dono `coolify` pelas regras do inventário C1, para que
+    a regra de projeto (stillon, goblinshift) continue vencendo. coolify-proxy, -realtime e -db seguem protegidos.
+    A amostra só traz nome e projeto compose; a regra de working_dir exigiria outro campo no `docker ps`.
+    Os `extra_cgroups` da sonda (slices) passam pela mesma classificação, com o caminho como nome e projeto vazio.
+    """
+    if raw.get("owner") != "other":
+        return False
+    facts = {"name": name, "project": raw.get("project") or ""}
+    return not (name == CONTROL_PLANE_CONTAINER
+                and capacity_inventory.classify_container(facts) == CONTROL_PLANE_OWNER)
 
 
 def _cpu_percentages(before: dict[str, int] | None, now: dict[str, int] | None) -> dict[str, float | None]:
