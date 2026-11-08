@@ -119,11 +119,12 @@ Repetir o procedimento com o arquivo já ligado gera os mesmos bytes e o mesmo h
 não o Caddyfile da imagem: o CSP de `/account/selfie` só chega aplicando ao arquivo do host o mesmo diff do
 `infra/caddy/Caddyfile` (o arquivo do host difere no TLS atrás do Traefik, no `trusted_proxies` com
 `trusted_proxies_strict` e, em cada `reverse_proxy`, no `header_up X-Forwarded-For {client_ip}` e no
-`header_up X-Forwarded-Proto https`; a forma que o teste `scripts/deploy/test_caddy_client_ip.py` monta acrescenta o
-`trusted_proxies_strict` e o `client_ip_headers Cf-Connecting-IP` da Fase 4), validando com `caddy validate` e
-atualizando `caddy_sha256`. O Caddyfile não entra no baseline do executor, mas o instalador do executor o amarra por
-hash desde a inspeção (`scripts/deploy/EXECUTOR_BUNDLE.md`): trocar o Caddyfile entre a inspeção e o `--apply` faz o
-instalador recusar.
+`header_up X-Forwarded-Proto https`; a forma que a fixture `caddyfile_behind_traefik`, em
+`scripts/deploy/caddy_test_support.py`, monta para o teste `scripts/deploy/test_caddy_client_ip.py` reproduz essas
+diferenças e, em relação ao arquivo do host, só acrescenta o `client_ip_headers Cf-Connecting-IP` da Fase 4),
+validando com `caddy validate` e atualizando `caddy_sha256`. O Caddyfile não entra no baseline do executor, mas o
+instalador do executor o amarra por hash desde a inspeção (`scripts/deploy/EXECUTOR_BUNDLE.md`): trocar o Caddyfile
+entre a inspeção e o `--apply` faz o instalador recusar.
 
 **Trocar o arquivo do host é mudança de produção.** Só numa janela administrativa do dono, sob a trava do deploy
 (`/var/lib/duora/.deploy.lock`), com cópia `.pre-<motivo>` do arquivo e do pin. A troca exige ressela do pin: gravar em
@@ -144,10 +145,10 @@ Fase 4 opção B, que fica fora do repositório; o arquivo da VPS não foi relid
   linha é necessária, mas pode não bastar: segundo o pacote da Fase 4, não verificado no host, o registro passa pela
   Cloudflare em modo proxied, e então o web recebe o endereço da borda da Cloudflare e o rate limit por IP se espalha
   entre as bordas até a Fase 4. Se o registro é proxied segue a confirmar (`docs/product/spec.md`, seção 2.3, e
-  `docs/privacy/data-map.md`, linha da Cloudflare). Sem ela, nem esse endereço chega ao web: no
-  `scripts/deploy/test_caddy_client_ip.py` ele recebeu a cadeia de `X-Forwarded-For` como veio, com o peer no fim, e
-  com `ForwardLimit=1` o web enxerga o peer. `client_ip_headers` sozinho não substitui esse `header_up` (controle
-  `ForwardedForRewriteControlTests`).
+  `docs/privacy/data-map.md`, linha da Cloudflare). Sem ela, o web não recebe o cliente que o Caddy resolveu, seja o
+  registro proxied ou não: no `scripts/deploy/test_caddy_client_ip.py` o web recebeu a cadeia de `X-Forwarded-For`
+  como veio, com o peer no fim, e com `ForwardLimit=1` o web enxerga o peer. `client_ip_headers` sozinho não substitui
+  esse `header_up` (controle `ForwardedForRewriteControlTests`).
 - **`header_up X-Forwarded-Proto https`** nos mesmos três `reverse_proxy`.
 
 Ao copiar o diff do repositório para o arquivo do host, preserve essas cinco diferenças; o `infra/caddy/Caddyfile` não
