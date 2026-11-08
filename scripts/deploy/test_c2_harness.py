@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import io
+import itertools
 import json
 import queue
 import tempfile
@@ -235,11 +236,18 @@ class GuardTests(unittest.TestCase):
         self.assertEqual(self.codes(self.state(spike)), [])
 
     def test_coolify_control_plane_pressure_does_not_trip_other_apps(self) -> None:
-        for name, project in (("coolify", "source"), ("coolify-proxy", "proxy"), ("coolify-realtime", "")):
-            with self.subTest(name=name):
-                series = neighbor_series(12, name, project, psi=41.0)
+        for project in ("source", ""):
+            with self.subTest(project=project):
+                series = neighbor_series(12, "coolify", project, psi=41.0)
                 self.assertEqual(self.codes(self.state(series)), [])
                 self.assertEqual(series[-1]["others_cpu_psi_max"], 0.0)
+
+    def test_other_coolify_containers_still_trip_other_apps(self) -> None:
+        for name, project in (("coolify-proxy", "proxy"), ("coolify-realtime", "source"), ("coolify-db", "source")):
+            with self.subTest(name=name):
+                series = neighbor_series(12, name, project, psi=41.0)
+                self.assertEqual(self.codes(self.state(series)), ["OTHER_APPS_PSI"])
+                self.assertEqual(series[-1]["others_cpu_psi_max"], 41.0)
 
     def test_protected_neighbors_still_trip_other_apps_at_41(self) -> None:
         neighbors = (("goblinshift-web-1", "goblinshift"), ("stillon-worker-1", "stillon"),
@@ -251,9 +259,9 @@ class GuardTests(unittest.TestCase):
                 self.assertEqual(self.codes(self.state(neighbor_series(12, name, project, psi=40.0))), [])
 
     def test_neighbor_project_rule_precedes_coolify_name_rule(self) -> None:
-        for project in ("stillon", "goblinshift"):
-            with self.subTest(project=project):
-                self.assertEqual(self.codes(self.state(neighbor_series(12, "coolify-x", project, psi=41.0))),
+        for name, project in itertools.product(("coolify", "coolify-x"), ("stillon", "goblinshift")):
+            with self.subTest(name=name, project=project):
+                self.assertEqual(self.codes(self.state(neighbor_series(12, name, project, psi=41.0))),
                                  ["OTHER_APPS_PSI"])
 
     def test_stale_probe_means_running_blind(self) -> None:
