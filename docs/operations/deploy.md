@@ -164,6 +164,58 @@ arquivo do host que o próprio teste monta a partir do `infra/caddy/Caddyfile`, 
 **Não aplique `client_ip_headers` sem as labels `ipAllowList` do Traefik.** Sem a `ipAllowList`, quem acessa a origem
 direto forja `Cf-Connecting-IP`. Caddyfile e labels entram e saem juntos.
 
+**Cópia versionada do Caddyfile do host (#396).** Nada compara a fixture `caddyfile_behind_traefik` com o arquivo real
+até esta cópia existir. `test_caddy_host_copy.py` sai como `skipped`, com "cópia do host ausente, gerar na janela", e
+isso quer dizer que nada foi provado. A cópia só é gerada numa janela administrativa do dono e só bate com a Fase 4
+opção B aplicada e ressalada **e** com o `infra/caddy/Caddyfile` da `main` já aplicado ao arquivo do host. Sem a Fase
+4, falta o `client_ip_headers`; com o host atrás da `main`, a comparação acusa o diff que faltou aplicar.
+
+1. No host, só leitura, confira o peer e o hash fixado. O peer tem de ser `172.16.1.6`, o `HOST_TRAEFIK_PEER` de
+   `scripts/deploy/caddy_test_support.py`; outro valor é decisão do dono, não ajuste da cópia.
+
+   ```sh
+   docker inspect -f '{{.NetworkSettings.Networks.coolify.IPAddress}}' coolify-proxy
+   python3 -I -c 'import json; print(json.load(open("/etc/duora/coolify-deploy.json"))["caddy_sha256"])'
+   sha256sum /opt/duora/Caddyfile.duora-web.coolify
+   ```
+
+   Os dois hashes têm de ser iguais. Diferentes: pare, porque o arquivo em uso não é o selado.
+
+2. Na máquina do operador, num worktree a partir da `main`, traga o arquivo byte a byte e confira o hash contra o
+   `caddy_sha256` lido no passo 1:
+
+   ```sh
+   D=scripts/deploy/fixtures/caddy-host
+   mkdir -p "$D"
+   ssh <host-da-janela> cat /opt/duora/Caddyfile.duora-web.coolify > "$D/Caddyfile.duora-web.coolify"
+   CADDY_SHA256=<valor de caddy_sha256 do passo 1>
+   [ "$(shasum -a 256 "$D/Caddyfile.duora-web.coolify" | cut -d' ' -f1)" = "$CADDY_SHA256" ] && echo COPIA_OK
+   printf '%s\n' "$CADDY_SHA256" > "$D/Caddyfile.duora-web.coolify.sha256"
+   ```
+
+   Sem `COPIA_OK`, apague os dois arquivos e pare.
+
+3. Troque `HOST_COPY_PENDING` para `False` em `scripts/deploy/caddy_test_support.py` e rode, ainda sem commit:
+
+   ```sh
+   python3 -m unittest discover -s scripts/deploy -p 'test_caddy_host_copy.py' -v
+   ```
+
+   O teste `test_the_fixture_matches_the_copy_of_the_host_file` tem de sair `ok`, não `skipped`. A comparação é byte a
+   byte: fim de linha e `\n` final contam. Com diff, registre o achado fora do repositório, apague os dois arquivos e
+   volte o marcador para `True`, sem ajustar a cópia nem o teste:
+
+   ```sh
+   rm "$D/Caddyfile.duora-web.coolify" "$D/Caddyfile.duora-web.coolify.sha256"
+   git checkout -- scripts/deploy/caddy_test_support.py
+   ```
+
+   O arquivo só tem as variáveis `{$...}` que a fixture já publica: é o diff vazio que garante isso, e por essa razão
+   nada vai para o repositório antes dele.
+
+4. Abra o PR com a cópia, o `.sha256` e o marcador. Depois dele, mudar o `infra/caddy/Caddyfile` deixa o teste vermelho
+   até a cópia nova entrar no mesmo PR, gerada numa janela que aplique o mesmo diff no host.
+
 **Ressela.** O baseline do executor (`/var/lib/duora/executor-runtime-baseline.json`) fixa o hash do Compose
 (`context.composeSha256`). Sem selar de novo, o `duora-deploy` recusa a release com "Database/backup runtime changed".
 O instalador sela de novo no modo comum, com o bundle já ativo (os valores vêm de
