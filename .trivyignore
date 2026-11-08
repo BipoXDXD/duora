@@ -16,10 +16,11 @@ CVE-2026-109518 exp:2026-12-05
 
 # zlib1g 1:1.3.dfsg+really1.3.1-1+b1 da imagem duora-postgres, corrigido em +deb13u1. Heap overflow na API gz* de
 # escrita (gzwrite após falha de write()), que só os clientes pg_dump/pg_basebackup usam; postgres e pgbackrest não,
-# e o banco não publica porta. Ponte de 7 dias até o lock do #353. Risco aceito pelo dono (BipoXDXD) em 2026-11-08.
+# e o banco não publica porta. Ponte de 7 dias até o #353 com pin do zlib. Risco aceito pelo dono (BipoXDXD)
+# em 2026-11-08.
 CVE-2026-76844 exp:2026-11-15
 
 # zlib1g 1:1.3.dfsg+really1.3.1-1+b1 da imagem duora-postgres, corrigido em +deb13u1. Heap overflow em gz_vacate() via
 # gzprintf após um write travado, na mesma API gz* que só pg_dump/pg_basebackup usam; postgres e pgbackrest não. Ponte
-# de 7 dias até o lock do #353, que remove a entrada. Risco aceito pelo dono (BipoXDXD) em 2026-11-08.
+# de 7 dias até o #353 com pin do zlib, que remove a entrada. Risco aceito pelo dono (BipoXDXD) em 2026-11-08.
 CVE-2026-85091 exp:2026-11-15

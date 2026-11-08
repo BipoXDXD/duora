@@ -68,10 +68,13 @@ build da imagem. É ponte, não correção: corrigir exige requalificar o compon
 
 Exceção ativa, aceita pelo dono em 2026-11-08: `CVE-2026-76844` e `CVE-2026-85091` (HIGH) em `zlib1g`
 1:1.3.dfsg+really1.3.1-1+b1 da imagem `duora-postgres`, corrigidas em `+deb13u1`, válidas até 2026-11-15 (7 dias).
-As duas são heap overflow na API `gz*` de escrita da zlib (`gzwrite`/`gzprintf` depois de uma falha de `write()`),
-que na imagem só os clientes `pg_dump`/`pg_basebackup` usam; o servidor `postgres` e o `pgbackrest` não, e o banco
-não publica porta. É ponte, não correção: o lock do componente corrigido (#353) remove as entradas antes do vencimento,
-ou o dono decide de novo.
+As duas são heap overflow na API `gz*` de escrita da zlib (`CVE-2026-76844`: `gz_write()` depois de uma falha de
+`write()`; `CVE-2026-85091`: `gz_vacate()` via `gzprintf` depois de uma escrita não bloqueante travada), que na imagem só
+os clientes `pg_dump`/`pg_basebackup` usam; o servidor `postgres` e o `pgbackrest` não, e o banco não publica porta.
+É ponte, não correção: o #353 ainda não traz o `zlib1g` corrigido e precisa ganhar esse pin e ser requalificado
+(o modo `qualify` roda o Trivy sem exceções) antes do vencimento; o lock novo remove as entradas, ou o dono decide de
+novo. O `.trivyignore` não escopa por imagem: enquanto valerem, as duas CVEs ficam ignoradas em todas as imagens e
+no `trivy fs`.
 
 ### Licenças: `scripts/supply-chain/license-policy.json`
 
