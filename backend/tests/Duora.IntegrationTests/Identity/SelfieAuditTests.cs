@@ -40,6 +40,24 @@ public sealed class SelfieAuditTests(PostgresFixture postgres)
         Assert.Equal(2, await CountAllAsync(scenario, id, account.UserId, since));
     }
 
+    [Fact]
+    public async Task AnApprovalOfAnAlreadyActiveAccountRecordsNoActivation()
+    {
+        var (lockout, scenario, host) = await NewAsync();
+        await using var _ = host;
+        var account = await scenario.CreateConfirmedAccountAsync();
+        Assert.Equal(1, await scenario.ScalarAsync(
+            "update identity.users set status = 'Active' where id = $1 returning 1", account.UserId));
+        var since = await LastEventIdAsync(scenario);
+
+        var id = await lockout.AttemptAsync(host, account.UserId, SelfieState.Passed);
+
+        Assert.Equal($"System|-|-|{Passed}|selfie_verification|{id:D}|{await VersionAsync(scenario, id)}",
+            await EventAsync(scenario, Passed, id));
+        Assert.Equal("sem evento", await EventAsync(scenario, "identity.account_activated", account.UserId));
+        Assert.Equal(1, await CountAllAsync(scenario, id, account.UserId, since));
+    }
+
     [Theory]
     [InlineData(SelfieState.RecaptureRequired)]
     [InlineData(SelfieState.Inconclusive)]
