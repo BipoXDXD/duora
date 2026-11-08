@@ -1,9 +1,11 @@
 """Disposable Actions-only end-to-end qualification, never a production entry point."""
 
+from collections.abc import Callable
 import hashlib
 import json
 import os
 from pathlib import Path
+import re
 import selectors
 import shutil
 import subprocess
@@ -21,6 +23,23 @@ import reconcile_payload as payload
 import runtime_guard as guard
 import smoke_local
 from continuity_trials import TrialCpuLoad, save_qualification, validate_trial
+
+
+# Issue #403: one GHCR timeout on the historical pull failed main. Three attempts with 5 s and 15 s between them ride out
+# a registry hiccup while adding at most 20 s of waiting to the 1200 s root lab. A pull that hangs past command()'s own
+# 180 s limit raises TimeoutExpired and is not retried: only an answered daemon error is.
+PULL_MAX_ATTEMPTS = 3
+PULL_BACKOFF_SECONDS = (5, 15)
+DIGEST_REFERENCE = re.compile(r"[^@\s]+@sha256:[0-9a-f]{64}")
+# Checked first: a missing digest or refused access will not heal by waiting, even if the text also says "timeout".
+PERMANENT_PULL_FAILURE = re.compile(r"manifest unknown|not found|does not exist|denied|unauthorized|forbidden", re.IGNORECASE)
+TRANSIENT_PULL_FAILURES = (
+    ("timeout", re.compile(r"timeout|deadline exceeded", re.IGNORECASE)),
+    ("connection refused", re.compile(r"connection refused", re.IGNORECASE)),
+    ("connection reset", re.compile(r"connection reset", re.IGNORECASE)),
+    ("5xx", re.compile(r"\b5\d\d (?:Internal Server Error|Bad Gateway|Service Unavailable|Gateway Timeout)\b"
+                       r"|status: 5\d\d\b", re.IGNORECASE)),
+)
 
 
 class DatabaseObservationError(RuntimeError):
@@ -160,6 +179,32 @@ def command(argv: list[str]) -> str:
     if result.returncode:
         raise RuntimeError("Synthetic lab command failed: " + " ".join(argv[:5]) + ": " + result.stderr[-1200:])
     return result.stdout.strip()
+
+
+def pull_by_digest(reference: str, *, sleep: Callable[[float], None] = time.sleep) -> None:
+    """`docker pull` of an immutable digest, retried only on transient registry failures; the last error is re-raised as is."""
+    if not DIGEST_REFERENCE.fullmatch(reference):
+        raise RuntimeError("Historical image reference is not pinned by digest")
+    for attempt in range(1, PULL_MAX_ATTEMPTS + 1):
+        print(f"[lab-pull] attempt {attempt}/{PULL_MAX_ATTEMPTS}: {reference}", file=sys.stderr, flush=True)
+        try:
+            command(["docker", "pull", "--quiet", reference])
+            return
+        except RuntimeError as error:
+            reason = transient_pull_failure(str(error))
+            if reason is None or attempt == PULL_MAX_ATTEMPTS:
+                raise
+            delay = PULL_BACKOFF_SECONDS[attempt - 1]
+            print(f"[lab-pull] attempt {attempt}/{PULL_MAX_ATTEMPTS}: transient failure ({reason}), retrying in {delay} s",
+                  file=sys.stderr, flush=True)
+            sleep(delay)
+
+
+def transient_pull_failure(message: str) -> str | None:
+    """The transient class of a failed pull, or None when waiting cannot help."""
+    if PERMANENT_PULL_FAILURE.search(message):
+        return None
+    return next((name for name, pattern in TRANSIENT_PULL_FAILURES if pattern.search(message)), None)
 
 
 def _instances(compose: list[str]) -> dict:
@@ -377,7 +422,7 @@ def _root_lab(*, trial: int = 1) -> dict:
             raise RuntimeError("Historical v1 fixture exceeds the qualified legacy boundary")
         for role in ("web", "worker", "edge", "migrator"):
             reference = legacy_images[role]
-            command(["docker", "pull", "--quiet", reference])
+            pull_by_digest(reference)
             item = payload._inspect("image", reference, payload.capture_binary)
             labels = item["Config"]["Labels"]
             if (reference not in item.get("RepoDigests", []) or item["Architecture"] != architecture
