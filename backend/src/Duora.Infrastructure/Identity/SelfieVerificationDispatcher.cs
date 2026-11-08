@@ -1,5 +1,6 @@
 using System.Text.Json;
 using Duora.Core.Identity;
+using Duora.Infrastructure.Audit;
 using Duora.Infrastructure.Outbox;
 using Duora.Infrastructure.Persistence;
 using Microsoft.EntityFrameworkCore;
@@ -270,6 +271,7 @@ public sealed partial class SelfieVerificationDispatcher
             return false;
         }
 
+        AuditAction? decision = null;
         if (!allowed || record.ExpiresAt <= now)
         {
             record.State = SelfieState.Expired;
@@ -288,19 +290,31 @@ public sealed partial class SelfieVerificationDispatcher
             record.FeedbackCode = result.FeedbackCode;
             if (record.State == SelfieState.Passed)
             {
-                await _db.Database.ExecuteSqlAsync($"""
+                var activated = await _db.Database.ExecuteSqlAsync($"""
                     update identity.users set status = 'Active', concurrency_stamp = {Guid.NewGuid().ToString()}
                     where id = {record.UserId} and status = 'PendingEligibility' and email_confirmed
                     """, cancellationToken);
                 await SelfieFailureLedger.ClearAsync(_db, record.UserId, cancellationToken);
+                if (activated == 1)
+                {
+                    await AuditAsync(AuditAction.AccountActivated, AuditTargetTypes.User, record.UserId, null, cancellationToken);
+                }
+
+                decision = AuditAction.SelfieVerificationPassed;
             }
             else if (SelfieAttemptPolicy.CountsAsFailure(result, record.PolicyVersion))
             {
                 await RecordFailureAsync(record, now, cancellationToken);
+                decision = AuditAction.SelfieVerificationFailed;
             }
         }
 
         record.Version++;
+        if (decision is not null)
+        {
+            await AuditAsync(decision, AuditTargetTypes.SelfieVerification, record.Id, record.Version, cancellationToken);
+        }
+
         if (record.State is SelfieState.Passed or SelfieState.RecaptureRequired or SelfieState.Inconclusive or SelfieState.Expired)
         {
             record.CompletedAt = now;
@@ -311,4 +325,14 @@ public sealed partial class SelfieVerificationDispatcher
         _db.ChangeTracker.Clear();
         return true;
     }
+
+    /// <summary>
+    /// Na transação do resultado (TM-92): só ator, ação e alvo, sem estado do fornecedor, código de feedback, imagem nem
+    /// score. O ator é o sistema, porque quem decide é o resultado lido do fornecedor, não uma pessoa.
+    /// </summary>
+    private Task AuditAsync(AuditAction action, string targetType, Guid targetId, long? targetVersion,
+        CancellationToken cancellationToken) =>
+        new AuditTrail(_db, _time).AppendAsync(
+            new AuditRecord(AuditActorKind.System, actorId: null, action, targetType, targetId, targetVersion),
+            cancellationToken);
 }
