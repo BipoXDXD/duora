@@ -117,30 +117,43 @@ Repetir o procedimento com o arquivo já ligado gera os mesmos bytes e o mesmo h
 
 **Caddyfile.** O edge de produção monta `/opt/duora/Caddyfile.duora-web.coolify` (fixado por `caddy_sha256` no pin),
 não o Caddyfile da imagem: o CSP de `/account/selfie` só chega aplicando ao arquivo do host o mesmo diff do
-`infra/caddy/Caddyfile` (as diferenças do arquivo do host estão abaixo), validando com `caddy validate` e atualizando
-`caddy_sha256`. O Caddyfile não entra no baseline do executor.
+`infra/caddy/Caddyfile` (o arquivo do host difere no TLS atrás do Traefik, nos `trusted_proxies` e, em cada
+`reverse_proxy`, no `header_up X-Forwarded-For {client_ip}` e no `header_up X-Forwarded-Proto https`; a forma que o
+teste `scripts/deploy/test_caddy_client_ip.py` monta acrescenta o `client_ip_headers Cf-Connecting-IP` da Fase 4),
+validando com `caddy validate` e atualizando `caddy_sha256`. O Caddyfile não entra no baseline do executor.
 
-O arquivo do host difere do `infra/caddy/Caddyfile` em quatro pontos (estado atual, segundo o pacote da Fase 4 opção B,
-que fica fora do repositório; o arquivo da VPS não foi relido ao escrever este trecho):
+**Trocar o arquivo do host é mudança de produção.** Só numa janela administrativa do dono, sob a trava do deploy
+(`/var/lib/duora/.deploy.lock`), com cópia `.pre-<motivo>` do arquivo e do pin. A troca exige ressela do pin: gravar em
+`caddy_sha256` o hash do arquivo novo, depois do `caddy validate`. Se a mesma janela trocar também o compose (a Fase 4
+troca as labels do Traefik), vale ainda a ressela do executor descrita abaixo.
 
+Em detalhe, o arquivo do host difere do `infra/caddy/Caddyfile` em cinco pontos (estado atual, segundo o pacote da
+Fase 4 opção B, que fica fora do repositório; o arquivo da VPS não foi relido ao escrever este trecho):
+
+- **Comentário na linha 1:** `# Generated for Coolify TLS termination; trust only verified proxy IP.`, sem efeito na
+  configuração.
 - **TLS:** o site é `http://{$DUORA_DOMAIN}` e não tem `tls`, porque o Traefik termina o TLS.
 - **Proxy confiável:** o bloco global tem `servers { trusted_proxies static 172.16.1.6` e `trusted_proxies_strict }`.
+  `172.16.1.6` é o IP fixo de hoje do `coolify-proxy` (o Traefik) na rede `coolify`, lido no pacote e não no host:
+  confira com `docker inspect -f '{{.NetworkSettings.Networks.coolify.IPAddress}}' coolify-proxy` antes de copiar.
+  Não confunda com a rede `edge` (`172.30.10.0/24`) da tabela de redes abaixo, de onde o web aceita o Caddy como proxy.
 - **`header_up X-Forwarded-For {client_ip}`** em cada `reverse_proxy` (`/api/*`, `/webhooks/*`, `/hubs/*`). Essa
   linha é necessária, mas hoje não basta: atrás da Cloudflare, o web ainda recebe o endereço da borda, e o rate limit
-  por IP se espalha entre as bordas até a Fase 4. Sem ela, nem esse endereço chega ao web: no teste do PR #377
-  (ainda aberto) ele recebeu a cadeia de `X-Forwarded-For` como veio, com o peer no fim, e com `ForwardLimit=1` o web
-  enxerga o peer. `client_ip_headers` sozinho não substitui esse
-  `header_up` (controle `ForwardedForRewriteControlTests`).
+  por IP se espalha entre as bordas até a Fase 4. Sem ela, nem esse endereço chega ao web: no
+  `scripts/deploy/test_caddy_client_ip.py` ele recebeu a cadeia de `X-Forwarded-For` como veio, com o peer no fim, e
+  com `ForwardLimit=1` o web enxerga o peer. `client_ip_headers` sozinho não substitui esse `header_up` (controle
+  `ForwardedForRewriteControlTests`).
 - **`header_up X-Forwarded-Proto https`** nos mesmos três `reverse_proxy`.
 
-Ao copiar o diff do repositório para o arquivo do host, preserve essas quatro diferenças; o `infra/caddy/Caddyfile` não
+Ao copiar o diff do repositório para o arquivo do host, preserve essas cinco diferenças; o `infra/caddy/Caddyfile` não
 tem nenhuma delas.
 
 **Previsto, Fase 4 opção B (ainda não aplicada):** acrescenta `client_ip_headers Cf-Connecting-IP` ao bloco `servers`,
 entre `trusted_proxies` e `trusted_proxies_strict`. É a única linha que a Fase 4 muda no arquivo do host
 (`Caddyfile.diff` do pacote). Enquanto a fase não for aplicada, o arquivo do host não tem essa linha. A cadeia de IP
-com ela está provada em teste no PR #377 (ainda aberto); a `ipAllowList` do Traefik e o comportamento da Cloudflare
-não, e a opção B depende deles.
+com ela está provada em `scripts/deploy/test_caddy_client_ip.py` e `ForwardedHeadersTests`, sobre uma reconstrução do
+arquivo do host que o próprio teste monta a partir do `infra/caddy/Caddyfile`, não sobre o arquivo da VPS; a
+`ipAllowList` do Traefik e o comportamento da Cloudflare não estão provados, e a opção B depende deles.
 
 **Não aplique `client_ip_headers` sem as labels `ipAllowList` do Traefik.** Sem a `ipAllowList`, quem acessa a origem
 direto forja `Cf-Connecting-IP`. Caddyfile e labels entram e saem juntos.
