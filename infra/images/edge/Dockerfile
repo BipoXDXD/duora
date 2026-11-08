@@ -24,6 +24,9 @@ RUN for attempt in 1 2 3; do \
     done; \
     exit 1
 COPY frontend/pnpm-lock.yaml ./
+# patchedDependencies (pnpm-workspace.yaml) aponta para patches/; sem os dois, o install congelado falha.
+COPY frontend/pnpm-workspace.yaml ./
+COPY frontend/patches/ ./patches/
 RUN --mount=type=cache,id=duora-pnpm,target=/root/.local/share/pnpm/store \
     pnpm install --frozen-lockfile
 COPY frontend/ ./
