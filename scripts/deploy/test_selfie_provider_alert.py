@@ -15,12 +15,14 @@ DOWN = 'selfie_provider_down'
 RECOVERED = 'selfie_provider_recovered'
 BLIND = 'selfie_probe_blind'
 RESTORED = 'selfie_probe_restored'
+STALLED = 'selfie_queue_stalled'
+RESUMED = 'selfie_queue_resumed'
 CONNECTION = ("dbname=duora user=postgres connect_timeout=3 application_name=duora-selfie-alert "
               "options='-c default_transaction_read_only=on -c statement_timeout=3000 -c lock_timeout=1000'")
 TEMPORARY_ERROR = subprocess.TimeoutExpired('psql', 8)
 
 
-def host(answer: str | Exception = 'f\n', ids='pg\n'):
+def host(answer: str | Exception = 'f|f\n', ids='pg\n'):
     def runner(args):
         if 'ps' in args:
             return ids
@@ -32,25 +34,27 @@ def host(answer: str | Exception = 'f\n', ids='pg\n'):
 
 class ProbeTests(unittest.TestCase):
     def test_yes_and_no_are_the_only_readings(self):
-        self.assertIs(alert.provider_failing(host('t\n')), True)
-        self.assertIs(alert.provider_failing(host('f\n')), False)
+        self.assertEqual(alert.read_queue(host('t|f\n')), (True, False))
+        self.assertEqual(alert.read_queue(host('f|f\n')), (False, False))
+        self.assertEqual(alert.read_queue(host('f|t\n')), (False, True))
+        self.assertEqual(alert.read_queue(host('t|t\n')), (True, True))
 
     def test_failed_probe_is_no_evidence_and_keeps_the_text_out_of_the_log(self):
         for answer in (TEMPORARY_ERROR, subprocess.CalledProcessError(2, 'psql'), OSError('docker'),
-                       '', 'tf\n', 'ERROR: CANARY-probe\n', 't\nf\n'):
+                       '', 'tf\n', 'ERROR: CANARY-probe\n', 't\nf\n', 't\n', 'f\n', 't|x\n', 't|f|t\n'):
             with self.subTest(answer=answer), self.assertLogs('duora-selfie-alert', 'ERROR') as logs:
-                self.assertIsNone(alert.provider_failing(host(answer)))
+                self.assertIsNone(alert.read_queue(host(answer)))
                 self.assertEqual(logs.output, ['ERROR:duora-selfie-alert:selfie_probe_failed'])
 
     def test_missing_or_duplicate_postgres_container_never_queries(self):
         for ids in ('', 'one\ntwo\n'):
             calls = []
 
-            def spy(args, inner=host('t\n', ids), log=calls):
+            def spy(args, inner=host('t|f\n', ids), log=calls):
                 log.append(args)
                 return inner(args)
             with self.subTest(ids=ids), self.assertLogs('duora-selfie-alert', 'ERROR'):
-                self.assertIsNone(alert.provider_failing(spy))
+                self.assertIsNone(alert.read_queue(spy))
                 self.assertEqual(len(calls), 1)
 
     def test_argv_connection_and_filters_are_exactly_these(self):
@@ -59,17 +63,17 @@ class ProbeTests(unittest.TestCase):
         def spy(args):
             calls.append(args)
             return host()(args)
-        alert.provider_failing(spy)
+        alert.read_queue(spy)
         self.assertEqual(alert.CONNECTION, CONNECTION)
         self.assertEqual(calls, [
             ['/usr/bin/docker', 'ps', '-aq', '--filter', 'label=com.docker.compose.project=duora',
              '--filter', 'label=com.docker.compose.service=postgres'],
             ['/usr/bin/docker', 'exec', 'pg', 'psql', '--no-psqlrc', '--no-password', '--quiet', '--tuples-only',
-             '--no-align', '--dbname', CONNECTION, '--command', alert.PROBE_QUERY]])
+             '--no-align', '--dbname', CONNECTION, '--command', alert.QUEUE_QUERY]])
 
     def test_query_never_reads_who_the_attempt_belongs_to(self):
         for column in ('recipient_key', 'selfie_verifications', 'identity.', 'payload'):
-            self.assertNotIn(column, alert.PROBE_QUERY)
+            self.assertNotIn(column, alert.QUEUE_QUERY)
 
 
 class RunnerTests(unittest.TestCase):
@@ -212,12 +216,15 @@ class HysteresisTests(unittest.TestCase):
 
 
 class MalformedMemoryTests(unittest.TestCase):
-    GOOD = {'since': None, 'last': None, 'open': False, 'blind_since': None, 'blind': False}
+    GOOD = {'since': None, 'last': None, 'open': False, 'blind_since': None, 'blind': False, 'stall_since': None,
+            'stall_open': False}
     MALFORMED = ('texto', 7, [], None, {}, {'since': None, 'last': None},
                  {**GOOD, 'open': 'sim'}, {**GOOD, 'blind': 1}, {**GOOD, 'since': 'a', 'last': 1},
                  {**GOOD, 'since': 1, 'last': 'b'}, {**GOOD, 'since': True, 'last': 1},
                  {**GOOD, 'since': None, 'last': 1}, {**GOOD, 'since': 1, 'last': None}, {**GOOD, 'open': True},
-                 {**GOOD, 'since': 1e400, 'last': 1, 'open': True}, {**GOOD, 'blind': True}, {**GOOD, 'x': 1})
+                 {**GOOD, 'since': 1e400, 'last': 1, 'open': True}, {**GOOD, 'blind': True}, {**GOOD, 'x': 1},
+                 {**GOOD, 'stall_open': 1}, {**GOOD, 'stall_since': 'a'}, {**GOOD, 'stall_since': True},
+                 {**GOOD, 'stall_since': 1e400, 'stall_open': True}, {**GOOD, 'stall_open': True})
 
     def test_invalid_memory_counts_as_absent_with_a_log(self):
         with tempfile.TemporaryDirectory() as directory:
@@ -240,11 +247,56 @@ class MalformedMemoryTests(unittest.TestCase):
             self.assertEqual(alert.load_memory(Path(directory) / 'state.json'), alert.fresh_memory())
 
     def test_valid_memory_is_kept_without_a_log(self):
-        memory = {'since': 880, 'last': 1000, 'open': True, 'blind_since': 1000, 'blind': True}
+        memory = {'since': 880, 'last': 1000, 'open': True, 'blind_since': 1000, 'blind': True, 'stall_since': 900,
+                  'stall_open': True}
         with tempfile.TemporaryDirectory() as directory, self.assertNoLogs('duora-selfie-alert', 'ERROR'):
             path = Path(directory) / 'state.json'
             path.write_text(json.dumps(memory))
             self.assertEqual(alert.load_memory(path), memory)
+
+
+class StalledQueueTests(unittest.TestCase):
+    def setUp(self):
+        self.memory = alert.fresh_memory()
+
+    def step(self, stalled, at):
+        self.memory, events = alert.advance_stall(self.memory, stalled, at)
+        return [name for name, _ in events]
+
+    def test_opens_only_after_two_minutes_of_stalled_readings(self):
+        self.assertEqual(self.step(True, 1000), [])
+        self.assertEqual(self.step(True, 1119), [])
+        self.assertEqual(self.step(True, 1120), [STALLED])
+
+    def test_opens_once(self):
+        for at in (1000, 1120):
+            self.step(True, at)
+        self.assertEqual(self.step(True, 1240), [])
+
+    def test_one_healthy_reading_restarts_the_count(self):
+        self.step(True, 1000)
+        self.step(False, 1060)
+        self.assertEqual(self.step(True, 1120), [])
+        self.assertEqual(self.step(True, 1239), [])
+        self.assertEqual(self.step(True, 1240), [STALLED])
+
+    def test_a_broken_probe_neither_restarts_the_count_nor_closes(self):
+        self.step(True, 1000)
+        self.assertEqual(self.step(None, 1060), [])
+        self.assertEqual(self.step(True, 1120), [STALLED])
+        self.assertEqual(self.step(None, 1180), [])
+        self.assertTrue(self.memory['stall_open'])
+
+    def test_the_first_healthy_reading_closes_with_the_same_anchor(self):
+        self.step(True, 1000)
+        self.step(True, 1120)
+        self.memory, events = alert.advance_stall(self.memory, False, 1150)
+        self.assertEqual(events, [(RESUMED, 1000.0)])
+        self.assertEqual(self.memory, alert.fresh_memory())
+
+    def test_nothing_is_said_while_the_queue_is_healthy(self):
+        self.assertEqual(self.step(False, 1000), [])
+        self.assertEqual(self.memory, alert.fresh_memory())
 
 
 class OutboxTests(unittest.TestCase):
@@ -267,20 +319,20 @@ class OutboxTests(unittest.TestCase):
 
     def open_alert(self):
         for now in (1000, 1060, 1120):
-            self.cycle('t\n', now)
+            self.cycle('t|f\n', now)
 
     def test_nothing_is_written_while_there_is_nothing_to_say(self):
         for now in (1000, 1030):
-            self.assertEqual(self.cycle('f\n', now), 0)
+            self.assertEqual(self.cycle('f|f\n', now), 0)
         self.assertEqual(list(self.outbox.iterdir()), [])
 
     def almost_open(self):
         for now in (1000, 1030, 1060, 1090):
-            self.cycle('t\n', now)
+            self.cycle('t|f\n', now)
 
     def test_opening_writes_one_event_the_mail_sender_can_use(self):
         self.open_alert()
-        self.cycle('t\n', 1150)
+        self.cycle('t|f\n', 1150)
         event = self.pending()
         self.assertEqual(len(event), 1)
         self.assertEqual(set(event[0]), {'event', 'reason', 'deployment_uuid', 'observed_at'})
@@ -290,8 +342,20 @@ class OutboxTests(unittest.TestCase):
         self.assertIn('NAO E DEPLOY', event[0]['reason'])
         self.assertIn('docs/operations/selfie-provider-alert.md', event[0]['reason'])
 
+    def test_stalled_queue_writes_its_own_event_beside_the_provider_alert(self):
+        for now in (1000, 1060, 1120):
+            self.assertEqual(self.cycle('t|t\n', now), 0)
+        self.assertEqual(sorted(event['event'] for event in self.pending()), [DOWN, STALLED])
+        self.cycle('f|f\n', 1150)
+        self.assertEqual(sorted(event['event'] for event in self.pending()), [DOWN, RESUMED, STALLED])
+
+    def test_a_stalled_queue_alone_does_not_touch_the_provider_alert(self):
+        for now in (1000, 1060, 1120):
+            self.cycle('f|t\n', now)
+        self.assertEqual([event['event'] for event in self.pending()], [STALLED])
+
     def test_every_reason_says_it_is_not_a_deploy_and_points_to_the_guide(self):
-        self.assertEqual(set(alert.REASONS), {DOWN, RECOVERED, BLIND, RESTORED})
+        self.assertEqual(set(alert.REASONS), {DOWN, RECOVERED, BLIND, RESTORED, STALLED, RESUMED})
         for reason in alert.REASONS.values():
             self.assertIn('Coolify', reason)
             self.assertTrue((ROOT / reason.rsplit(' ', 1)[1]).is_file())
@@ -314,7 +378,7 @@ class OutboxTests(unittest.TestCase):
             synced.append('link')
             real_link(source, target)
         with patch.object(alert.os, 'fsync', fsync), patch.object(alert.os, 'link', link):
-            self.cycle('t\n', 1120)
+            self.cycle('t|f\n', 1120)
         self.assertEqual(synced, ['file', 'link', 'directory'])
         self.assertEqual(stat.S_IMODE(next(self.outbox.glob('*.json')).stat().st_mode), 0o600)
 
@@ -328,7 +392,7 @@ class OutboxTests(unittest.TestCase):
 
     def test_recovery_writes_a_second_event(self):
         self.open_alert()
-        self.cycle('f\n', 1120 + 900)
+        self.cycle('f|f\n', 1120 + 900)
         self.assertEqual([event['event'] for event in self.pending()], [DOWN, RECOVERED])
 
     def test_failed_probe_fails_the_unit_and_writes_nothing_until_blind(self):
@@ -340,14 +404,14 @@ class OutboxTests(unittest.TestCase):
     def test_missing_outbox_fails_the_unit_even_with_nothing_to_say(self):
         self.outbox.rmdir()
         with self.assertLogs('duora-selfie-alert', 'ERROR') as logs:
-            self.assertEqual(self.cycle('f\n', 1000), 1)
+            self.assertEqual(self.cycle('f|f\n', 1000), 1)
         self.assertEqual(logs.output, ['ERROR:duora-selfie-alert:selfie_alert_outbox_missing'])
         self.assertTrue(self.state.exists())
 
     def test_memory_survives_between_runs(self):
         self.almost_open()
         self.assertEqual(self.pending(), [])
-        self.cycle('t\n', 1120)
+        self.cycle('t|f\n', 1120)
         self.assertEqual(len(self.pending()), 1)
 
     def test_no_temporary_file_is_left_or_visible_as_an_event(self):
@@ -363,46 +427,46 @@ class OutboxTests(unittest.TestCase):
             real_link(source, target)
         self.almost_open()
         with patch.object(alert.os, 'link', link):
-            self.cycle('t\n', 1120)
+            self.cycle('t|f\n', 1120)
         self.assertEqual(visible, [])
         self.assertEqual(len(self.pending()), 1)
 
     def test_publication_failure_keeps_the_transition_for_the_next_run(self):
         self.almost_open()
         with patch.object(alert.os, 'link', side_effect=OSError('disk')), self.assertRaises(OSError):
-            self.cycle('t\n', 1120)
+            self.cycle('t|f\n', 1120)
         self.assertEqual(list(self.outbox.iterdir()), [])
-        self.cycle('t\n', 1150)
+        self.cycle('t|f\n', 1150)
         self.assertEqual([event['event'] for event in self.pending()], [DOWN])
 
     def test_publication_failure_at_the_worst_interval_is_retried_by_the_next_run(self):
         for now in (1000, 1047, 1094):
-            self.cycle('t\n', now)
+            self.cycle('t|f\n', now)
         with patch.object(alert.os, 'link', side_effect=OSError('disk')), self.assertRaises(OSError):
-            self.cycle('t\n', 1141)
-        self.cycle('t\n', 1188)
+            self.cycle('t|f\n', 1141)
+        self.cycle('t|f\n', 1188)
         self.assertEqual([event['event'] for event in self.pending()], [DOWN])
 
     def test_crash_after_publishing_does_not_repeat_the_event(self):
         self.almost_open()
         with patch.object(alert, 'save_memory', side_effect=OSError('disk')), self.assertRaises(OSError):
-            self.cycle('t\n', 1120)
-        self.cycle('t\n', 1150)
+            self.cycle('t|f\n', 1120)
+        self.cycle('t|f\n', 1150)
         self.assertEqual(len(self.pending()), 1)
 
     def test_an_event_already_sent_is_never_overwritten(self):
         self.almost_open()
         with patch.object(alert, 'save_memory', side_effect=OSError('disk')), self.assertRaises(OSError):
-            self.cycle('t\n', 1120)
+            self.cycle('t|f\n', 1120)
         path = next(self.outbox.glob('*.json'))
         path.write_text(json.dumps({**json.loads(path.read_text()), 'delivery': 'smtp_accepted'}))
-        self.cycle('t\n', 1150)
+        self.cycle('t|f\n', 1150)
         self.assertEqual(self.pending(), [])
 
     def test_a_malformed_state_file_does_not_stop_the_run(self):
         self.state.write_text('{"open": true}')
         with self.assertLogs('duora-selfie-alert', 'ERROR'):
-            self.assertEqual(self.cycle('f\n', 1000), 0)
+            self.assertEqual(self.cycle('f|f\n', 1000), 0)
         self.assertEqual(json.loads(self.state.read_text()), alert.fresh_memory())
 
     def test_main_never_prints_exception_text(self):
