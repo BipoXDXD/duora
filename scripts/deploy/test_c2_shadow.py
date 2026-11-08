@@ -377,6 +377,7 @@ class SwapDocker:
         self.now = 1000.0
         self.fail_on: str | None = None
         self.photo_after_swap: dict | None = None
+        self.images_applied: list[str] = []
         self.config_project = "duora-c2"
         self.config_volume = "duora-c2_pgdata"
         self.config_root = "/ROOT"
@@ -452,6 +453,7 @@ class SwapDocker:
             return self.volume_created + "\n"
         if " up " in joined and "--no-deps postgres" in joined:
             self.image = dict(line.split("=", 1) for line in Path(argv[argv.index("--env-file", argv.index("--env-file") + 1) + 1]).read_text().splitlines())["DUORA_POSTGRES_IMAGE"]
+            self.images_applied.append(self.image)
         if "'systemIdentifier'" in joined:
             changed = self.photo_after_swap is not None and self.image == TARGET
             return json.dumps(self.photo_after_swap if changed else PHOTO) + "\n"
@@ -768,11 +770,52 @@ class SwapRehearsalResourceTests(SwapRehearsalFixture):
             self.rehearse(fill_mib=256, resources=resources)
         self.assertEqual(self.stops(), [])
 
-    def test_pressed_container_during_the_swap_returns_to_the_origin(self) -> None:
-        resources = dataclasses.replace(HEALTHY, container_pressure=lambda _identifier: 41.0 if self.docker.image == TARGET else 0.0)
-        with self.assertRaisesRegex(shadow.ShadowError, "PSI de CPU"):
-            self.rehearse(resources=resources)
+    def test_pressed_container_between_the_directions_is_recorded_and_the_way_back_completes(self) -> None:
+        pressed = {WEB_ID: 41.0, NEIGHBOR_ID: 55.5}
+        resources = dataclasses.replace(HEALTHY, container_pressure=lambda identifier: pressed.get(identifier, 0.0) if self.docker.image == TARGET else 0.0)
+        output = io.StringIO()
+        with redirect_stdout(output):
+            result = self.rehearse(resources=resources)
+        self.assertTrue(result["photoStable"])
+        self.assertEqual(self.docker.images_applied, [TARGET, SOURCE])
+        expected = [{"container": "duora-web-1", "cpuPressure": 41.0}, {"container": "stillon-api-1", "cpuPressure": 55.5}]
+        self.assertEqual(result["containerCpuPressureOverflowsBetweenDirections"], expected)
+        self.assertEqual(result["containerCpuPressureMax"], 55.5)
+        written = json.loads((self.layout.state / "swap-rehearsal.json").read_text())
+        self.assertEqual(written["containerCpuPressureOverflowsBetweenDirections"], expected)
+        logged = output.getvalue()
+        self.assertIn("duora-web-1 em 41.0", logged)
+        self.assertIn("stillon-api-1 em 55.5", logged)
+
+    def test_calm_containers_between_the_directions_record_no_overflow(self) -> None:
+        result = self.rehearse()
+        self.assertEqual(result["containerCpuPressureOverflowsBetweenDirections"], [])
+
+    def test_pressed_container_right_before_the_way_out_still_aborts(self) -> None:
+        def pressure(_identifier: str) -> float:
+            stopped = any(" stop web" in command for command in self.docker.commands)
+            return 41.0 if stopped and self.docker.image == SOURCE else 0.0
+        with self.assertRaisesRegex(shadow.ShadowError, "PSI de CPU de"):
+            self.rehearse(resources=dataclasses.replace(HEALTHY, container_pressure=pressure))
+        self.assertNotIn(TARGET, self.docker.images_applied)
         self.assertEqual(self.docker.image, SOURCE)
+
+    def test_unreadable_or_missing_neighbor_between_the_directions_still_returns_to_the_origin(self) -> None:
+        def unreadable(identifier: str) -> float:
+            if identifier == NEIGHBOR_ID and self.docker.image == TARGET:
+                raise FileNotFoundError("sem cgroup")
+            return 0.0
+        with self.assertRaisesRegex(shadow.ShadowError, "cgroup de stillon-api-1"):
+            self.rehearse(resources=dataclasses.replace(HEALTHY, container_pressure=unreadable))
+        self.assertEqual(self.docker.images_applied, [TARGET, SOURCE])
+        self.setUp()
+        self.rehearse()
+        between = self.docker.ps_calls  # O último docker ps do ensaio é o do ponto entre a ida e a volta.
+        self.setUp()
+        self.docker.rows_from_call = {between: [row for row in PRODUCTION_ROWS if row[1] != "stillon-api-1"]}
+        with self.assertRaisesRegex(shadow.ShadowError, "containers sem leitura: \\['stillon-api-1'\\]"):
+            self.rehearse()
+        self.assertEqual(self.docker.images_applied, [TARGET, SOURCE])
 
     def test_the_shadow_itself_is_not_watched(self) -> None:
         seen: list[str] = []
@@ -781,14 +824,24 @@ class SwapRehearsalResourceTests(SwapRehearsalFixture):
         self.assertNotIn(SHADOW_ID, seen)
 
     def test_coolify_control_plane_above_the_ceiling_does_not_stop(self) -> None:
-        for name, project in (("coolify", "source"), ("coolify-proxy", "proxy"), ("coolify-realtime", "")):
-            with self.subTest(name=name):
+        for project in ("source", ""):
+            with self.subTest(project=project):
                 self.setUp()
-                self.docker.rows.append((COOLIFY_ID, name, project))
+                self.docker.rows.append((COOLIFY_ID, "coolify", project))
                 resources = dataclasses.replace(HEALTHY, container_pressure=lambda identifier: 41.0 if identifier == COOLIFY_ID else 0.0)
                 result = self.rehearse(resources=resources)
                 self.assertTrue(result["photoStable"])
                 self.assertEqual(result["containerCpuPressureMax"], 0.0)
+
+    def test_other_coolify_containers_above_the_ceiling_stop(self) -> None:
+        for name, project in (("coolify-proxy", "proxy"), ("coolify-realtime", "source"), ("coolify-db", "source")):
+            with self.subTest(name=name):
+                self.setUp()
+                self.docker.rows.append((COOLIFY_ID, name, project))
+                resources = dataclasses.replace(HEALTHY, container_pressure=lambda identifier: 41.0 if identifier == COOLIFY_ID else 0.0)
+                with self.assertRaisesRegex(shadow.ShadowError, f"PSI de CPU de {name} em 41.0"):
+                    self.rehearse(resources=resources)
+                self.assertEqual(self.stops(), [])
 
     def test_protected_neighbor_at_41_stops_even_beside_coolify(self) -> None:
         for name, project in (("goblinshift-web-1", "goblinshift"), ("openclaw-gateway", ""), ("app-coolify-1", "app")):
@@ -801,12 +854,12 @@ class SwapRehearsalResourceTests(SwapRehearsalFixture):
                 self.assertEqual(self.stops(), [])
 
     def test_neighbor_project_rule_precedes_coolify_name_rule(self) -> None:
-        for project in ("stillon", "goblinshift"):
-            with self.subTest(project=project):
+        for name, project in itertools.product(("coolify", "coolify-x"), ("stillon", "goblinshift")):
+            with self.subTest(name=name, project=project):
                 self.setUp()
-                self.docker.rows.append((COOLIFY_ID, "coolify-x", project))
+                self.docker.rows.append((COOLIFY_ID, name, project))
                 resources = dataclasses.replace(HEALTHY, container_pressure=lambda identifier: 41.0 if identifier == COOLIFY_ID else 0.0)
-                with self.assertRaisesRegex(shadow.ShadowError, "PSI de CPU de coolify-x"):
+                with self.assertRaisesRegex(shadow.ShadowError, f"PSI de CPU de {name} em"):
                     self.rehearse(resources=resources)
                 self.assertEqual(self.stops(), [])
 

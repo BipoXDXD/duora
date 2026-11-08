@@ -482,15 +482,17 @@ SWAP_MAX_DISK_PERCENT = 85
 # presos na própria cota, com CPU 91% ociosa, e `duora-web-1` em 0,83. Medido localmente, um único cgroup preso levou o global
 # acima de 90 com o alvo em 0,00, e nenhum teto abaixo de 100 separa os dois casos.
 # Por isso, a falta real de CPU vem do delta de /proc/stat: idle + iowait abaixo de 10% significa host sem folga para ninguém,
-# inclusive para o que não é container (sshd, receiver, gateway). Cada container fora do sombra, menos o Coolify (plano de
-# controle), mantém o teto 40 do OTHER_APPS_PSI, mas ele sozinho não basta: a revisão mediu p99 22 vezes maior num alvo
+# inclusive para o que não é container (sshd, receiver, gateway). Cada container fora do sombra, menos o painel `coolify`
+# (plano de controle), mantém o teto 40 do OTHER_APPS_PSI, mas ele sozinho não basta: a revisão mediu p99 22 vezes maior num alvo
 # leve com PSI do alvo em 22,54. Só a sonda `ready` vê a latência que o usuário sente, com a regra do harness
 # (health_latency_*, health_consecutive_failures).
 # A volta à origem não passa por este guarda, de propósito: parar no meio dela seria pior que terminar.
 SWAP_MAX_STALL_PRESSURE = 40.0
 SWAP_MAX_CONTAINER_CPU_PRESSURE = 40.0
-# Dono do plano de controle em capacity_inventory.CONTAINER_RULES: fora do teto por container, como no OTHER_APPS_PSI.
+# Só o painel do Coolify fica fora do teto por container, como no OTHER_APPS_PSI: dono `coolify` em
+# capacity_inventory.CONTAINER_RULES e nome exato. coolify-proxy (Traefik de todos os sites), -realtime e -db seguem guardados.
 SWAP_CONTROL_PLANE_OWNER = "coolify"
+SWAP_CONTROL_PLANE_CONTAINER = "coolify"
 SWAP_MIN_CPU_IDLE_PERCENT = 10.0
 SWAP_PRODUCTION_CONTAINERS = ("duora-web-1", "duora-worker-1", "duora-postgres-1")
 SWAP_CONTAINER_ID = re.compile(r"[0-9a-f]{64}")
@@ -694,6 +696,18 @@ class SwapGuard:
         self._evidence.update(readyBaselineMs=baseline, readyMaxMs=baseline)
 
     def check(self, *, memory_mib: int = SWAP_MEMORY_FLOOR_MIB, disk_needed_mib: int = 0) -> None:
+        self._require_host(memory_mib, disk_needed_mib)
+        self._require_calm_containers()
+        self._require_ready()
+
+    def check_between_directions(self) -> None:
+        """Entre a ida e a volta, o estouro de PSI por container só vai à evidência e ao log. Abortar ali faria a mesma
+        volta, sem segurança a mais, e perderia a medição. Os demais guardas, inclusive o vizinho ilegível, seguem iguais."""
+        self._require_host(SWAP_MEMORY_FLOOR_MIB, 0)
+        self._record_container_overflows()
+        self._require_ready()
+
+    def _require_host(self, memory_mib: int, disk_needed_mib: int) -> None:
         available = self._resources.available_mib()
         if available < memory_mib:
             raise ShadowError(f"memória disponível: {available} MiB, abaixo de {memory_mib} MiB")
@@ -706,8 +720,6 @@ class SwapGuard:
             raise ShadowError(f"PSI de memória {pressure.memory} ou IO {pressure.io} acima de {SWAP_MAX_STALL_PRESSURE}")
         self._require_cpu_idle()
         self._require_no_new_oom()
-        self._require_calm_containers()
-        self._require_ready()
 
     def _require_cpu_idle(self) -> None:
         ticks = self._resources.cpu_ticks()
@@ -726,13 +738,26 @@ class SwapGuard:
             raise ShadowError(f"oom_kill subiu de {self._oom_kills} para {count}")
 
     def _require_calm_containers(self) -> None:
-        name, worst = max(self._container_pressures().items(), key=lambda item: item[1])
-        self._note_worst("containerCpuPressureMax", worst)
+        name, worst = max(self._noted_container_pressures().items(), key=lambda item: item[1])
         if worst > SWAP_MAX_CONTAINER_CPU_PRESSURE:
             raise ShadowError(f"PSI de CPU de {name} em {worst}, acima de {SWAP_MAX_CONTAINER_CPU_PRESSURE}")
 
+    def _record_container_overflows(self) -> None:
+        overflows = [{"container": name, "cpuPressure": value}
+                     for name, value in sorted(self._noted_container_pressures().items())
+                     if value > SWAP_MAX_CONTAINER_CPU_PRESSURE]
+        self._evidence["containerCpuPressureOverflowsBetweenDirections"] = overflows
+        for item in overflows:
+            _say(f"[c2-shadow] PSI de CPU de {item['container']} em {item['cpuPressure']}, acima de "
+                 f"{SWAP_MAX_CONTAINER_CPU_PRESSURE}: só registrado entre a ida e a volta")
+
+    def _noted_container_pressures(self) -> dict[str, float]:
+        pressures = self._container_pressures()
+        self._note_worst("containerCpuPressureMax", max(pressures.values()))
+        return pressures
+
     def _container_pressures(self) -> dict[str, float]:
-        """Todo container fora do sombra, menos o Coolify. Falha fechada: sem a leitura de um deles, não há como afirmar
+        """Todo container fora do sombra, menos o painel `coolify`. Falha fechada: sem a leitura de um deles, não há como afirmar
         que ele vai bem."""
         pressures: dict[str, float] = {}
         listing = self._run(list(c2_probe.PS_COMMAND), timeout=SWAP_DOCKER_PS_TIMEOUT_SECONDS)
@@ -742,8 +767,8 @@ class SwapGuard:
                 continue  # O próprio preenchimento pressiona o sombra de propósito.
             if not SWAP_CONTAINER_ID.fullmatch(identifier):
                 raise ShadowError(f"cgroup de {name}: id de container fora do formato")
-            if capacity_inventory.classify_container({"name": name, "project": project}) == SWAP_CONTROL_PLANE_OWNER:
-                continue  # Plano de controle, não vizinho: mesma regra de dono do inventário C1, só por nome e projeto.
+            if _swap_is_control_plane(name, project):
+                continue
             try:
                 pressures[name] = self._resources.container_pressure(identifier)
             except (OSError, ValueError, KeyError, IndexError) as error:
@@ -779,6 +804,12 @@ class SwapGuard:
 
     def _note_worst(self, key: str, value: float) -> None:
         self._evidence[key] = max(value, self._evidence.get(key, value))
+
+
+def _swap_is_control_plane(name: str, project: str) -> bool:
+    """Nome exato e dono pelo inventário C1: a regra de projeto (stillon, goblinshift) continua vencendo a de nome."""
+    return (name == SWAP_CONTROL_PLANE_CONTAINER
+            and capacity_inventory.classify_container({"name": name, "project": project}) == SWAP_CONTROL_PLANE_OWNER)
 
 
 def _swap_preflight(layout: Layout, fill_mib: int, run: Runner, clock: Callable[[], float], resources: SwapResources,
@@ -934,7 +965,7 @@ def _swap_prepare(compose: list[str], target: str, fill_mib: int, result: dict, 
 
 
 def _swap_round_trip(layout: Layout, compose: list[str], target: str, result: dict, run: Runner, clock: Callable[[], float],
-                     calm: Callable[[], None]) -> None:
+                     calm: Callable[[], None], calm_between: Callable[[], None]) -> None:
     stopping = clock()
     run([*compose, "stop", "worker"])
     run([*compose, "stop", "web"])
@@ -945,7 +976,7 @@ def _swap_round_trip(layout: Layout, compose: list[str], target: str, result: di
     _swap_check(run, compose)
     calm()
     result["forward"] = _swap_direction(layout, target, baseline, run, clock)
-    calm()
+    calm_between()
     result["back"] = _swap_direction(layout, SWAP_SOURCE_IMAGE, baseline, run, clock)
     reopening = clock()
     run([*compose, "up", "--detach", "--wait", "--no-deps", "web", "worker", "edge"])
@@ -975,7 +1006,7 @@ def swap_rehearsal(layout: Layout, target: str, *, fill_mib: int, run: Runner = 
         _swap_write(evidence, result)
         raise ShadowError(f"ensaio parado antes de parar qualquer serviço: {error}") from error
     try:
-        _swap_round_trip(layout, compose, target, result, run, clock, calm)
+        _swap_round_trip(layout, compose, target, result, run, clock, calm, guard.check_between_directions)
     except SWAP_FAILURES as error:
         shield()
         result.update(aborted=True, error=str(error))

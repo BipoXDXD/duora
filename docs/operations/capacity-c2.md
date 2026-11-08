@@ -226,13 +226,19 @@ não passa pelo guarda, de propósito: parar no meio dela seria pior que termina
 | --- | --- |
 | Sonda `ready` | `docker exec duora-edge-1 wget --quiet --spider --timeout=5 http://duora-web:8080/health/ready`, a sonda do deploy. A linha de base é a mediana de 5 leituras no preflight, e falha nelas recusa. Para com 2 leituras ruins seguidas, sejam falha ou acima de `max(3 × base, base + 500 ms)` |
 | CPU do host | Delta de `/proc/stat` desde a leitura anterior: para se idle + iowait ficar abaixo de 10% |
-| Por container | `cpu.pressure` de todo container fora do sombra, em `/sys/fs/cgroup/system.slice/docker-<id>.scope`, só leitura, com teto 40 do `OTHER_APPS_PSI`, exceto os do Coolify (plano de controle, dono `coolify` em `capacity_inventory.classify_container` por nome e projeto); os apps que ele implanta continuam protegidos |
+| Por container | `cpu.pressure` de todo container fora do sombra, em `/sys/fs/cgroup/system.slice/docker-<id>.scope`, só leitura, com teto 40 do `OTHER_APPS_PSI`, exceto o painel do Coolify: nome exatamente `coolify` e dono `coolify` em `capacity_inventory.classify_container`. `coolify-proxy` (Traefik de todos os sites), `coolify-realtime`, `coolify-db` e os apps que o Coolify implanta continuam protegidos. Entre a ida e a volta, o estouro só é registrado (ver abaixo) |
 | Containers do início | Todo container visto no preflight, mais web, worker e postgres, vira obrigatório. Sem ele, sem o cgroup ou com arquivo ilegível, para. `docker ps` tem 10 s de timeout |
 | OOM | Qualquer aumento de `oom_kill` em `/proc/vmstat` |
 | Memória e IO | PSI `some avg10` acima de 40 |
 
 O sombra fica fora da leitura por container, porque o preenchimento o pressiona de propósito. O JSON registra `readyBaselineMs`,
-`readyMaxMs`, `cpuIdleMinPercent`, `containerCpuPressureMax` e `hostCpuPressureMax`.
+`readyMaxMs`, `cpuIdleMinPercent`, `containerCpuPressureMax`, `hostCpuPressureMax` e `containerCpuPressureOverflowsBetweenDirections`.
+
+**Entre a ida e a volta, PSI por container só registra.** No guarda que roda depois da ida e antes da volta, um container acima de
+40 entra na lista `containerCpuPressureOverflowsBetweenDirections` do JSON (nome e valor) e numa linha do log, mas não para o
+ensaio: abortar ali faria a mesma volta, sem segurança a mais, e perderia a medição. Os demais guardas desse ponto continuam
+parando (memória, disco, PSI de memória e IO, idle, `ready`, OOM, container ilegível ou ausente). Antes da ida, o estouro por
+container continua abortando.
 
 **PSI de CPU global não decide.** No ensaio de 06/11 às 16:13 UTC, ele foi a 71,79 por causa de cgroups do OpenClaw presos na
 própria cota, com a CPU 91% ociosa, enquanto `duora-web-1` marcava no máximo 0,83 e o `ready` respondia em 10 ms. Medido localmente,
