@@ -810,6 +810,14 @@ class SwapRehearsalResourceTests(SwapRehearsalFixture):
                     self.rehearse(resources=resources)
                 self.assertEqual(self.stops(), [])
 
+    def test_malformed_coolify_id_is_refused_before_the_exclusion(self) -> None:
+        self.docker.rows.append(("../../etc", "coolify", "source"))
+        seen: list[str] = []
+        with self.assertRaisesRegex(shadow.ShadowError, "id de container fora do formato"):
+            self.rehearse(resources=dataclasses.replace(HEALTHY, container_pressure=lambda identifier: seen.append(identifier) or 0.0))
+        self.assertNotIn("../../etc", seen)
+        self.assertEqual(self.stops(), [])
+
     def test_unreadable_neighbor_still_refuses_beside_coolify(self) -> None:
         self.docker.rows.append((COOLIFY_ID, "coolify", "source"))
 
