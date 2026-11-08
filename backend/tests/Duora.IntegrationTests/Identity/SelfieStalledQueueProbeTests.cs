@@ -54,7 +54,7 @@ public sealed class SelfieStalledQueueProbeTests(PostgresFixture postgres)
             update ops.outbox_deliveries set available_at = now() - interval '61 seconds'
             where consumer = 'selfie-provider';
             update ops.outbox_deliveries set status = 'InFlight', lease_expires_at = now() + $1
-            where id = (select min(id) from ops.outbox_deliveries where consumer = 'selfie-provider')
+            where id = (select id from ops.outbox_deliveries where consumer = 'selfie-provider' order by id limit 1)
             """, TimeSpan.FromMilliseconds(leaseLeftMilliseconds)));
     }
 
@@ -132,6 +132,27 @@ public sealed class SelfieStalledQueueProbeTests(PostgresFixture postgres)
         Assert.False(await ProbeAsync(connection, "select 1"));
     }
 
+    /// <summary>A consulta que o script realmente envia: uma linha, as duas respostas, na ordem que ele lê.</summary>
+    [Fact]
+    public async Task TheCombinedReadingAnswersBothQuestions()
+    {
+        var connection = await QueueAsync(deliveries: 1);
+        await using var database = new NpgsqlConnection(connection);
+        await database.OpenAsync(Ct);
+        await using var transaction = await database.BeginTransactionAsync(Ct);
+        await using var age = new NpgsqlCommand(
+            "update ops.outbox_deliveries set available_at = now() - interval '61 seconds' where consumer = 'selfie-provider'",
+            database, transaction);
+        await age.ExecuteNonQueryAsync(Ct);
+
+        await using var reading = new NpgsqlCommand(CombinedQuery(), database, transaction);
+        await using var row = await reading.ExecuteReaderAsync(Ct);
+
+        Assert.True(await row.ReadAsync(Ct));
+        Assert.Equal((false, true), (row.GetBoolean(0), row.GetBoolean(1)));
+        Assert.False(await row.ReadAsync(Ct));
+    }
+
     private async Task<string> QueueAsync(int deliveries)
     {
         var time = new FakeTimeProvider(Now);
@@ -170,11 +191,20 @@ public sealed class SelfieStalledQueueProbeTests(PostgresFixture postgres)
         return Assert.IsType<bool>(await probe.ExecuteScalarAsync(Ct));
     }
 
-    private static string StalledQuery()
+    private static string StalledQuery() => ScriptQuery("STALLED_QUERY");
+
+    private static string CombinedQuery()
     {
-        var script = File.ReadAllText(Path.Combine(RepositoryRoot.Find(), "scripts", "deploy", "selfie_provider_alert.py"));
-        return Assert.Single(Regex.Matches(script, "STALLED_QUERY = \"\"\"(.*?)\"\"\"", RegexOptions.Singleline)).Groups[1].Value;
+        var composed = Assert.Single(Regex.Matches(Script(), "QUEUE_QUERY = f'(.*)'")).Groups[1].Value;
+        return composed.Replace("{PROBE_QUERY}", ScriptQuery("PROBE_QUERY"), StringComparison.Ordinal)
+            .Replace("{STALLED_QUERY}", StalledQuery(), StringComparison.Ordinal);
     }
+
+    private static string ScriptQuery(string name) =>
+        Assert.Single(Regex.Matches(Script(), name + " = \"\"\"(.*?)\"\"\"", RegexOptions.Singleline)).Groups[1].Value;
+
+    private static string Script() =>
+        File.ReadAllText(Path.Combine(RepositoryRoot.Find(), "scripts", "deploy", "selfie_provider_alert.py"));
 
     /// <summary>A primeira abertura de sessão fica presa e ignora o token, até o teste liberar.</summary>
     private sealed class StartThatIgnoresTheCut(FakeTimeProvider time) : ISelfieProvider
