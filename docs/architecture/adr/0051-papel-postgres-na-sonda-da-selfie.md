@@ -46,7 +46,8 @@ exige nova qualificação da imagem. A lacuna fecha quando a sonda conectar com 
 ## Segurança e operação
 
 Nenhum dado de participante sai da consulta: o resultado são dois booleanos, e o evento leva texto constante. O script não
-recebe segredo. A consulta usa os índices parciais da fila e roda a cada 30 s.
+recebe segredo. Com distribuição realista da fila, a consulta usa os índices parciais; isso não é garantia, e o
+`statement_timeout` de 3 s é a contenção. Ela roda a cada 30 s.
 
 ## Compliance
 

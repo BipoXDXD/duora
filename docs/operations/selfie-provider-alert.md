@@ -59,15 +59,16 @@ Não dispara, embora a fila possa não estar andando:
 
 - fila vazia: sem trabalho esperando não há o que acusar;
 - réplica presa com outra andando: o lease vivo da outra basta;
-- crash-loop que faz claim a cada menos de 30 s: o lease fica vivo e a entrega nunca termina;
+- crash-loop que faz claim a cada menos de 30 s: o lease fica vivo e o alerta não dispara, até a entrega esgotar as 40
+  tentativas e encerrar como `Failed` ou `Expired`;
 - exceção depois do claim, fora da lista transitória: o lote seguinte toma outra entrega, ou a mesma quando o lease vence,
   com o mesmo efeito.
 
 Pode disparar sem defeito:
 
 - backlog com fornecedor rápido: a chamada dura pouco e o laço pausa 1 s entre lotes, então as leituras costumam não ver
-  lease vivo. Isso exige entregas prontas há 60 s, o que pelo teto de uma entrega por segundo pede mais de cerca de 60 na
-  fila (cálculo, sem medição);
+  lease vivo. Isso exige entregas prontas há 60 s, o que, com uma entrega por lote, 1 s de pausa e chamadas de até 300 ms,
+  pede cerca de 45 a 60 na fila (cálculo, sem medição);
 - `SelfieVerification:Enabled=false` com entrega `Pending` residual: o dispatcher não toma nada, o alerta abre e não fecha
   enquanto essa entrega existir.
 

@@ -134,7 +134,8 @@ def advance(memory: Memory, failing: bool | None, now: float) -> tuple[Memory, l
 
 
 def advance_stall(memory: Memory, stalled: bool | None, now: float) -> tuple[Memory, list[tuple[str, float]]]:
-    """Só leituras seguidas contam: worker vivo com fila longa pode aparecer parado por um instante, entre dois lotes."""
+    """Leitura saudável recomeça a contagem e leitura perdida não zera: worker vivo com fila longa pode aparecer parado
+    por um instante, entre dois lotes."""
     updated = dict(memory)
     if stalled is None:
         return updated, []
