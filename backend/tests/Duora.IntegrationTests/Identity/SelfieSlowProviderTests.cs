@@ -70,7 +70,7 @@ public sealed class SelfieSlowProviderTests(PostgresFixture postgres)
 
         var elapsed = await TimedDispatchAsync(host);
 
-        Assert.InRange(elapsed, BelowTheCallTimeout, CallCeiling);
+        Assert.InRange(elapsed, BelowTheCallTimeout, AboveTheCallTimeout);
         Assert.Equal(1, transport.Calls);
         Assert.Equal("Pending|no-reference|PROVIDER_UNAVAILABLE|open", await AttemptAsync(scenario));
         Assert.Equal("Pending|ProviderUnavailable|1", await DeliveryAsync(scenario));
@@ -102,7 +102,7 @@ public sealed class SelfieSlowProviderTests(PostgresFixture postgres)
 
         var elapsed = await TimedDispatchAsync(host);
 
-        Assert.InRange(elapsed, BelowTheCallTimeout, CallCeiling);
+        Assert.InRange(elapsed, BelowTheCallTimeout, AboveTheCallTimeout);
         Assert.Equal("Capturing|has-reference|PROVIDER_UNAVAILABLE|open", await AttemptAsync(scenario));
         Assert.Equal("Pending|ProviderUnavailable|2", await DeliveryAsync(scenario));
         await AssertNotReleasedAsync(scenario, host, account.UserId);
@@ -116,13 +116,14 @@ public sealed class SelfieSlowProviderTests(PostgresFixture postgres)
     }
 
     /// <summary>
-    /// On point e off point do corte de 10 s, com um fornecedor que respeita o cancelamento: a resposta de 9,9 s decide
-    /// e libera; a de 10,1 s nunca chega, a entrega volta para a fila com o sinal de instabilidade e a conta fica
-    /// pendente. Os outros testes só prendem o corte entre 9 s e o lease de 30 s; este prende os dois lados dos 10 s.
+    /// Os dois lados do corte de 10 s, com um fornecedor que respeita o cancelamento: a resposta de 9,5 s decide e
+    /// libera; a de 10,5 s nunca chega, a entrega volta para a fila com o sinal de instabilidade e a conta fica pendente.
+    /// Com relógio real, 500 ms de folga para cada lado: os dois timers não vencem na mesma rodada mesmo com a thread de
+    /// timers atrasada na CI. Corte encurtado para menos de 9 s cai no limite inferior dos testes de travamento.
     /// </summary>
     [Theory]
-    [InlineData(9_900, "Passed|has-reference|no-feedback|closed", "Delivered|-|2", true)]
-    [InlineData(10_100, "Capturing|has-reference|PROVIDER_UNAVAILABLE|open", "Pending|ProviderUnavailable|2", false)]
+    [InlineData(9_500, "Passed|has-reference|no-feedback|closed", "Delivered|-|2", true)]
+    [InlineData(10_500, "Capturing|has-reference|PROVIDER_UNAVAILABLE|open", "Pending|ProviderUnavailable|2", false)]
     public async Task AnAnswerDecidesOnlyWhenItArrivesBeforeTheTenSecondCut(int answerMilliseconds, string expectedAttempt,
         string expectedDelivery, bool released)
     {
@@ -621,7 +622,7 @@ public sealed class SelfieSlowProviderTests(PostgresFixture postgres)
 
         for (var attempt = 0; attempt < AttemptsInTheBacklog; attempt++)
         {
-            Assert.InRange(await TimedDispatchAsync(host), BelowTheCallTimeout, CallCeiling);
+            Assert.InRange(await TimedDispatchAsync(host), BelowTheCallTimeout, AboveTheCallTimeout);
         }
 
         Assert.Equal(0, await SelfieConcurrencyHarness.DispatchAsync(host, Ct));

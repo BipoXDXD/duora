@@ -242,6 +242,8 @@ public sealed class SelfieConcurrencyTests(PostgresFixture postgres)
     [Fact]
     public async Task ADuplicatedDeliveryForTheSameAttemptReleasesTheAccountOnce()
     {
+        // Início e aprovação: duas versões; a resposta duplicada não grava a terceira.
+        const string Released = "Passed|2|Active|";
         var ct = TestContext.Current.CancellationToken;
         var connection = await postgres.CreateMigratedDatabaseAsync(ct);
         var time = new FakeTimeProvider(DateTimeOffset.UtcNow);
@@ -264,6 +266,7 @@ public sealed class SelfieConcurrencyTests(PostgresFixture postgres)
             await barrier.WaitForEntryAsync(ct);
             Assert.Equal(1, await DispatchAsync(second, ct));
             releasedBy = await ReleaseFootprintAsync(scenario, account.UserId);
+            Assert.StartsWith(Released, releasedBy, StringComparison.Ordinal);
             Assert.True(await EligibleAsync(second, account.UserId, ct));
         }
         finally
@@ -272,7 +275,9 @@ public sealed class SelfieConcurrencyTests(PostgresFixture postgres)
             await owning;
         }
 
-        Assert.Equal(releasedBy, await ReleaseFootprintAsync(scenario, account.UserId));
+        var afterTheDuplicate = await ReleaseFootprintAsync(scenario, account.UserId);
+        Assert.StartsWith(Released, afterTheDuplicate, StringComparison.Ordinal);
+        Assert.Equal(releasedBy, afterTheDuplicate);
         Assert.Equal(1, await scenario.ScalarAsync(
             "select count(*) from ops.outbox_deliveries where consumer = 'selfie-provider' and status = 'InFlight'"));
 
@@ -280,7 +285,9 @@ public sealed class SelfieConcurrencyTests(PostgresFixture postgres)
         await DispatchAsync(second, ct);
 
         Assert.Equal(2, provider.ReadCalls);
-        Assert.Equal(releasedBy, await ReleaseFootprintAsync(scenario, account.UserId));
+        var afterTheLease = await ReleaseFootprintAsync(scenario, account.UserId);
+        Assert.StartsWith(Released, afterTheLease, StringComparison.Ordinal);
+        Assert.Equal(releasedBy, afterTheLease);
         Assert.Equal(2, await scenario.ScalarAsync(
             "select count(*) from ops.outbox_deliveries where consumer = 'selfie-provider' and status = 'Delivered'"));
         Assert.Equal(0, await scenario.ScalarAsync("select count(*) from identity.selfie_failures where user_id = $1", account.UserId));
@@ -359,9 +366,9 @@ public sealed class SelfieConcurrencyTests(PostgresFixture postgres)
         returning 1
         """);
 
-    /// <summary>Tudo que a liberação escreve: tentativa, versão, conclusão e a conta com o carimbo de concorrência.</summary>
+    /// <summary>Tudo que a liberação escreve: estado, versão, conta, carimbo de concorrência e conclusão, nessa ordem.</summary>
     private static Task<string> ReleaseFootprintAsync(IdentityScenario scenario, Guid userId) => scenario.ScalarTextAsync("""
-        select v.state || '|' || v.version || '|' || v.completed_at || '|' || u.status || '|' || u.concurrency_stamp
+        select v.state || '|' || v.version || '|' || u.status || '|' || u.concurrency_stamp || '|' || v.completed_at
         from identity.selfie_verifications v join identity.users u on u.id = v.user_id
         where v.user_id = $1
         """, userId);
