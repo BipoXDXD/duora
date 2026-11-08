@@ -1160,40 +1160,43 @@ public sealed class SelfieSlowProviderTests(PostgresFixture postgres)
 
         public int ReadCalls => Volatile.Read(ref _readCalls);
 
-        /// <summary>Chamadas que terminaram de fato, inclusive as que o dispatcher abandonou no corte.</summary>
+        /// <summary>
+        /// Chamadas com a tarefa já concluída, inclusive as que o dispatcher abandonou no corte. Conta depois da conclusão,
+        /// para o teste não pedir o lote seguinte enquanto a vaga ainda vê a tarefa em andamento.
+        /// </summary>
         public int StartsFinished => Volatile.Read(ref _startsFinished);
 
         public int ReadsFinished => Volatile.Read(ref _readsFinished);
 
-        public async Task<SelfieSession> StartAsync(Guid attemptId, CancellationToken cancellationToken)
+        public Task<SelfieSession> StartAsync(Guid attemptId, CancellationToken cancellationToken)
+        {
+            var call = RunStartAsync(attemptId, cancellationToken);
+            _ = call.ContinueWith(_ => Interlocked.Increment(ref _startsFinished), CancellationToken.None,
+                TaskContinuationOptions.ExecuteSynchronously, TaskScheduler.Default);
+            return call;
+        }
+
+        public Task<SelfieResult> ReadAsync(string reference, CancellationToken cancellationToken)
+        {
+            var call = RunReadAsync(cancellationToken);
+            _ = call.ContinueWith(_ => Interlocked.Increment(ref _readsFinished), CancellationToken.None,
+                TaskContinuationOptions.ExecuteSynchronously, TaskScheduler.Default);
+            return call;
+        }
+
+        private async Task<SelfieSession> RunStartAsync(Guid attemptId, CancellationToken cancellationToken)
         {
             Interlocked.Increment(ref _startCalls);
             _startedAttempts.Enqueue(attemptId);
             _startTimestamps.Enqueue(Stopwatch.GetTimestamp());
-            try
-            {
-                await (StartFault?.Invoke(cancellationToken) ?? Task.CompletedTask);
-            }
-            finally
-            {
-                Interlocked.Increment(ref _startsFinished);
-            }
-
+            await (StartFault?.Invoke(cancellationToken) ?? Task.CompletedTask);
             return new SelfieSession(attemptId.ToString("D"), time.GetUtcNow().AddMinutes(3));
         }
 
-        public async Task<SelfieResult> ReadAsync(string reference, CancellationToken cancellationToken)
+        private async Task<SelfieResult> RunReadAsync(CancellationToken cancellationToken)
         {
             Interlocked.Increment(ref _readCalls);
-            try
-            {
-                await (ReadFault?.Invoke(cancellationToken) ?? Task.CompletedTask);
-            }
-            finally
-            {
-                Interlocked.Increment(ref _readsFinished);
-            }
-
+            await (ReadFault?.Invoke(cancellationToken) ?? Task.CompletedTask);
             return new SelfieResult(Answer, Answer is SelfieState.Passed or SelfieState.Processing ? null : "CAPTURE_QUALITY", ScriptedSelfieProvider.Policy);
         }
     }

@@ -90,6 +90,8 @@ public sealed partial class SelfieVerificationDispatcher
 
     private async Task<int> DispatchClaimsAsync(DateTimeOffset now, CancellationToken cancellationToken)
     {
+        // Lote de 1 de propósito: a vaga e _abandonedCall cobrem uma única chamada por lote. Num lote maior, a entrega
+        // seguinte chamaria o fornecedor com a anterior ainda rodando.
         var claims = await _queue.ClaimWithAttemptLimitAsync(SelfieVerificationOutbox.Consumer, 1, now, now + Lease, 40, cancellationToken);
         foreach (var exhausted in claims.Exhausted)
         {
@@ -208,10 +210,11 @@ public sealed partial class SelfieVerificationDispatcher
     }
 
     /// <summary>
-    /// O corte em duas camadas, no relógio injetado: o token pede ao fornecedor que pare, e o <c>WaitAsync</c> devolve o
-    /// controle no prazo mesmo que ele não pare. A chamada que segue rodando fica abandonada: ninguém lê a resposta dela,
-    /// e ela leva a vaga até terminar. O prazo é fixado antes da chamada, então o tempo que ela gasta para devolver a
-    /// tarefa já conta.
+    /// O corte em duas camadas, no relógio injetado. O timer cancela o token no prazo mesmo que a chamada ainda não tenha
+    /// devolvido a tarefa (o SDK da AWS lê o corpo da resposta de forma síncrona). O <c>WaitAsync</c> devolve o controle
+    /// mesmo que o fornecedor ignore o token. A chamada que segue rodando fica abandonada: ninguém lê a resposta dela, e
+    /// ela leva a vaga até terminar. Um bloqueio síncrono que também ignore o token não é interrompido: o
+    /// <c>WaitAsync</c> só age sobre a tarefa devolvida.
     /// </summary>
     private async Task<T> CallProviderAsync<T>(Func<CancellationToken, Task<T>> call, CancellationToken cancellationToken)
     {
@@ -227,10 +230,11 @@ public sealed partial class SelfieVerificationDispatcher
         {
             if (!pending.IsCompleted)
             {
-                // O WaitAsync pode vencer o timer cooperativo: sem isto, o token seria descartado sem nunca cancelar, e
-                // até o fornecedor que respeita o cancelamento ficaria rodando com a vaga.
+                // O WaitAsync pode vencer o timer: sem cancelar aqui, o token seria descartado sem avisar o fornecedor. A
+                // vaga vem antes, para uma exceção em callback do token não a devolver com a chamada viva; se o
+                // cancelamento encerrar a chamada, a vaga trata a tarefa concluída.
+                _abandonedCall = pending;
                 await linked.CancelAsync();
-                _abandonedCall = pending.IsCompleted ? null : pending;
             }
         }
     }
