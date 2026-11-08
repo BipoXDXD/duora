@@ -26,13 +26,17 @@ from continuity_trials import TrialCpuLoad, save_qualification, validate_trial
 
 
 # Issue #403: one GHCR timeout on the historical pull failed main. Three attempts with 5 s and 15 s between them ride out
-# a registry hiccup while adding at most 20 s of waiting to the 1200 s root lab. A pull that hangs past command()'s own
-# 180 s limit raises TimeoutExpired and is not retried: only an answered daemon error is.
+# a registry hiccup. The waiting is at most 20 s per pull: 4 pulls per trial make 80 s inside that trial's 1200 s root lab,
+# and 240 s over the 3 trials. A pull that hangs past command()'s own 180 s limit raises TimeoutExpired and is not retried:
+# only an answered daemon error is.
 PULL_MAX_ATTEMPTS = 3
 PULL_BACKOFF_SECONDS = (5, 15)
+PULL_LOG_PREFIX = "[lab-pull]"
 DIGEST_REFERENCE = re.compile(r"[^@\s]+@sha256:[0-9a-f]{64}")
 # Checked first: a missing digest or refused access will not heal by waiting, even if the text also says "timeout".
-PERMANENT_PULL_FAILURE = re.compile(r"manifest unknown|not found|does not exist|denied|unauthorized|forbidden", re.IGNORECASE)
+# A 429 is here on purpose (coordination decision): the rate limit is not a network hiccup, and more calls count against it.
+PERMANENT_PULL_FAILURE = re.compile(
+    r"manifest unknown|not found|does not exist|denied|unauthorized|forbidden|toomanyrequests|too many requests", re.IGNORECASE)
 TRANSIENT_PULL_FAILURES = (
     ("timeout", re.compile(r"timeout|deadline exceeded", re.IGNORECASE)),
     ("connection refused", re.compile(r"connection refused", re.IGNORECASE)),
@@ -186,7 +190,7 @@ def pull_by_digest(reference: str, *, sleep: Callable[[float], None] = time.slee
     if not DIGEST_REFERENCE.fullmatch(reference):
         raise RuntimeError("Historical image reference is not pinned by digest")
     for attempt in range(1, PULL_MAX_ATTEMPTS + 1):
-        print(f"[lab-pull] attempt {attempt}/{PULL_MAX_ATTEMPTS}: {reference}", file=sys.stderr, flush=True)
+        print(f"{PULL_LOG_PREFIX} attempt {attempt}/{PULL_MAX_ATTEMPTS}: {reference}", file=sys.stderr, flush=True)
         try:
             command(["docker", "pull", "--quiet", reference])
             return
@@ -195,7 +199,7 @@ def pull_by_digest(reference: str, *, sleep: Callable[[float], None] = time.slee
             if reason is None or attempt == PULL_MAX_ATTEMPTS:
                 raise
             delay = PULL_BACKOFF_SECONDS[attempt - 1]
-            print(f"[lab-pull] attempt {attempt}/{PULL_MAX_ATTEMPTS}: transient failure ({reason}), retrying in {delay} s",
+            print(f"{PULL_LOG_PREFIX} attempt {attempt}/{PULL_MAX_ATTEMPTS}: transient failure ({reason}), retrying in {delay} s",
                   file=sys.stderr, flush=True)
             sleep(delay)
 
@@ -226,9 +230,17 @@ def run_preservation_lab(*, trial: int = 1) -> dict:
             check=False, timeout=1200)
         if result.returncode:
             raise RuntimeError("Disposable root lab failed: " + (result.stdout + result.stderr)[-6000:])
+        _reemit_pull_log(result.stderr)
         line = next(line for line in reversed(result.stdout.splitlines()) if line.startswith("LAB_RESULT="))
         return json.loads(line.removeprefix("LAB_RESULT="))
     return _root_lab(trial=trial)
+
+
+def _reemit_pull_log(child_stderr: str) -> None:
+    """The root child's pipes are captured, so a retry that ended well would otherwise leave no trace in the job log."""
+    for line in child_stderr.splitlines():
+        if line.startswith(PULL_LOG_PREFIX):
+            print(line, file=sys.stderr, flush=True)
 
 
 def _with_s3_double(compose: str, *, key: str, secret: str, certificates: Path) -> str:

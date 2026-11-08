@@ -3,6 +3,8 @@ import contextlib
 import io
 import os
 from pathlib import Path
+import subprocess
+import sys
 import tempfile
 import unittest
 from unittest import mock
@@ -22,6 +24,18 @@ if [ "$count" -le "$FAKE_FAILURES" ]; then
     exit 1
 fi
 echo "$4"
+"""
+
+
+# Stands in for `sudo python continuity_lab.py --actions-lab`: same captured pipes, the real pull_by_digest inside.
+FAKE_SUDO = """#!/bin/sh
+exec "$FAKE_PYTHON" -c '
+import sys
+import continuity_lab as lab
+lab.pull_by_digest(sys.argv[1], sleep=lambda _seconds: None)
+print("unrelated child stderr", file=sys.stderr)
+print("LAB_RESULT={\\"trial\\":1}")
+' "$FAKE_REFERENCE"
 """
 
 
@@ -113,10 +127,63 @@ class PullRetryTests(unittest.TestCase):
                 lab.pull_by_digest(reference, sleep=lambda _seconds: None)
         self.assertEqual(docker.calls(), [])
 
+    def test_rate_limit_fails_on_the_first_attempt(self) -> None:
+        for message in ("Error response from daemon: toomanyrequests: retry-after: 12s",
+                        "Error response from daemon: received unexpected HTTP status: 429 Too Many Requests",
+                        "Error response from daemon: toomanyrequests: rate limit, client timeout"):
+            with self.subTest(message=message):
+                docker = FakeDocker(self, failures=1, message=message)
+                with self.assertRaises(RuntimeError) as raised:
+                    self.pull()
+                self.assertIn(message, str(raised.exception))
+                self.assertEqual(len(docker.calls()), 1)
+
+    def test_unauthorized_with_a_timeout_word_is_permanent(self) -> None:
+        message = "Error response from daemon: unauthorized: token request timeout"
+        docker = FakeDocker(self, failures=1, message=message)
+        with self.assertRaises(RuntimeError) as raised:
+            self.pull()
+        self.assertIn(message, str(raised.exception))
+        self.assertEqual(len(docker.calls()), 1)
+
+    def test_command_timeout_is_not_retried(self) -> None:
+        hung = subprocess.TimeoutExpired(["docker", "pull"], 180)
+        with mock.patch.object(lab.subprocess, "run", side_effect=hung) as run, self.assertRaises(subprocess.TimeoutExpired):
+            self.pull()
+        self.assertEqual(run.call_count, 1)
+
     def test_ceiling_and_backoff_stay_inside_the_root_lab_timeout(self) -> None:
         self.assertEqual(lab.PULL_MAX_ATTEMPTS, 3)
         self.assertEqual(lab.PULL_BACKOFF_SECONDS, (5, 15))
         self.assertEqual(len(lab.PULL_BACKOFF_SECONDS), lab.PULL_MAX_ATTEMPTS - 1)
+
+
+class RootLabPullLogTests(unittest.TestCase):
+    def run_through_sudo(self, failures: int) -> tuple[dict, str]:
+        docker = FakeDocker(self, failures=failures)
+        sudo = docker.state / "sudo"
+        sudo.write_text(FAKE_SUDO)
+        sudo.chmod(0o700)
+        environment = {"GITHUB_ACTIONS": "true", "RUNNER_ENVIRONMENT": "github-hosted", "GITHUB_REPOSITORY": "BipoXDXD/duora",
+                       "FAKE_PYTHON": sys.executable, "FAKE_REFERENCE": REFERENCE, "PYTHONPATH": str(Path(lab.__file__).parent)}
+        log = io.StringIO()
+        with mock.patch.dict(os.environ, environment), mock.patch.object(lab.os, "geteuid", return_value=1000), \
+                contextlib.redirect_stderr(log):
+            result = lab.run_preservation_lab(trial=1)
+        return result, log.getvalue()
+
+    def test_parent_reemits_the_pull_log_when_the_retry_succeeds(self) -> None:
+        result, log = self.run_through_sudo(failures=2)
+        self.assertEqual(result, {"trial": 1})
+        lines = log.splitlines()
+        self.assertEqual([line for line in lines if "attempt" in line and "transient" not in line],
+                         [f"[lab-pull] attempt {n}/3: {REFERENCE}" for n in (1, 2, 3)])
+        self.assertEqual(sum("transient failure (timeout)" in line for line in lines), 2)
+        self.assertTrue(all(line.startswith("[lab-pull] ") for line in lines), lines)
+
+    def test_parent_reemits_only_the_pull_log(self) -> None:
+        _result, log = self.run_through_sudo(failures=0)
+        self.assertEqual(log.splitlines(), [f"[lab-pull] attempt 1/3: {REFERENCE}"])
 
 
 if __name__ == "__main__":
