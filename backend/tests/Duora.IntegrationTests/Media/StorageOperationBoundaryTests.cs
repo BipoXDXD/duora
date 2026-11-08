@@ -212,6 +212,24 @@ public sealed class StorageOperationBoundaryTests
         Assert.Equal($"STORAGE_REPLY_INTERRUPTED OperationCanceledException{Environment.NewLine}", errors.ToString());
     }
 
+    [Fact]
+    public async Task BytesAfterTheDeclaredBodyAreNeverAcceptedAsAResponse()
+    {
+        byte[] wire = [0, 0, 0, 26, .. """{"status":"ok","length":3}"""u8, 1, 2, 3, 9];
+        using var stream = new MemoryStream(wire);
+
+        await Assert.ThrowsAsync<InvalidDataException>(() => PrivateGenerationWire.ReadResponseAsync(stream, Ct));
+    }
+
+    [Fact]
+    public async Task ADeniedReplyIsNeverAcceptedAsAResponse()
+    {
+        byte[] wire = [0, 0, 0, 19, .. """{"status":"denied"}"""u8];
+        using var stream = new MemoryStream(wire);
+
+        await Assert.ThrowsAsync<IOException>(() => PrivateGenerationWire.ReadResponseAsync(stream, Ct));
+    }
+
     private static int FrameLength(PrivateGenerationReply reply) =>
         sizeof(int) + JsonSerializer.SerializeToUtf8Bytes(reply, PrivateGenerationWire.Json).Length;
 
