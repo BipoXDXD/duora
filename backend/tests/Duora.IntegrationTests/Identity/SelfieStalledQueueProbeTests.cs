@@ -58,6 +58,33 @@ public sealed class SelfieStalledQueueProbeTests(PostgresFixture postgres)
             """, TimeSpan.FromMilliseconds(leaseLeftMilliseconds)));
     }
 
+    /// <summary>Lease vivo de outra fila, como a de e-mail, não diz nada sobre a selfie.</summary>
+    [Fact]
+    public async Task ALiveLeaseOfAnotherConsumerDoesNotHideAStalledQueue()
+    {
+        var connection = await QueueAsync(deliveries: 2);
+
+        Assert.True(await ProbeAsync(connection, """
+            update ops.outbox_deliveries set available_at = now() - interval '61 seconds'
+            where consumer = 'selfie-provider';
+            update ops.outbox_deliveries set consumer = 'another-consumer', status = 'InFlight',
+                lease_expires_at = now() + interval '30 seconds'
+            where id = (select id from ops.outbox_deliveries where consumer = 'selfie-provider' order by id limit 1)
+            """));
+    }
+
+    [Fact]
+    public async Task AnExpiredLeaseOfAnotherConsumerIsNotSelfieWork()
+    {
+        var connection = await QueueAsync(deliveries: 1);
+
+        Assert.False(await ProbeAsync(connection, """
+            update ops.outbox_deliveries set consumer = 'another-consumer', status = 'InFlight',
+                lease_expires_at = now() - interval '61 seconds'
+            where consumer = 'selfie-provider'
+            """));
+    }
+
     [Fact]
     public async Task AnEmptyQueueIsNotStalled()
     {

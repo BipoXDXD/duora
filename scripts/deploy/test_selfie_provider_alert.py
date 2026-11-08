@@ -354,6 +354,34 @@ class OutboxTests(unittest.TestCase):
             self.cycle('f|t\n', now)
         self.assertEqual([event['event'] for event in self.pending()], [STALLED])
 
+    def stall_almost_open(self):
+        for now in (1000, 1060):
+            self.cycle('f|t\n', now)
+
+    def test_a_broken_probe_does_not_close_an_open_stall(self):
+        self.stall_almost_open()
+        self.cycle('f|t\n', 1120)
+        self.assertEqual(self.cycle(TEMPORARY_ERROR, 1150), 1)
+        self.assertEqual([event['event'] for event in self.pending()], [STALLED])
+        self.assertTrue(json.loads(self.state.read_text())['stall_open'])
+
+    def test_stall_publication_failure_keeps_the_transition_for_the_next_run(self):
+        self.stall_almost_open()
+        with patch.object(alert.os, 'link', side_effect=OSError('disk')), self.assertRaises(OSError):
+            self.cycle('f|t\n', 1120)
+        self.assertEqual(list(self.outbox.iterdir()), [])
+        self.cycle('f|t\n', 1150)
+        self.assertEqual([event['event'] for event in self.pending()], [STALLED])
+
+    def test_crash_after_publishing_the_stall_does_not_repeat_it(self):
+        self.stall_almost_open()
+        with patch.object(alert, 'save_memory', side_effect=OSError('disk')), self.assertRaises(OSError):
+            self.cycle('f|t\n', 1120)
+        self.cycle('f|t\n', 1150)
+        events = self.pending()
+        self.assertEqual(len(events), 1)
+        self.assertEqual(events[0]['deployment_uuid'], f'selfie-provider-{STALLED}-1000')
+
     def test_every_reason_says_it_is_not_a_deploy_and_points_to_the_guide(self):
         self.assertEqual(set(alert.REASONS), {DOWN, RECOVERED, BLIND, RESTORED, STALLED, RESUMED})
         for reason in alert.REASONS.values():
