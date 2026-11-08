@@ -252,6 +252,7 @@ def _is_protected_neighbor(name: str, raw: dict[str, Any]) -> bool:
 
     Usa as regras de dono do inventário C1. A amostra só traz nome e projeto compose, então das regras do Coolify
     vale a do nome; a de working_dir exigiria outro campo no `docker ps` que c2_shadow também lê.
+    Os `extra_cgroups` da sonda (slices) passam pela mesma classificação, com o caminho como nome e projeto vazio.
     """
     if raw.get("owner") != "other":
         return False

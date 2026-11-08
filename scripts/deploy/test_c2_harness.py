@@ -235,7 +235,7 @@ class GuardTests(unittest.TestCase):
         self.assertEqual(self.codes(self.state(spike)), [])
 
     def test_coolify_control_plane_pressure_does_not_trip_other_apps(self) -> None:
-        for name, project in (("coolify", "coolify"), ("coolify-proxy", "coolify"), ("coolify-realtime", "")):
+        for name, project in (("coolify", "source"), ("coolify-proxy", "proxy"), ("coolify-realtime", "")):
             with self.subTest(name=name):
                 series = neighbor_series(12, name, project, psi=41.0)
                 self.assertEqual(self.codes(self.state(series)), [])
@@ -249,6 +249,12 @@ class GuardTests(unittest.TestCase):
                 self.assertEqual(self.codes(self.state(neighbor_series(12, name, project, psi=41.0))),
                                  ["OTHER_APPS_PSI"])
                 self.assertEqual(self.codes(self.state(neighbor_series(12, name, project, psi=40.0))), [])
+
+    def test_neighbor_project_rule_precedes_coolify_name_rule(self) -> None:
+        for project in ("stillon", "goblinshift"):
+            with self.subTest(project=project):
+                self.assertEqual(self.codes(self.state(neighbor_series(12, "coolify-x", project, psi=41.0))),
+                                 ["OTHER_APPS_PSI"])
 
     def test_stale_probe_means_running_blind(self) -> None:
         state = self.state(derived_series(2))
