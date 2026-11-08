@@ -1,5 +1,6 @@
 using System.Net.Sockets;
 using System.Security.Cryptography;
+using System.Text;
 using System.Text.Json;
 using Duora.Core.Media;
 using Duora.Infrastructure.Media;
@@ -56,6 +57,35 @@ public static partial class StorageAuthorityRuntimeChecks
         Console.WriteLine("PASS independent reference outage denies reads and writes; preserved state recovers");
     }
 
+    /// <summary>
+    /// The journal chain has no secret, so a well-chained entry without identity reaches the journal reader and
+    /// throws outside the denial list. No production seam: the actual host, peer check and PostgreSQL are in play.
+    /// </summary>
+    private static async Task VerifyUnexpectedFailureIsRecordedAsync(string root, AuthorityProcess authority,
+        CancellationToken cancellationToken)
+    {
+        var journal = Path.Combine(root, "control/domain.journal");
+        await RunClientProcessAsync(root, "create-open", cancellationToken);
+        var intact = await File.ReadAllBytesAsync(journal, cancellationToken);
+        await File.WriteAllBytesAsync(journal, WithChainedEntryWithoutIdentity(intact), cancellationToken);
+        await RunClientProcessAsync(root, "read-unexpected-failure", cancellationToken);
+        var line = await authority.UnexpectedFailure.WaitAsync(TimeSpan.FromSeconds(10), cancellationToken);
+        Assert.StartsWith("STORAGE_OPERATION_FAILED NullReferenceException ", line, StringComparison.Ordinal);
+        Assert.Contains("PrivateGenerationJournal.Read", line, StringComparison.Ordinal);
+        await File.WriteAllBytesAsync(journal, intact, cancellationToken);
+        await RunClientProcessAsync(root, "finish-open", cancellationToken);
+        Console.WriteLine("PASS failure outside the denial list is recorded and denied; the host keeps serving");
+    }
+
+    private static byte[] WithChainedEntryWithoutIdentity(byte[] journal)
+    {
+        var text = Encoding.UTF8.GetString(journal);
+        var previous = text.Split('\n')[^2].Split('\t')[1];
+        var payload = Convert.ToBase64String("""{"identity":null,"state":"Open","revision":1}"""u8);
+        var hash = Convert.ToHexStringLower(SHA256.HashData(Encoding.UTF8.GetBytes(previous + "\n" + payload)));
+        return Encoding.UTF8.GetBytes($"{text}{payload}\t{hash}\n");
+    }
+
     private static async Task RunControlFaultClientAsync(ClientParameters parameters, NpgsqlDataSource app,
         IObjectStore store, IPrivateGenerationStore managed, string mode, CancellationToken cancellationToken)
     {
@@ -84,6 +114,14 @@ public static partial class StorageAuthorityRuntimeChecks
             Assert.Equal(0L, await ScalarAsync(app,
                 "select count(*) from media.private_generation_proofs where generation=$1", cancellationToken,
                 identity.Generation));
+            return;
+        }
+        if (mode == "read-unexpected-failure")
+        {
+            var key = record.Manifest.Key(PhotoVariant.Thumb);
+            Assert.Equal("denied", await RawRequestAsync(parameters, new(1, "read", ObjectKey: key.Value), null,
+                cancellationToken));
+            await Assert.ThrowsAsync<IOException>(() => store.OpenReadAsync(key, cancellationToken));
             return;
         }
         if (mode == "read-denied")

@@ -37,9 +37,10 @@ internal static partial class SelfieVerificationEndpoints
             {
                 session = await service.CreateAsync(DuoraClaims.ReadUserId(context.User)!.Value, id, ct);
             }
-            catch (Exception error) when (error is Amazon.Runtime.AmazonServiceException or Amazon.Runtime.AmazonClientException)
+            catch (Exception error) when (IsProviderUnavailable(error, context.RequestAborted))
             {
-                // Só o código do erro: a mensagem da AWS pode citar ARN ou chave, e a exceção nunca vai ao log.
+                // Só o tipo e o código do erro: a mensagem da AWS pode citar ARN ou chave, e este log não leva a exceção.
+                // Com o cliente já fora, falha de transporte não entra aqui e segue ao middleware, que loga a mensagem.
                 var awsError = error as Amazon.Runtime.AmazonServiceException;
                 LogCaptureUnavailable(loggers.CreateLogger(typeof(SelfieVerificationEndpoints)), error.GetType().Name,
                     awsError?.ErrorCode, (int?)awsError?.StatusCode);
@@ -60,6 +61,12 @@ internal static partial class SelfieVerificationEndpoints
             return status.Id == id ? TypedResults.Accepted("/api/v1/me/selfie-verifications/current", Response(status)) as IResult : TypedResults.NotFound();
         }).Produces<SelfieVerificationResponse>(202).Produces(404).RequireRateLimiting(AuthRateLimitPolicies.TokenRedemption);
     }
+
+    /// <summary>Transporte que falhou ou prazo vencido é indisponibilidade; a mesma exceção com o cliente fora não é.</summary>
+    private static bool IsProviderUnavailable(Exception error, CancellationToken clientAborted) =>
+        error is Amazon.Runtime.AmazonServiceException or Amazon.Runtime.AmazonClientException
+        || (!clientAborted.IsCancellationRequested
+            && error is HttpRequestException or IOException or TimeoutException or OperationCanceledException);
 
     [LoggerMessage(Level = LogLevel.Warning,
         Message = "Selfie capture credentials unavailable ({ErrorType}, {ErrorCode}, {StatusCode})")]

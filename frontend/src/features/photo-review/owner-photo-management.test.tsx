@@ -4,7 +4,7 @@ import { focusManager, QueryClientProvider } from '@tanstack/react-query'
 import { screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { delay, http, HttpResponse } from 'msw'
-import { useState } from 'react'
+import { Profiler, useState } from 'react'
 import { MemoryRouter } from 'react-router'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { AccountContext } from '@/features/session/account-context'
@@ -40,9 +40,11 @@ const stored = {
 interface MountOptions {
   readonly status?: AccountStatus
   readonly locale?: 'pt-BR' | 'en-US'
+  /** Roda dentro de cada commit da tela, depois do DOM aplicado e antes dos efeitos passivos desse commit. */
+  readonly onCommit?: () => void
 }
 
-function mount({ status = 'Active', locale = 'pt-BR' }: MountOptions = {}) {
+function mount({ status = 'Active', locale = 'pt-BR', onCommit }: MountOptions = {}) {
   const me = installTestMe({
     id: 'dddddddd-dddd-4ddd-8ddd-dddddddddddd',
     email: 'owner@example.test',
@@ -57,7 +59,9 @@ function mount({ status = 'Active', locale = 'pt-BR' }: MountOptions = {}) {
       <AccountContext value={me}>
         <PrivateOperationProvider owner={me.owner}>
           <MemoryRouter>
-            <PhotoReviewOwnerIndex />
+            <Profiler id="owner-photos" onRender={() => onCommit?.()}>
+              <PhotoReviewOwnerIndex />
+            </Profiler>
           </MemoryRouter>
         </PrivateOperationProvider>
       </AccountContext>
@@ -149,9 +153,19 @@ async function confirmDeletion(): Promise<void> {
   await userEvent.click(await screen.findByRole('button', { name: 'Confirmar exclusão' }))
 }
 
+// Foco, aviso de saída e fechamento do painel vêm de efeitos, que o React roda numa tarefa depois de atualizar o DOM.
+// Quando um findBy* encontra o texto novo, eles ainda podem refletir o estado anterior; por isso a espera.
 async function expectFocusedNotice(message: string): Promise<void> {
   const notice = await screen.findByText(message)
-  expect(notice.closest('[role="status"]')).toHaveFocus()
+  await waitFor(() => {
+    expect(notice.closest('[role="status"]')).toHaveFocus()
+  })
+}
+
+async function expectDeletionPanelFocused(): Promise<void> {
+  await waitFor(() => {
+    expect(screen.getByRole('group', { name: 'Excluir esta foto? Não dá para desfazer.' })).toHaveFocus()
+  })
 }
 
 describe('gate: a tela só abre com o upload ligado no servidor', () => {
@@ -524,7 +538,7 @@ describe('exclusão', () => {
     await askToDelete()
 
     expect(await screen.findByText('Estado atual: Aprovada')).toBeVisible()
-    expect(screen.getByRole('group', { name: 'Excluir esta foto? Não dá para desfazer.' })).toHaveFocus()
+    await expectDeletionPanelFocused()
     expect(deletes).toEqual([])
 
     await confirmDeletion()
@@ -698,6 +712,12 @@ function leavingIsWarned(): boolean {
   const event = new Event('beforeunload', { cancelable: true })
   window.dispatchEvent(event)
   return event.defaultPrevented
+}
+
+async function expectLeavingWarned(warned: boolean): Promise<void> {
+  await waitFor(() => {
+    expect(leavingIsWarned()).toBe(warned)
+  })
 }
 
 async function repeatAndExpectSameUpload(posts: readonly SentUpload[], total = 2): Promise<void> {
@@ -1024,7 +1044,9 @@ describe('gate fechado durante a exclusão', () => {
     await confirmDeletion()
 
     expect(await screen.findByText('As fotos ainda não estão disponíveis no Duora.')).toBeVisible()
-    expect(screen.queryByRole('group')).not.toBeInTheDocument()
+    await waitFor(() => {
+      expect(screen.queryByRole('group')).not.toBeInTheDocument()
+    })
     expect(screen.queryByRole('button', { name: 'Repetir o mesmo pedido' })).not.toBeInTheDocument()
   })
 
@@ -1058,7 +1080,7 @@ describe('aviso ao sair da página', () => {
     mount()
 
     await screen.findByLabelText('Foto')
-    expect(leavingIsWarned()).toBe(false)
+    await expectLeavingWarned(false)
   })
 
   it('avisa durante o envio e para quando ele é confirmado', async () => {
@@ -1074,10 +1096,10 @@ describe('aviso ao sair da página', () => {
     await waitFor(() => {
       expect(posts).toHaveLength(1)
     })
-    expect(leavingIsWarned()).toBe(true)
+    await expectLeavingWarned(true)
     gate.release()
     await screen.findByText('Foto recebida e enviada para análise.')
-    expect(leavingIsWarned()).toBe(false)
+    await expectLeavingWarned(false)
   })
 
   it('avisa com envio incerto', async () => {
@@ -1088,7 +1110,7 @@ describe('aviso ao sair da página', () => {
     await sendFile()
     await repeatButton()
 
-    expect(leavingIsWarned()).toBe(true)
+    await expectLeavingWarned(true)
   })
 
   it('não avisa depois de uma recusa definitiva', async () => {
@@ -1099,7 +1121,7 @@ describe('aviso ao sair da página', () => {
     await sendFile()
     await screen.findByRole('alert')
 
-    expect(leavingIsWarned()).toBe(false)
+    await expectLeavingWarned(false)
   })
 
   it('avisa com exclusão incerta', async () => {
@@ -1112,7 +1134,7 @@ describe('aviso ao sair da página', () => {
     await confirmDeletion()
     await repeatButton()
 
-    expect(leavingIsWarned()).toBe(true)
+    await expectLeavingWarned(true)
   })
 })
 
@@ -1213,8 +1235,7 @@ describe('foco quando o controle focado some', () => {
 
     await sendFile()
 
-    const notice = await screen.findByText('As fotos ainda não estão disponíveis no Duora.')
-    expect(notice.closest('[role="status"]')).toHaveFocus()
+    await expectFocusedNotice('As fotos ainda não estão disponíveis no Duora.')
   })
 
   it('manter a foto leva o foco ao título da lista quando o botão de origem sumiu', async () => {
@@ -1287,7 +1308,7 @@ describe('saída segura da exclusão incerta', () => {
     await expectFocusedNotice('Foto excluída. A remoção dos arquivos termina em seguida.')
     expect(screen.queryByRole('group')).not.toBeInTheDocument()
     expect(deletes).toHaveLength(1)
-    expect(leavingIsWarned()).toBe(false)
+    await expectLeavingWarned(false)
   })
 
   it('versão igual em M02 libera nova confirmação, com chave nova', async () => {
@@ -1303,8 +1324,8 @@ describe('saída segura da exclusão incerta', () => {
 
     await screen.findByRole('button', { name: 'Confirmar exclusão' })
     expect(screen.queryByRole('button', { name: 'Repetir o mesmo pedido' })).not.toBeInTheDocument()
-    expect(screen.getByRole('group', { name: 'Excluir esta foto? Não dá para desfazer.' })).toHaveFocus()
-    expect(leavingIsWarned()).toBe(false)
+    await expectDeletionPanelFocused()
+    await expectLeavingWarned(false)
     await confirmDeletion()
 
     await screen.findByText('Foto excluída. A remoção dos arquivos termina em seguida.')
@@ -1348,6 +1369,56 @@ describe('saída segura da exclusão incerta', () => {
     expect(deletes[1]).toEqual(deletes[0])
   })
 
+  /**
+   * O commit que mostra a incerteza vem da resposta do DELETE, sem prioridade de evento: o React aplica o DOM e deixa os
+   * efeitos passivos para outra tarefa, e um clique pode chegar entre as duas. Este clique acontece nessa janela.
+   */
+  function rereadAsSoonAsShown(): () => void {
+    let clicked = false
+    return () => {
+      const reread = screen.queryByRole('button', { name: REREAD })
+      if (clicked || reread === null) return
+      clicked = true
+      reread.click()
+    }
+  }
+
+  it('reler antes dos efeitos do commit decide pela leitura nova: Deleted conclui a exclusão', async () => {
+    let reads = 0
+    server.use(
+      http.get(PHOTOS, () => {
+        reads += 1
+        return reads === 1 ? listing(stored) : listing()
+      }),
+    )
+    useStatusSequence(statusOf('AwaitingReview', TAG_V1), statusOf('Deleted', TAG_V2))
+    const deletes = useDeletes(serverError)
+    mount({ onCommit: rereadAsSoonAsShown() })
+
+    await askToDelete()
+    await confirmDeletion()
+
+    await expectFocusedNotice('Foto excluída. A remoção dos arquivos termina em seguida.')
+    expect(deletes).toHaveLength(1)
+  })
+
+  it('reler antes dos efeitos do commit decide pela leitura nova: M02 indisponível mantém a repetição', async () => {
+    useList(stored)
+    useStatusSequence(statusOf('AwaitingReview', TAG_V1), serverError)
+    const deletes = useDeletes(serverError, deleted)
+    mount({ onCommit: rereadAsSoonAsShown() })
+
+    await askToDelete()
+    await confirmDeletion()
+
+    await waitFor(() => {
+      expect(screen.getAllByRole('alert')).toHaveLength(2)
+    })
+    await userEvent.click(await repeatButton())
+    await screen.findByText('Foto excluída. A remoção dos arquivos termina em seguida.')
+    expect(deletes[1]).toEqual(deletes[0])
+  })
+
   it('com o gate fechado, reler sem Deleted encerra a incerteza e fecha o painel, sem novo DELETE', async () => {
     let open = true
     server.use(http.get(PHOTOS, () => (open ? listing(stored) : problem(503, 'MEDIA_UPLOADS_DISABLED'))))
@@ -1369,7 +1440,7 @@ describe('saída segura da exclusão incerta', () => {
     })
     expect(screen.queryByRole('button', { name: 'Repetir o mesmo pedido' })).not.toBeInTheDocument()
     expect(deletes).toHaveLength(2)
-    expect(leavingIsWarned()).toBe(false)
+    await expectLeavingWarned(false)
   })
 
   it('depois de reler sem Deleted, "Manter foto" fecha o painel sem novo DELETE e devolve o foco', async () => {
@@ -1387,7 +1458,7 @@ describe('saída segura da exclusão incerta', () => {
     expect(screen.queryByRole('group')).not.toBeInTheDocument()
     expect(await screen.findByRole('button', { name: `Excluir foto ${PHOTO}` })).toHaveFocus()
     expect(deletes).toHaveLength(1)
-    expect(leavingIsWarned()).toBe(false)
+    await expectLeavingWarned(false)
   })
 
   it('a saída também funciona com o gate fechado', async () => {
@@ -1521,7 +1592,7 @@ describe('desistir do envio incerto', () => {
     expect(screen.queryByRole('button', { name: 'Repetir o mesmo pedido' })).not.toBeInTheDocument()
     expect(screen.getByLabelText('Foto')).toBeEnabled()
     expect(screen.getByLabelText<HTMLInputElement>('Foto').files).toHaveLength(0)
-    expect(leavingIsWarned()).toBe(false)
+    await expectLeavingWarned(false)
   })
 
   it('o próximo envio é outra intenção, com chave nova', async () => {
