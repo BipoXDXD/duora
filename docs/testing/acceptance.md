@@ -63,6 +63,8 @@ Notas:
    decisão e recurso pelas rotas mínimas de moderação.
 3. T-12 é um ensaio de processo: verifica que o agente não tem caminho até segredos ou deploy, não um teste
    automatizado de código. Deve passar antes de qualquer dado real (gate de automação, spec 23.3).
+4. T-17 segue parcial. Decisão da coordenação em 08/11/2026: sem circuit breaker por enquanto, porque o worker faz uma
+   entrega da selfie por vez, no máximo uma por segundo, e isso já contém a tempestade de chamadas.
 
 **#305 — inscrições de contas suspensas (T-01/T-06/T-28):**
 `AccountSuspensionRegistrationTests` cobre retirada de Confirmed/CheckedIn/Waitlisted, histórico, promoção FIFO
