@@ -21,7 +21,7 @@ Limiares iniciais, sem medição de produção:
 |---|---|
 | `selfie_provider_down` | 2 min de falha, tolerando até 100 s entre leituras ruins (uma leitura perdida no pior intervalo do timer, 47 s); intervalo maior recomeça a contagem |
 | `selfie_provider_recovered` | a última falha observada tem 15 min ou mais. Não garante 15 min observados: as leituras podem ter parado, e com pouco tráfego pode ser só falta de tentativas |
-| `selfie_queue_stalled` | 2 min de leituras seguidas com a fila parada; uma leitura saudável recomeça a contagem |
+| `selfie_queue_stalled` | 2 min desde a primeira leitura com a fila parada. Uma leitura saudável recomeça a contagem; leitura perdida não zera nem encerra, então os 2 min não são de leituras contínuas |
 | `selfie_queue_resumed` | primeira leitura saudável depois de `selfie_queue_stalled` |
 | `selfie_probe_blind` | 10 min seguidos sem conseguir ler a fila |
 | `selfie_probe_restored` | primeira leitura boa depois de `selfie_probe_blind` |
@@ -49,14 +49,27 @@ Na lista transitória entra todo `AmazonServiceException`, então credencial err
 ## Fila parada
 
 A mesma consulta responde se há entrega da selfie esperando há 60 s ou mais (`Pending` pronta, ou `InFlight` com o lease
-vencido) sem nenhuma entrega com lease vivo. O lease vivo é a prova de progresso: uma fila longa com o fornecedor lento
-tem sempre uma chamada em andamento e não conta como parada.
+vencido) sem nenhuma entrega da selfie com lease vivo. O lease vivo prova só que houve um claim recente, não que a entrega
+andou. Com fornecedor lento, uma fila longa quase sempre tem uma chamada em andamento e não aparece como parada.
 
 Cobre o worker parado e a vaga presa: a chamada que o corte de 10 s abandonou e que ignora o cancelamento segura a vaga
 até terminar, e esse worker não toma mais entregas.
 
-Não vê: fila vazia (sem trabalho esperando não há o que acusar) e réplica presa com outra andando, porque o lease vivo da
-outra conta como progresso.
+Não dispara, embora a fila possa não estar andando:
+
+- fila vazia: sem trabalho esperando não há o que acusar;
+- réplica presa com outra andando: o lease vivo da outra basta;
+- crash-loop que faz claim a cada menos de 30 s: o lease fica vivo e a entrega nunca termina;
+- exceção depois do claim, fora da lista transitória: o lote seguinte toma outra entrega, ou a mesma quando o lease vence,
+  com o mesmo efeito.
+
+Pode disparar sem defeito:
+
+- backlog com fornecedor rápido: a chamada dura pouco e o laço pausa 1 s entre lotes, então as leituras costumam não ver
+  lease vivo. Isso exige entregas prontas há 60 s, o que pelo teto de uma entrega por segundo pede mais de cerca de 60 na
+  fila (cálculo, sem medição);
+- `SelfieVerification:Enabled=false` com entrega `Pending` residual: o dispatcher não toma nada, o alerta abre e não fecha
+  enquanto essa entrega existir.
 
 ## O que fica sem cobertura
 
@@ -81,7 +94,8 @@ está permitido, mas exige PR próprio: o script não faz ping, e a unit bloquei
 
 1. Procure no log do worker `is still running; this worker makes no new call until it ends`: é a vaga presa. A vaga vive
    em memória, então só o reinício do worker a libera.
-2. Sem essa linha, confira se o worker está de pé e se o laço da selfie registra erro.
+2. Sem essa linha, confira se o worker está de pé. Erro no laço da selfie só deixa a fila parada quando acontece antes do
+   claim, como banco inacessível: depois do claim, ver os limites em "Fila parada".
 3. Reiniciar o worker é ação em produção: siga a autorização e a janela vigentes.
 
 ## Ao receber `selfie_probe_blind`

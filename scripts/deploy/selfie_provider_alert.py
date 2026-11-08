@@ -60,9 +60,9 @@ select exists (select 1 from ops.outbox_deliveries
                where consumer = 'selfie-provider' and status = 'InFlight'
                  and lease_expires_at >= now() and last_error = 'ProviderUnavailable')
 """
-# Fila parada: entrega pronta ou com lease vencido há 60 s ou mais, sem nenhum lease vivo. O lease vivo é a prova de
-# progresso: fila longa com fornecedor lento tem sempre uma chamada em andamento. Não depende do marcador de falha, que
-# envelhece quando o worker para de escrever.
+# Fila parada: entrega pronta ou com lease vencido há 60 s ou mais, sem nenhum lease vivo. O lease vivo prova só um claim
+# recente, não que a entrega andou (limites no guia): cobre a fila longa com fornecedor lento, que quase sempre tem uma
+# chamada em andamento. Não depende do marcador de falha, que envelhece quando o worker para de escrever.
 STALLED_QUERY = """
 select (exists (select 1 from ops.outbox_deliveries
                 where consumer = 'selfie-provider' and status = 'Pending'
