@@ -17,6 +17,11 @@ namespace Duora.IntegrationTests.Identity;
 /// A chave é capturada por um <c>GlobalLimiter</c> que nunca limita: o middleware o consulta em todo pedido, antes da
 /// política do endpoint, então a chave chega à resposta também quando a política rejeita. Sem o header, o pedido não
 /// passou pelo limitador.
+/// <para>
+/// Limite: o eco recalcula a chave com a mesma função e a mesma entrada que as políticas por IP usam, mas não lê a
+/// partição que a política escolheu, porque o rate limiter do ASP.NET Core não a expõe. Se a política deixar de chamar
+/// <see cref="ClientNetwork.RateLimitKey"/>, quem acusa são os asserts de 429 dos testes, não o eco.
+/// </para>
 /// </remarks>
 internal sealed class RateLimitPartitionEcho : IStartupFilter
 {
