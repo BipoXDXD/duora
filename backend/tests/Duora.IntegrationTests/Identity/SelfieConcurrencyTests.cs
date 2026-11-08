@@ -66,8 +66,10 @@ public sealed class SelfieConcurrencyTests(PostgresFixture postgres)
             barrier.Release();
             await stale;
         }
-        Assert.Equal(1, provider.StartResponses);
-        // No other owner/version/terminal-state guard can hide an expired-lease write here.
+        // O relógio passou do lease com a chamada em voo: o corte de 10 s do mesmo relógio a encerrou antes de qualquer
+        // resposta, e o dono vencido não escreveu nem reagendou. A escrita depois do lease em si é coberta por
+        // SelfieSlowProviderTests.AnAnswerAfterTheLeaseExpiredIsDiscardedAndReadAgainOnce.
+        Assert.Equal(0, provider.StartResponses);
         Assert.Equal("Pending", (await CurrentAsync(second, account.UserId, ct)).State);
         Assert.False(await EligibleAsync(second, account.UserId, ct));
         Assert.Equal(1, await scenario.ScalarAsync("select count(*) from identity.selfie_verifications where user_id = $1 and version = 0 and provider_reference is null", account.UserId));
@@ -107,7 +109,8 @@ public sealed class SelfieConcurrencyTests(PostgresFixture postgres)
             barrier.Release();
             await stale;
         }
-        Assert.Equal(2, provider.StartResponses);
+        // Só a chamada do novo dono respondeu: a do dono vencido foi cortada aos 10 s do mesmo relógio.
+        Assert.Equal(1, provider.StartResponses);
         Assert.Equal(1, await scenario.ScalarAsync("select count(*) from identity.selfie_verifications where user_id = $1 and version = 1", account.UserId));
         time.Advance(TimeSpan.FromSeconds(6));
         await DispatchAsync(second, ct);
@@ -157,7 +160,8 @@ public sealed class SelfieConcurrencyTests(PostgresFixture postgres)
         Assert.Equal(1, await scenario.ScalarAsync("select count(*) from ops.outbox_deliveries where consumer = 'selfie-provider' and status = 'Delivered'"));
         Assert.Equal(1, provider.StartCalls);
         Assert.Equal(2, provider.ReadCalls);
-        Assert.Equal(2, provider.ReadResponses);
+        // A leitura do dono vencido foi cortada aos 10 s do mesmo relógio, antes de responder.
+        Assert.Equal(1, provider.ReadResponses);
     }
 
     [Fact]

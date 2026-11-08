@@ -12,6 +12,12 @@ namespace Duora.Infrastructure.Identity;
 public sealed partial class SelfieVerificationDispatcher
 {
     private static readonly TimeSpan Lease = TimeSpan.FromSeconds(30);
+
+    /// <summary>
+    /// Corte de cada chamada ao fornecedor, no relógio injetado. Fica bem abaixo do lease, para a resposta ainda ser
+    /// gravada pelo dono da entrega.
+    /// </summary>
+    private static readonly TimeSpan CallTimeout = TimeSpan.FromSeconds(10);
     private static readonly TimeSpan TransientDataRetention = TimeSpan.FromHours(24);
 
     /// <summary>
@@ -29,16 +35,22 @@ public sealed partial class SelfieVerificationDispatcher
     private readonly DuoraDbContext _db;
     private readonly OutboxDeliveryQueue _queue;
     private readonly ISelfieProvider _provider;
+    private readonly SelfieProviderCallSlot _slot;
     private readonly SelfieProviderOptions _options;
     private readonly TimeProvider _time;
     private readonly ILogger<SelfieVerificationDispatcher> _logger;
 
+    /// <summary>Chamada deste lote que o corte abandonou ainda em andamento; ela leva a vaga consigo.</summary>
+    private Task? _abandonedCall;
+
     internal SelfieVerificationDispatcher(DuoraDbContext db, OutboxDeliveryQueue queue, ISelfieProvider provider,
-        IOptions<SelfieProviderOptions> options, TimeProvider time, ILogger<SelfieVerificationDispatcher> logger)
+        SelfieProviderCallSlot slot, IOptions<SelfieProviderOptions> options, TimeProvider time,
+        ILogger<SelfieVerificationDispatcher> logger)
     {
         _db = db;
         _queue = queue;
         _provider = provider;
+        _slot = slot;
         _options = options.Value;
         _time = time;
         _logger = logger;
@@ -54,6 +66,30 @@ public sealed partial class SelfieVerificationDispatcher
             return 0;
         }
 
+        // Sem a vaga, nada é tomado da fila: uma entrega reivindicada sem poder chamar o fornecedor só gastaria tentativa.
+        if (!_slot.TryAcquire(out var firstRefusal))
+        {
+            if (firstRefusal)
+            {
+                LogPreviousCallStillRunning(_logger);
+            }
+
+            return 0;
+        }
+
+        _abandonedCall = null;
+        try
+        {
+            return await DispatchClaimsAsync(now, cancellationToken);
+        }
+        finally
+        {
+            _slot.Release(_abandonedCall);
+        }
+    }
+
+    private async Task<int> DispatchClaimsAsync(DateTimeOffset now, CancellationToken cancellationToken)
+    {
         var claims = await _queue.ClaimWithAttemptLimitAsync(SelfieVerificationOutbox.Consumer, 1, now, now + Lease, 40, cancellationToken);
         foreach (var exhausted in claims.Exhausted)
         {
@@ -136,15 +172,14 @@ public sealed partial class SelfieVerificationDispatcher
         SelfieResult? result = null;
         try
         {
-            using var timeout = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
-            timeout.CancelAfter(TimeSpan.FromSeconds(10));
-            if (row.ProviderReference is null)
+            var reference = row.ProviderReference;
+            if (reference is null)
             {
-                session = await _provider.StartAsync(row.Id, timeout.Token);
+                session = await CallProviderAsync(token => _provider.StartAsync(row.Id, token), cancellationToken);
             }
             else
             {
-                result = await _provider.ReadAsync(row.ProviderReference, timeout.Token);
+                result = await CallProviderAsync(token => _provider.ReadAsync(reference, token), cancellationToken);
             }
         }
         catch (Exception exception) when (IsTransientProviderFailure(exception))
@@ -172,6 +207,40 @@ public sealed partial class SelfieVerificationDispatcher
         }
     }
 
+    /// <summary>
+    /// O corte em duas camadas, no relógio injetado: o token pede ao fornecedor que pare, e o <c>WaitAsync</c> devolve o
+    /// controle no prazo mesmo que ele não pare. A chamada que segue rodando fica abandonada: ninguém lê a resposta dela,
+    /// e ela leva a vaga até terminar. O prazo é fixado antes da chamada, então o tempo que ela gasta para devolver a
+    /// tarefa já conta.
+    /// </summary>
+    private async Task<T> CallProviderAsync<T>(Func<CancellationToken, Task<T>> call, CancellationToken cancellationToken)
+    {
+        var deadline = _time.GetUtcNow() + CallTimeout;
+        using var cooperative = new CancellationTokenSource(CallTimeout, _time);
+        using var linked = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, cooperative.Token);
+        var pending = call(linked.Token);
+        try
+        {
+            return await pending.WaitAsync(RemainingUntil(deadline), _time, cancellationToken);
+        }
+        finally
+        {
+            if (!pending.IsCompleted)
+            {
+                // O WaitAsync pode vencer o timer cooperativo: sem isto, o token seria descartado sem nunca cancelar, e
+                // até o fornecedor que respeita o cancelamento ficaria rodando com a vaga.
+                await linked.CancelAsync();
+                _abandonedCall = pending.IsCompleted ? null : pending;
+            }
+        }
+    }
+
+    private TimeSpan RemainingUntil(DateTimeOffset deadline)
+    {
+        var remaining = deadline - _time.GetUtcNow();
+        return remaining > TimeSpan.Zero ? remaining : TimeSpan.Zero;
+    }
+
     private async Task ExpireAsync(SelfieVerificationRecord row, ClaimedDelivery delivery, string? feedbackCode,
         CancellationToken cancellationToken)
     {
@@ -183,13 +252,16 @@ public sealed partial class SelfieVerificationDispatcher
     [LoggerMessage(Level = LogLevel.Warning, Message = "Selfie provider unavailable ({Cause}); the delivery was rescheduled.")]
     private static partial void LogProviderUnavailable(ILogger logger, string cause);
 
+    [LoggerMessage(Level = LogLevel.Warning, Message = "A selfie provider call cut by the timeout is still running; this worker makes no new call until it ends.")]
+    private static partial void LogPreviousCallStillRunning(ILogger logger);
+
     [LoggerMessage(Level = LogLevel.Information, Message = "Selfie attempt expired before opening a session: too little time left to capture.")]
     private static partial void LogNoTimeToCapture(ILogger logger);
 
     /// <summary>
     /// Falhas da chamada ao fornecedor que reagendam a entrega, sem mudar o estado da tentativa nem contar reprovação. O SDK da
     /// AWS entrega o reset de conexão como <see cref="IOException"/> e o timeout do HttpClient como
-    /// <see cref="TimeoutException"/>. Qualquer outra exceção é defeito: sobe ao loop do worker e o lease devolve a entrega.
+    /// <see cref="TimeoutException"/>, a mesma exceção do corte deste dispatcher. Qualquer outra exceção é defeito: sobe ao loop do worker e o lease devolve a entrega.
     /// </summary>
     private static bool IsTransientProviderFailure(Exception exception) =>
         exception is Amazon.Runtime.AmazonServiceException or HttpRequestException or IOException or TimeoutException
