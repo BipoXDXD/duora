@@ -1,4 +1,4 @@
-import { syntheticLegalCatalog } from './legal-documents'
+import { syntheticLegalCatalog } from './legal-documents.ts'
 import { http, HttpResponse } from 'msw'
 import { setupServer } from 'msw/node'
 

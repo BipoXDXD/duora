@@ -234,6 +234,154 @@ public sealed class SelfieConcurrencyTests(PostgresFixture postgres)
         Assert.Equal(1, provider.Sessions);
     }
 
+    /// <summary>
+    /// A fila entrega pelo menos uma vez: a mesma tentativa chega em duas entregas, uma em cada worker, e as duas leem
+    /// a aprovação. Só a primeira resposta grava e libera a conta; a segunda é descartada, e a entrega que ficou presa
+    /// fecha depois do lease sem chamar o fornecedor de novo.
+    /// </summary>
+    [Fact]
+    public async Task ADuplicatedDeliveryForTheSameAttemptReleasesTheAccountOnce()
+    {
+        // Início e aprovação: duas versões; a resposta duplicada não grava a terceira.
+        const string Released = "Passed|2|Active|";
+        var ct = TestContext.Current.CancellationToken;
+        var connection = await postgres.CreateMigratedDatabaseAsync(ct);
+        var time = new FakeTimeProvider(DateTimeOffset.UtcNow);
+        var barrier = new SelfieCallBarrier();
+        var provider = new SimulatedSelfieProvider(time) { FirstReadBarrier = barrier };
+        await using var first = Host(connection, time, provider);
+        await using var second = Host(connection, time, provider);
+        var scenario = new IdentityScenario(connection, first);
+        var account = await scenario.CreateConfirmedAccountAsync();
+        await RequestAsync(first, account.UserId, ct);
+        await DispatchAsync(first, ct);
+        Assert.Equal(1, await DuplicateSelfieDeliveryAsync(scenario));
+        time.Advance(TimeSpan.FromSeconds(6));
+        _ = second.Services;
+
+        string releasedBy;
+        var owning = DispatchAsync(first, ct);
+        try
+        {
+            await barrier.WaitForEntryAsync(ct);
+            Assert.Equal(1, await DispatchAsync(second, ct));
+            releasedBy = await ReleaseFootprintAsync(scenario, account.UserId);
+            Assert.StartsWith(Released, releasedBy, StringComparison.Ordinal);
+            Assert.True(await EligibleAsync(second, account.UserId, ct));
+        }
+        finally
+        {
+            barrier.Release();
+            await owning;
+        }
+
+        var afterTheDuplicate = await ReleaseFootprintAsync(scenario, account.UserId);
+        Assert.StartsWith(Released, afterTheDuplicate, StringComparison.Ordinal);
+        Assert.Equal(releasedBy, afterTheDuplicate);
+        Assert.Equal(1, await scenario.ScalarAsync(
+            "select count(*) from ops.outbox_deliveries where consumer = 'selfie-provider' and status = 'InFlight'"));
+
+        time.Advance(TimeSpan.FromSeconds(31));
+        await DispatchAsync(second, ct);
+
+        Assert.Equal(2, provider.ReadCalls);
+        var afterTheLease = await ReleaseFootprintAsync(scenario, account.UserId);
+        Assert.StartsWith(Released, afterTheLease, StringComparison.Ordinal);
+        Assert.Equal(releasedBy, afterTheLease);
+        Assert.Equal(2, await scenario.ScalarAsync(
+            "select count(*) from ops.outbox_deliveries where consumer = 'selfie-provider' and status = 'Delivered'"));
+        Assert.Equal(0, await scenario.ScalarAsync("select count(*) from identity.selfie_failures where user_id = $1", account.UserId));
+    }
+
+    /// <summary>
+    /// O <c>/complete</c> do navegador é só um aviso: repetido antes e depois do resultado, não cria trabalho, não muda a
+    /// tentativa nem a fila, não chama o fornecedor e não libera nem mexe de novo na conta.
+    /// </summary>
+    [Fact]
+    public async Task RepeatedCompletionHintsChangeNeitherTheAttemptNorTheQueue()
+    {
+        const int Hints = 3;
+        var ct = TestContext.Current.CancellationToken;
+        var connection = await postgres.CreateMigratedDatabaseAsync(ct);
+        var time = new FakeTimeProvider(DateTimeOffset.UtcNow);
+        var provider = new SimulatedSelfieProvider(time);
+        await using var host = Host(connection, time, provider);
+        var scenario = new IdentityScenario(connection, host);
+        var account = await scenario.CreateConfirmedAccountAsync();
+        await RequestAsync(host, account.UserId, ct);
+        await DispatchAsync(host, ct);
+        var attempt = (await CurrentAsync(host, account.UserId, ct)).Id!.Value;
+        using var browser = await scenario.SignedInBrowserAsync(account);
+        var beforeResult = await QueueFootprintAsync(scenario, account.UserId);
+
+        for (var hint = 0; hint < Hints; hint++)
+        {
+            Assert.Equal("Capturing|Capture", await CompleteAsync(browser, attempt, ct));
+        }
+
+        Assert.Equal(beforeResult, await QueueFootprintAsync(scenario, account.UserId));
+        Assert.Equal((1, 0), (provider.StartCalls, provider.ReadCalls));
+        Assert.False(await EligibleAsync(host, account.UserId, ct));
+
+        time.Advance(TimeSpan.FromSeconds(6));
+        await DispatchAsync(host, ct);
+        var afterResult = await QueueFootprintAsync(scenario, account.UserId);
+        Assert.True(await EligibleAsync(host, account.UserId, ct));
+
+        for (var hint = 0; hint < Hints; hint++)
+        {
+            Assert.Equal("Passed|None", await CompleteAsync(browser, attempt, ct));
+        }
+
+        Assert.Equal(afterResult, await QueueFootprintAsync(scenario, account.UserId));
+        Assert.Equal((1, 1), (provider.StartCalls, provider.ReadCalls));
+    }
+
+    private static async Task<string> CompleteAsync(Browser browser, Guid attempt, CancellationToken ct)
+    {
+        using var response = await browser.PostJsonAsync($"/api/v1/me/selfie-verifications/{attempt}/complete", new { });
+        Assert.Equal(System.Net.HttpStatusCode.Accepted, response.StatusCode);
+        var body = System.Text.Json.Nodes.JsonNode.Parse(await response.Content.ReadAsStringAsync(ct))!;
+        return $"{(string?)body["state"]}|{(string?)body["nextStep"]}";
+    }
+
+    /// <summary>Uma segunda entrega da mesma tentativa, em outro evento, pronta no mesmo instante da original.</summary>
+    private static Task<long> DuplicateSelfieDeliveryAsync(IdentityScenario scenario) => scenario.ScalarAsync("""
+        with original as (
+            select e.type, e.schema_version, e.resource_type, e.resource_id, e.resource_version, e.payload, e.occurred_at,
+                   d.consumer, d.recipient_key, d.available_at, d.deadline_at, d.created_at
+            from ops.outbox_deliveries d join ops.outbox_events e on e.id = d.outbox_event_id
+            where d.consumer = 'selfie-provider'
+        ), copied as (
+            insert into ops.outbox_events (id, type, schema_version, resource_type, resource_id, resource_version, payload, occurred_at)
+            select gen_random_uuid(), type, schema_version, resource_type, resource_id, resource_version, payload, occurred_at
+            from original
+            returning id
+        )
+        insert into ops.outbox_deliveries (id, outbox_event_id, consumer, recipient_key, status, attempts, available_at,
+                                           deadline_at, fencing_token, created_at)
+        select gen_random_uuid(), copied.id, original.consumer, original.recipient_key, 'Pending', 0, original.available_at,
+               original.deadline_at, 0, original.created_at
+        from copied, original
+        returning 1
+        """);
+
+    /// <summary>Tudo que a liberação escreve: estado, versão, conta, carimbo de concorrência e conclusão, nessa ordem.</summary>
+    private static Task<string> ReleaseFootprintAsync(IdentityScenario scenario, Guid userId) => scenario.ScalarTextAsync("""
+        select v.state || '|' || v.version || '|' || u.status || '|' || u.concurrency_stamp || '|' || v.completed_at
+        from identity.selfie_verifications v join identity.users u on u.id = v.user_id
+        where v.user_id = $1
+        """, userId);
+
+    /// <summary>Tentativa, conta e cada entrega da selfie, com tentativas e horário: qualquer trabalho novo aparece aqui.</summary>
+    private static Task<string> QueueFootprintAsync(IdentityScenario scenario, Guid userId) => scenario.ScalarTextAsync("""
+        select (select v.state || '|' || v.version || '|' || coalesce(v.feedback_code, '-') || '|' || u.status || '|' || u.concurrency_stamp
+                from identity.selfie_verifications v join identity.users u on u.id = v.user_id where v.user_id = $1)
+            || '#' || (select string_agg(d.status || '|' || d.attempts || '|' || d.available_at || '|' || d.fencing_token, ';' order by d.id)
+                       from ops.outbox_deliveries d where d.consumer = 'selfie-provider')
+            || '#' || (select count(*) from ops.outbox_events)
+        """, userId);
+
     private static async Task AssertCompletedAsync(IdentityScenario scenario, DuoraWebFactory host, Guid userId, CancellationToken ct, int expectedVersion = 2)
     {
         Assert.True(await EligibleAsync(host, userId, ct));

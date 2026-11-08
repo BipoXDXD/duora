@@ -117,10 +117,14 @@ Repetir o procedimento com o arquivo já ligado gera os mesmos bytes e o mesmo h
 
 **Caddyfile.** O edge de produção monta `/opt/duora/Caddyfile.duora-web.coolify` (fixado por `caddy_sha256` no pin),
 não o Caddyfile da imagem: o CSP de `/account/selfie` só chega aplicando ao arquivo do host o mesmo diff do
-`infra/caddy/Caddyfile` (o arquivo do host difere no TLS atrás do Traefik, nos `trusted_proxies` e, em cada
-`reverse_proxy`, no `header_up X-Forwarded-For {client_ip}` e no `header_up X-Forwarded-Proto https`; a forma que o
-teste `scripts/deploy/test_caddy_client_ip.py` monta acrescenta o `client_ip_headers Cf-Connecting-IP` da Fase 4),
-validando com `caddy validate` e atualizando `caddy_sha256`. O Caddyfile não entra no baseline do executor.
+`infra/caddy/Caddyfile` (o arquivo do host difere no TLS atrás do Traefik, no `trusted_proxies` com
+`trusted_proxies_strict` e, em cada `reverse_proxy`, no `header_up X-Forwarded-For {client_ip}` e no
+`header_up X-Forwarded-Proto https`; a forma que a fixture `caddyfile_behind_traefik`, em
+`scripts/deploy/caddy_test_support.py`, monta para o teste `scripts/deploy/test_caddy_client_ip.py` reproduz essas
+diferenças e, em relação ao arquivo do host, só acrescenta o `client_ip_headers Cf-Connecting-IP` da Fase 4),
+validando com `caddy validate` e atualizando `caddy_sha256`. O Caddyfile não entra no baseline do executor, mas o
+instalador do executor o amarra por hash desde a inspeção (`scripts/deploy/EXECUTOR_BUNDLE.md`): trocar o Caddyfile
+entre a inspeção e o `--apply` faz o instalador recusar.
 
 **Trocar o arquivo do host é mudança de produção.** Só numa janela administrativa do dono, sob a trava do deploy
 (`/var/lib/duora/.deploy.lock`), com cópia `.pre-<motivo>` do arquivo e do pin. A troca exige ressela do pin: gravar em
@@ -138,11 +142,13 @@ Fase 4 opção B, que fica fora do repositório; o arquivo da VPS não foi relid
   confira com `docker inspect -f '{{.NetworkSettings.Networks.coolify.IPAddress}}' coolify-proxy` antes de copiar.
   Não confunda com a rede `edge` (`172.30.10.0/24`) da tabela de redes abaixo, de onde o web aceita o Caddy como proxy.
 - **`header_up X-Forwarded-For {client_ip}`** em cada `reverse_proxy` (`/api/*`, `/webhooks/*`, `/hubs/*`). Essa
-  linha é necessária, mas hoje não basta: atrás da Cloudflare, o web ainda recebe o endereço da borda, e o rate limit
-  por IP se espalha entre as bordas até a Fase 4. Sem ela, nem esse endereço chega ao web: no
-  `scripts/deploy/test_caddy_client_ip.py` ele recebeu a cadeia de `X-Forwarded-For` como veio, com o peer no fim, e
-  com `ForwardLimit=1` o web enxerga o peer. `client_ip_headers` sozinho não substitui esse `header_up` (controle
-  `ForwardedForRewriteControlTests`).
+  linha é necessária, mas pode não bastar: segundo o pacote da Fase 4, não verificado no host, o registro passa pela
+  Cloudflare em modo proxied, e então o web recebe o endereço da borda da Cloudflare e o rate limit por IP se espalha
+  entre as bordas até a Fase 4. Se o registro é proxied segue a confirmar (`docs/product/spec.md`, seção 2.3, e
+  `docs/privacy/data-map.md`, linha da Cloudflare). Sem ela, o web não recebe o cliente que o Caddy resolveu, seja o
+  registro proxied ou não: no `scripts/deploy/test_caddy_client_ip.py` o web recebeu a cadeia de `X-Forwarded-For`
+  como veio, com o peer no fim, e com `ForwardLimit=1` o web enxerga o peer. `client_ip_headers` sozinho não substitui
+  esse `header_up` (controle `ForwardedForRewriteControlTests`).
 - **`header_up X-Forwarded-Proto https`** nos mesmos três `reverse_proxy`.
 
 Ao copiar o diff do repositório para o arquivo do host, preserve essas cinco diferenças; o `infra/caddy/Caddyfile` não
@@ -157,6 +163,58 @@ arquivo do host que o próprio teste monta a partir do `infra/caddy/Caddyfile`, 
 
 **Não aplique `client_ip_headers` sem as labels `ipAllowList` do Traefik.** Sem a `ipAllowList`, quem acessa a origem
 direto forja `Cf-Connecting-IP`. Caddyfile e labels entram e saem juntos.
+
+**Cópia versionada do Caddyfile do host (#396).** Nada compara a fixture `caddyfile_behind_traefik` com o arquivo real
+até esta cópia existir. `test_caddy_host_copy.py` sai como `skipped`, com "cópia do host ausente, gerar na janela", e
+isso quer dizer que nada foi provado. A cópia só é gerada numa janela administrativa do dono e só bate com a Fase 4
+opção B aplicada e ressalada **e** com o `infra/caddy/Caddyfile` da `main` já aplicado ao arquivo do host. Sem a Fase
+4, falta o `client_ip_headers`; com o host atrás da `main`, a comparação acusa o diff que faltou aplicar.
+
+1. No host, só leitura, confira o peer e o hash fixado. O peer tem de ser `172.16.1.6`, o `HOST_TRAEFIK_PEER` de
+   `scripts/deploy/caddy_test_support.py`; outro valor é decisão do dono, não ajuste da cópia.
+
+   ```sh
+   docker inspect -f '{{.NetworkSettings.Networks.coolify.IPAddress}}' coolify-proxy
+   python3 -I -c 'import json; print(json.load(open("/etc/duora/coolify-deploy.json"))["caddy_sha256"])'
+   sha256sum /opt/duora/Caddyfile.duora-web.coolify
+   ```
+
+   Os dois hashes têm de ser iguais. Diferentes: pare, porque o arquivo em uso não é o selado.
+
+2. Na máquina do operador, num worktree a partir da `main`, traga o arquivo byte a byte e confira o hash contra o
+   `caddy_sha256` lido no passo 1:
+
+   ```sh
+   D=scripts/deploy/fixtures/caddy-host
+   mkdir -p "$D"
+   ssh <host-da-janela> cat /opt/duora/Caddyfile.duora-web.coolify > "$D/Caddyfile.duora-web.coolify"
+   CADDY_SHA256=<valor de caddy_sha256 do passo 1>
+   [ "$(shasum -a 256 "$D/Caddyfile.duora-web.coolify" | cut -d' ' -f1)" = "$CADDY_SHA256" ] && echo COPIA_OK
+   printf '%s\n' "$CADDY_SHA256" > "$D/Caddyfile.duora-web.coolify.sha256"
+   ```
+
+   Sem `COPIA_OK`, apague os dois arquivos e pare.
+
+3. Troque `HOST_COPY_PENDING` para `False` em `scripts/deploy/caddy_test_support.py` e rode, ainda sem commit:
+
+   ```sh
+   python3 -m unittest discover -s scripts/deploy -p 'test_caddy_host_copy.py' -v
+   ```
+
+   O teste `test_the_fixture_matches_the_copy_of_the_host_file` tem de sair `ok`, não `skipped`. A comparação é byte a
+   byte: fim de linha e `\n` final contam. Com diff, registre o achado fora do repositório, apague os dois arquivos e
+   volte o marcador para `True`, sem ajustar a cópia nem o teste:
+
+   ```sh
+   rm "$D/Caddyfile.duora-web.coolify" "$D/Caddyfile.duora-web.coolify.sha256"
+   git checkout -- scripts/deploy/caddy_test_support.py
+   ```
+
+   O arquivo só tem as variáveis `{$...}` que a fixture já publica: é o diff vazio que garante isso, e por essa razão
+   nada vai para o repositório antes dele.
+
+4. Abra o PR com a cópia, o `.sha256` e o marcador. Depois dele, mudar o `infra/caddy/Caddyfile` deixa o teste vermelho
+   até a cópia nova entrar no mesmo PR, gerada numa janela que aplique o mesmo diff no host.
 
 **Ressela.** O baseline do executor (`/var/lib/duora/executor-runtime-baseline.json`) fixa o hash do Compose
 (`context.composeSha256`). Sem selar de novo, o `duora-deploy` recusa a release com "Database/backup runtime changed".
