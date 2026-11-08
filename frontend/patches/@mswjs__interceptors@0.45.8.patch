@@ -1,0 +1,38 @@
+diff --git a/lib/node/source-Dpwqoq2R.js b/lib/node/source-Dpwqoq2R.js
+index f0022018f079bea1db8b281ac4210aeefa4c3e44..09140b34a2791cc0c2c3e89abee587483605d1fc 100644
+--- a/lib/node/source-Dpwqoq2R.js
++++ b/lib/node/source-Dpwqoq2R.js
+@@ -2024,24 +2024,16 @@ var NodeHttpRequestSource = class extends Interceptor {
+ 			socket.on("data", onRequestData);
+ 			socket.on("close", () => requestParser?.free());
+ 			/**
+-			* @note A client that waits for the server to speak first (e.g. a
+-			* SQL handshake) starts reading without writing anything, so
+-			* protocol detection never runs. Pass such connections through
+-			* once the client reads and still no bytes have arrived. Clients
+-			* that write after an async setup (e.g. Undici loading its parser)
+-			* attach their readers right before writing; "setImmediate" lets
+-			* those writes, including ones from nested ticks of the "connect"
+-			* listeners, land first.
++			* @note Duora patch (https://github.com/BipoXDXD/duora/issues/397;
++			* upstream: https://github.com/mswjs/interceptors/issues/897).
++			* Removed the "server speaks first"
++			* passthrough: it passed the connection to the real network when the
++			* client already read but its first write landed after the next
++			* "setImmediate". Under load, Undici's HTTP write loses that race and a
++			* mocked request escapes to the real server. The Duora tests never
++			* talk to a server that speaks first. Remove this patch when upstream
++			* fixes the race; keep src/test/msw-transport.test.ts.
+ 			*/
+-			const onClientRead = (event) => {
+-				if (event !== "data" && event !== "readable") return;
+-				rawSocket.removeListener("newListener", onClientRead);
+-				setImmediate(() => {
+-					if (isHttpConnection === void 0 && shouldPassthrough()) socketController.passthrough();
+-				});
+-			};
+-			rawSocket.on("newListener", onClientRead);
+-			if (rawSocket.listenerCount("data") + rawSocket.listenerCount("readable") > 0) onClientRead("data");
+ 		}, { signal: controller.signal });
+ 	}
+ 	async respondWith(args) {
