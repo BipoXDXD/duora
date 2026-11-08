@@ -15,6 +15,7 @@ public sealed class ForwardedHeadersTests(PostgresFixture postgres)
     private const string Stranger = "203.0.113.9";
     private const string ClientA = "198.51.100.1";
     private const string ClientB = "198.51.100.2";
+    private const string Forged = "203.0.113.66";
 
     [Fact]
     public async Task ForwardedForFromAnUntrustedSenderIsIgnored()
@@ -142,19 +143,30 @@ public sealed class ForwardedHeadersTests(PostgresFixture postgres)
         await ProblemAssert.IsProblemAsync(third, HttpStatusCode.TooManyRequests, "RATE_LIMITED");
     }
 
-    /// <summary>O Kestrel em socket dual-stack entrega o remetente IPv4 como <c>::ffff:a.b.c.d</c>.</summary>
+    /// <summary>
+    /// O Kestrel em socket dual-stack entrega o remetente IPv4 como <c>::ffff:a.b.c.d</c>. Por esse remetente também só
+    /// o valor mais à direita vira o cliente: nem o proxy, em nenhuma das formas, nem o forjado à esquerda.
+    /// </summary>
     [Fact]
     public async Task TheTrustedProxyInItsMappedFormStillPartitionsByClient()
     {
         await using var factory = Factory(trustProxyNetwork: true);
         using var browser = new Browser(factory);
         await browser.FetchCsrfTokenAsync();
+        var mappedProxy = $"::ffff:{Proxy}";
 
-        using var firstA = await LoginAsync(browser, from: $"::ffff:{Proxy}", forwardedFor: ClientA);
-        using var secondA = await LoginAsync(browser, from: $"::ffff:{Proxy}", forwardedFor: ClientA);
-        using var firstB = await LoginAsync(browser, from: $"::ffff:{Proxy}", forwardedFor: ClientB);
+        using var firstA = await LoginAsync(browser, from: mappedProxy, forwardedFor: $"{Forged}, {ClientA}");
+        using var secondA = await LoginAsync(browser, from: mappedProxy, forwardedFor: $"{Forged}, {ClientA}");
+        using var firstB = await LoginAsync(browser, from: mappedProxy, forwardedFor: $"{Forged}, {ClientB}");
+        using var thirdA = await LoginAsync(browser, from: mappedProxy, forwardedFor: $"{Forged}, {ClientA}");
 
+        Assert.Equal(
+            new[] { ClientA, ClientA, ClientB, ClientA },
+            new[] { firstA, secondA, firstB, thirdA }.Select(ResolvedRemoteAddressEcho.Of));
+        Assert.Equal(HttpStatusCode.Unauthorized, firstA.StatusCode);
+        Assert.Equal(HttpStatusCode.Unauthorized, secondA.StatusCode);
         Assert.Equal(HttpStatusCode.Unauthorized, firstB.StatusCode);
+        await ProblemAssert.IsProblemAsync(thirdA, HttpStatusCode.TooManyRequests, "RATE_LIMITED");
     }
 
     /// <summary>
@@ -193,7 +205,10 @@ public sealed class ForwardedHeadersTests(PostgresFixture postgres)
         await ProblemAssert.IsProblemAsync(third, HttpStatusCode.TooManyRequests, "RATE_LIMITED");
     }
 
-    /// <summary>Sem endereço válido não há partição nova: tudo cai na do proxy, e o lixo não vira erro 500.</summary>
+    /// <summary>
+    /// Sem endereço válido não há partição nova: tudo cai na do proxy, não numa partição sem endereço que juntaria todo
+    /// header quebrado, e o lixo não vira erro 500.
+    /// </summary>
     [Fact]
     public async Task AnUnparsableForwardedForFallsBackToTheProxyPartition()
     {
@@ -205,6 +220,7 @@ public sealed class ForwardedHeadersTests(PostgresFixture postgres)
         using var second = await LoginAsync(browser, from: Proxy, forwardedFor: "still-not-an-ip");
         using var third = await LoginAsync(browser, from: Proxy, forwardedFor: "1.2.3.4.5");
 
+        Assert.Equal(new[] { Proxy, Proxy, Proxy }, new[] { first, second, third }.Select(ResolvedRemoteAddressEcho.Of));
         Assert.Equal(HttpStatusCode.Unauthorized, first.StatusCode);
         Assert.Equal(HttpStatusCode.Unauthorized, second.StatusCode);
         await ProblemAssert.IsProblemAsync(third, HttpStatusCode.TooManyRequests, "RATE_LIMITED");
@@ -238,7 +254,11 @@ public sealed class ForwardedHeadersTests(PostgresFixture postgres)
         return new DuoraWebFactory(postgres.ConnectionString)
         {
             Settings = settings,
-            TestServices = RemoteAddressFromTestHeader.Register,
+            TestServices = services =>
+            {
+                RemoteAddressFromTestHeader.Register(services);
+                ResolvedRemoteAddressEcho.Register(services);
+            },
         };
     }
 
