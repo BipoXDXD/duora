@@ -800,6 +800,50 @@ class SwapRehearsalResourceTests(SwapRehearsalFixture):
         self.assertNotIn(TARGET, self.docker.images_applied)
         self.assertEqual(self.docker.image, SOURCE)
 
+    def between_directions(self, healthy: Any, broken: Any) -> Any:
+        """Leitor de recurso que só piora entre a ida e a volta, quando o postgres do sombra está no alvo."""
+        return lambda *args: broken(*args) if self.docker.image == TARGET else healthy(*args)
+
+    def idle_ticks_between_directions(self) -> Any:
+        """/proc/stat com 50% ocioso, mas sem nenhum tick ocioso novo entre a ida e a volta."""
+        totals = {"idle": 0, "all": 0}
+
+        def read() -> tuple[int, int]:
+            totals["idle"] += 0 if self.docker.image == TARGET else 50
+            totals["all"] += 100
+            return totals["idle"], totals["all"]
+        return read
+
+    def test_each_host_guard_between_the_directions_returns_to_the_origin(self) -> None:
+        cases = {
+            "disco": lambda: dataclasses.replace(HEALTHY, disk_mib=self.between_directions(HEALTHY.disk_mib, lambda _path: (100_000, 10_000))),
+            "PSI de memória": lambda: dataclasses.replace(HEALTHY, pressure=self.between_directions(
+                HEALTHY.pressure, lambda: dataclasses.replace(CALM, memory=shadow.SWAP_MAX_STALL_PRESSURE + 1))),
+            "ou IO": lambda: dataclasses.replace(HEALTHY, pressure=self.between_directions(
+                HEALTHY.pressure, lambda: dataclasses.replace(CALM, io=shadow.SWAP_MAX_STALL_PRESSURE + 1))),
+            "idle": lambda: dataclasses.replace(HEALTHY, cpu_ticks=self.idle_ticks_between_directions()),
+            "oom_kill": lambda: dataclasses.replace(HEALTHY, oom_kills=self.between_directions(HEALTHY.oom_kills, lambda: 7)),
+        }
+        for message, resources in cases.items():
+            with self.subTest(guard=message):
+                self.setUp()
+                with self.assertRaisesRegex(shadow.ShadowError, message):
+                    self.rehearse(resources=resources())
+                self.assertEqual(self.docker.images_applied, [TARGET, SOURCE])
+                written = json.loads((self.layout.state / "swap-rehearsal.json").read_text())
+                self.assertTrue(written["aborted"])
+                self.assertNotIn("back", written)
+
+    def test_overflow_read_between_the_directions_is_kept_when_a_host_guard_aborts(self) -> None:
+        resources = dataclasses.replace(
+            HEALTHY, available_mib=self.between_directions(HEALTHY.available_mib, lambda: 400),
+            container_pressure=self.between_directions(HEALTHY.container_pressure, lambda identifier: 41.0 if identifier == WEB_ID else 0.0))
+        with redirect_stdout(io.StringIO()), self.assertRaisesRegex(shadow.ShadowError, "memória"):
+            self.rehearse(resources=resources)
+        self.assertEqual(self.docker.images_applied, [TARGET, SOURCE])
+        written = json.loads((self.layout.state / "swap-rehearsal.json").read_text())
+        self.assertEqual(written["containerCpuPressureOverflowsBetweenDirections"], [{"container": "duora-web-1", "cpuPressure": 41.0}])
+
     def test_unreadable_or_missing_neighbor_between_the_directions_still_returns_to_the_origin(self) -> None:
         def unreadable(identifier: str) -> float:
             if identifier == NEIGHBOR_ID and self.docker.image == TARGET:

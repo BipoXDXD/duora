@@ -702,9 +702,10 @@ class SwapGuard:
 
     def check_between_directions(self) -> None:
         """Entre a ida e a volta, o estouro de PSI por container só vai à evidência e ao log. Abortar ali faria a mesma
-        volta, sem segurança a mais, e perderia a medição. Os demais guardas, inclusive o vizinho ilegível, seguem iguais."""
-        self._require_host(SWAP_MEMORY_FLOOR_MIB, 0)
+        volta, sem segurança a mais, e perderia a medição. Os demais guardas, inclusive o vizinho ilegível, seguem iguais.
+        Os containers são lidos primeiro para a medição ficar no JSON mesmo quando um guarda de host aborta em seguida."""
         self._record_container_overflows()
+        self._require_host(SWAP_MEMORY_FLOOR_MIB, 0)
         self._require_ready()
 
     def _require_host(self, memory_mib: int, disk_needed_mib: int) -> None:
