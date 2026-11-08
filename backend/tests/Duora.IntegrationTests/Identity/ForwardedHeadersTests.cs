@@ -17,6 +17,10 @@ public sealed class ForwardedHeadersTests(PostgresFixture postgres)
     private const string ClientB = "198.51.100.2";
     private const string Forged = "203.0.113.66";
 
+    /// <summary>Chaves de três endereços do mesmo /64 e de um endereço do /64 seguinte.</summary>
+    private static readonly string[] ThreeKeysOfOneSlash64ThenTheNext =
+        ["2001:db8:a:b::/64", "2001:db8:a:b::/64", "2001:db8:a:b::/64", "2001:db8:a:c::/64"];
+
     [Fact]
     public async Task ForwardedForFromAnUntrustedSenderIsIgnored()
     {
@@ -78,6 +82,9 @@ public sealed class ForwardedHeadersTests(PostgresFixture postgres)
         using var third = await LoginFromAsync(browser, "2001:db8:a:b::2");
         using var otherNetwork = await LoginFromAsync(browser, "2001:db8:a:c::1");
 
+        Assert.Equal(
+            ThreeKeysOfOneSlash64ThenTheNext,
+            new[] { first, second, third, otherNetwork }.Select(RateLimitPartitionEcho.Of));
         Assert.Equal(HttpStatusCode.Unauthorized, first.StatusCode);
         Assert.Equal(HttpStatusCode.Unauthorized, second.StatusCode);
         await ProblemAssert.IsProblemAsync(third, HttpStatusCode.TooManyRequests, "RATE_LIMITED");
@@ -122,6 +129,9 @@ public sealed class ForwardedHeadersTests(PostgresFixture postgres)
         using var third = await LoginAsync(browser, from: Proxy, forwardedFor: "2001:db8:a:b::2");
         using var otherNetwork = await LoginAsync(browser, from: Proxy, forwardedFor: "2001:db8:a:c::1");
 
+        Assert.Equal(
+            ThreeKeysOfOneSlash64ThenTheNext,
+            new[] { first, second, third, otherNetwork }.Select(RateLimitPartitionEcho.Of));
         Assert.Equal(HttpStatusCode.Unauthorized, first.StatusCode);
         Assert.Equal(HttpStatusCode.Unauthorized, second.StatusCode);
         await ProblemAssert.IsProblemAsync(third, HttpStatusCode.TooManyRequests, "RATE_LIMITED");
@@ -139,6 +149,7 @@ public sealed class ForwardedHeadersTests(PostgresFixture postgres)
         using var second = await LoginAsync(browser, from: Proxy, forwardedFor: $"::ffff:{ClientA}");
         using var third = await LoginAsync(browser, from: Proxy, forwardedFor: ClientA);
 
+        Assert.Equal(new[] { ClientA, ClientA, ClientA }, new[] { first, second, third }.Select(RateLimitPartitionEcho.Of));
         Assert.Equal(HttpStatusCode.Unauthorized, second.StatusCode);
         await ProblemAssert.IsProblemAsync(third, HttpStatusCode.TooManyRequests, "RATE_LIMITED");
     }
@@ -162,7 +173,7 @@ public sealed class ForwardedHeadersTests(PostgresFixture postgres)
 
         Assert.Equal(
             new[] { ClientA, ClientA, ClientB, ClientA },
-            new[] { firstA, secondA, firstB, thirdA }.Select(ResolvedRemoteAddressEcho.Of));
+            new[] { firstA, secondA, firstB, thirdA }.Select(RateLimitPartitionEcho.Of));
         Assert.Equal(HttpStatusCode.Unauthorized, firstA.StatusCode);
         Assert.Equal(HttpStatusCode.Unauthorized, secondA.StatusCode);
         Assert.Equal(HttpStatusCode.Unauthorized, firstB.StatusCode);
@@ -220,7 +231,7 @@ public sealed class ForwardedHeadersTests(PostgresFixture postgres)
         using var second = await LoginAsync(browser, from: Proxy, forwardedFor: "still-not-an-ip");
         using var third = await LoginAsync(browser, from: Proxy, forwardedFor: "1.2.3.4.5");
 
-        Assert.Equal(new[] { Proxy, Proxy, Proxy }, new[] { first, second, third }.Select(ResolvedRemoteAddressEcho.Of));
+        Assert.Equal(new[] { Proxy, Proxy, Proxy }, new[] { first, second, third }.Select(RateLimitPartitionEcho.Of));
         Assert.Equal(HttpStatusCode.Unauthorized, first.StatusCode);
         Assert.Equal(HttpStatusCode.Unauthorized, second.StatusCode);
         await ProblemAssert.IsProblemAsync(third, HttpStatusCode.TooManyRequests, "RATE_LIMITED");
@@ -257,7 +268,7 @@ public sealed class ForwardedHeadersTests(PostgresFixture postgres)
             TestServices = services =>
             {
                 RemoteAddressFromTestHeader.Register(services);
-                ResolvedRemoteAddressEcho.Register(services);
+                RateLimitPartitionEcho.Register(services);
             },
         };
     }
