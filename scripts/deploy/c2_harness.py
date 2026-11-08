@@ -33,6 +33,7 @@ from typing import Any, Protocol, TextIO
 
 import c2_load
 import c2_probe
+import capacity_inventory
 
 CONFIG_SCHEMA = "duora.c2-config/v1"
 MANIFEST_SCHEMA = "duora.c2-run/v1"
@@ -45,6 +46,8 @@ PROBE_BUFFER_SECONDS = 2 * 3600
 EXIT_OK, EXIT_CONFIG, EXIT_ABORTED, EXIT_INTERRUPTED = 0, 2, 3, 4
 SECTOR_BYTES = 512
 MIB = 1024 * 1024
+# Dono do plano de controle em capacity_inventory.CONTAINER_RULES; fora do guarda OTHER_APPS_PSI (decisão do dono).
+CONTROL_PLANE_OWNER = "coolify"
 PERCENTILES = (50, 95, 99)
 FAILURE_CLASSES = frozenset(("server", "transport"))
 
@@ -236,11 +239,24 @@ def derive(previous: dict[str, Any], current: dict[str, Any]) -> dict[str, Any]:
     cgroups, cgroup_oom = _cgroup_rates(previous.get("cgroups") or {}, current.get("cgroups") or {}, dt)
     derived["cgroups"] = cgroups
     derived["oom_kills"] = (host_oom or 0) + cgroup_oom
-    others = [values["cpu_psi"] for values in cgroups.values() if values["owner"] == "other"
-              and values["cpu_psi"] is not None]
+    raw_cgroups = current.get("cgroups") or {}
+    others = [values["cpu_psi"] for name, values in cgroups.items()
+              if _is_protected_neighbor(name, raw_cgroups[name]) and values["cpu_psi"] is not None]
     derived["others_cpu_psi_max"] = max(others) if others else None
     derived["database"] = _database_rates(previous.get("database"), current.get("database"))
     return derived
+
+
+def _is_protected_neighbor(name: str, raw: dict[str, Any]) -> bool:
+    """Container fora do sombra que o OTHER_APPS_PSI protege. O Coolify é plano de controle e fica de fora.
+
+    Usa as regras de dono do inventário C1. A amostra só traz nome e projeto compose, então das regras do Coolify
+    vale a do nome; a de working_dir exigiria outro campo no `docker ps` que c2_shadow também lê.
+    """
+    if raw.get("owner") != "other":
+        return False
+    facts = {"name": name, "project": raw.get("project") or ""}
+    return capacity_inventory.classify_container(facts) != CONTROL_PLANE_OWNER
 
 
 def _cpu_percentages(before: dict[str, int] | None, now: dict[str, int] | None) -> dict[str, float | None]:

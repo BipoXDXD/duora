@@ -53,6 +53,15 @@ def derived_series(count: int, **overrides: Any) -> list[dict]:
     return [harness.derive(a, b) for a, b in zip(raws, raws[1:], strict=False)]
 
 
+def neighbor_series(count: int, name: str, project: str, psi: float) -> list[dict]:
+    """Série com um container vizinho a mais, fora do sombra, com PSI de CPU fixo; o stillon fica em 0."""
+    raws = [raw_sample(1000.0 + 5 * index) for index in range(count + 1)]
+    for raw in raws:
+        neighbor = dict(raw["cgroups"]["stillon-web-1"], project=project, cpu_psi_some_avg10=psi)
+        raw["cgroups"][name] = neighbor
+    return [harness.derive(a, b) for a, b in zip(raws, raws[1:], strict=False)]
+
+
 def request(t: float, status: int, kind: str = "read", ms: float = 50.0, phase: str = "peak") -> load.RequestRecord:
     return load.RequestRecord(t, "me", kind, status, ms, phase)
 
@@ -224,6 +233,22 @@ class GuardTests(unittest.TestCase):
         spike = derived_series(12, other_psi=41.0)
         spike[5]["others_cpu_psi_max"] = 2.0
         self.assertEqual(self.codes(self.state(spike)), [])
+
+    def test_coolify_control_plane_pressure_does_not_trip_other_apps(self) -> None:
+        for name, project in (("coolify", "coolify"), ("coolify-proxy", "coolify"), ("coolify-realtime", "")):
+            with self.subTest(name=name):
+                series = neighbor_series(12, name, project, psi=41.0)
+                self.assertEqual(self.codes(self.state(series)), [])
+                self.assertEqual(series[-1]["others_cpu_psi_max"], 0.0)
+
+    def test_protected_neighbors_still_trip_other_apps_at_41(self) -> None:
+        neighbors = (("goblinshift-web-1", "goblinshift"), ("stillon-worker-1", "stillon"),
+                     ("openclaw-gateway", ""), ("k8s0ws4-142233", "k8s0ws4"), ("app-coolify-1", "app"))
+        for name, project in neighbors:
+            with self.subTest(name=name):
+                self.assertEqual(self.codes(self.state(neighbor_series(12, name, project, psi=41.0))),
+                                 ["OTHER_APPS_PSI"])
+                self.assertEqual(self.codes(self.state(neighbor_series(12, name, project, psi=40.0))), [])
 
     def test_stale_probe_means_running_blind(self) -> None:
         state = self.state(derived_series(2))

@@ -61,7 +61,7 @@ Mensagens e SignalR não existem no produto: ficam como **pendentes** no relató
 | `BACKUP_ERROR` / `DEADLINE` | comando de backup com código ≠ 0, ou fase além do prazo |
 | `WINDOW` | execução inteira além de `window_seconds` (80 min no perfil `janela`) |
 | `FAILURE_RATE` | ≥ 5% de 5xx/timeout em 60 s (mínimo 20 requisições) |
-| `OTHER_APPS_PSI` | PSI de CPU de qualquer container que não é do sombra > 40 por 60 s |
+| `OTHER_APPS_PSI` | PSI de CPU de qualquer container que não é do sombra > 40 por 60 s, exceto os do Coolify (plano de controle, dono `coolify` pela regra de nome de `capacity_inventory.CONTAINER_RULES`); os apps que ele implanta continuam protegidos |
 | `OTHER_APPS_HTTP` | 2 sondas HTTPS seguidas falhando num app externo, ou p95 das últimas 8 acima de max(3× a linha de base, base + 500 ms) |
 | `PROBE_STALE` | 30 s sem amostra da VPS |
 
