@@ -29,6 +29,9 @@ public sealed class SelfieSlowProviderTests(PostgresFixture postgres)
     /// <summary>Abaixo dos 10 s do dispatcher: prova que a chamada ficou presa até o corte, sem medir precisão de timer.</summary>
     private static readonly TimeSpan BelowTheCallTimeout = TimeSpan.FromSeconds(9);
 
+    /// <summary>Acima dos 10 s do dispatcher, com folga para a fila de CI e bem abaixo do lease: o corte veio dele.</summary>
+    private static readonly TimeSpan AboveTheCallTimeout = TimeSpan.FromSeconds(15);
+
     /// <summary>O lease da entrega: uma chamada que passasse dele deixaria outro worker repetir o trabalho em paralelo.</summary>
     private static readonly TimeSpan CallCeiling = TimeSpan.FromSeconds(30);
 
@@ -110,6 +113,65 @@ public sealed class SelfieSlowProviderTests(PostgresFixture postgres)
 
         Assert.Equal("Passed|has-reference|no-feedback|closed", await AttemptAsync(scenario));
         Assert.True(await SelfieConcurrencyHarness.EligibleAsync(host, account.UserId, Ct));
+    }
+
+    /// <summary>
+    /// On point e off point do corte de 10 s, com um fornecedor que respeita o cancelamento: a resposta de 9,9 s decide
+    /// e libera; a de 10,1 s nunca chega, a entrega volta para a fila com o sinal de instabilidade e a conta fica
+    /// pendente. Os outros testes só prendem o corte entre 9 s e o lease de 30 s; este prende os dois lados dos 10 s.
+    /// </summary>
+    [Theory]
+    [InlineData(9_900, "Passed|has-reference|no-feedback|closed", "Delivered|-|2", true)]
+    [InlineData(10_100, "Capturing|has-reference|PROVIDER_UNAVAILABLE|open", "Pending|ProviderUnavailable|2", false)]
+    public async Task AnAnswerDecidesOnlyWhenItArrivesBeforeTheTenSecondCut(int answerMilliseconds, string expectedAttempt,
+        string expectedDelivery, bool released)
+    {
+        var provider = new FaultySelfieProvider(_time);
+        var connection = await postgres.CreateMigratedDatabaseAsync(Ct);
+        await using var host = SelfieConcurrencyHarness.Host(connection, _time, provider);
+        var scenario = new IdentityScenario(connection, host);
+        var account = await scenario.CreateConfirmedAccountAsync();
+        await SelfieConcurrencyHarness.RequestAsync(host, account.UserId, Ct);
+        await SelfieConcurrencyHarness.DispatchAsync(host, Ct);
+        _time.Advance(UntilNextTry);
+        var answered = false;
+        provider.ReadFault = async cancellationToken =>
+        {
+            await Task.Delay(TimeSpan.FromMilliseconds(answerMilliseconds), cancellationToken);
+            answered = true;
+        };
+
+        await TimedDispatchAsync(host);
+
+        Assert.Equal(released, answered);
+        Assert.Equal(expectedAttempt, await AttemptAsync(scenario));
+        Assert.Equal(expectedDelivery, await DeliveryAsync(scenario));
+        Assert.Equal(released, await SelfieConcurrencyHarness.EligibleAsync(host, account.UserId, Ct));
+        Assert.Equal(released ? "Active" : "PendingEligibility", await scenario.ScalarTextAsync(
+            "select status from identity.users where id = $1", account.UserId));
+    }
+
+    /// <summary>
+    /// Fornecedor lento de verdade costuma mandar os cabeçalhos e travar no corpo. Pelo SDK real, o corpo parado é
+    /// cortado pelos mesmos 10 s: a entrega volta para a fila, a tentativa só ganha o sinal e a conta fica pendente.
+    /// </summary>
+    [Fact]
+    public async Task AResponseBodyThatStallsThroughTheRealSdkIsCutAtTheCallTimeout()
+    {
+        var connection = await postgres.CreateMigratedDatabaseAsync(Ct);
+        var transport = new SyntheticAwsTransport(StalledBody);
+        await using var host = RealSdkHost(connection, transport);
+        var scenario = new IdentityScenario(connection, host);
+        var account = await scenario.CreateConfirmedAccountAsync();
+        await SelfieConcurrencyHarness.RequestAsync(host, account.UserId, Ct);
+
+        var elapsed = await TimedDispatchAsync(host);
+
+        Assert.InRange(elapsed, BelowTheCallTimeout, AboveTheCallTimeout);
+        Assert.Equal(1, transport.Calls);
+        Assert.Equal("Pending|no-reference|PROVIDER_UNAVAILABLE|open", await AttemptAsync(scenario));
+        Assert.Equal("Pending|ProviderUnavailable|1", await DeliveryAsync(scenario));
+        await AssertNotReleasedAsync(scenario, host, account.UserId);
     }
 
     /// <summary>
@@ -774,6 +836,13 @@ public sealed class SelfieSlowProviderTests(PostgresFixture postgres)
     private static Task<HttpResponseMessage> Stall(CancellationToken cancellationToken) =>
         Task.Delay(Timeout.Infinite, cancellationToken).ContinueWith(_ => new HttpResponseMessage(), TaskScheduler.Default);
 
+    private static Task<HttpResponseMessage> StalledBody(CancellationToken cancellationToken)
+    {
+        var response = new HttpResponseMessage(HttpStatusCode.OK) { Content = new StreamContent(new StalledStream()) };
+        response.Content.Headers.ContentType = new MediaTypeHeaderValue("application/x-amz-json-1.1");
+        return Task.FromResult(response);
+    }
+
     private static Task Unavailable(CancellationToken cancellationToken) =>
         throw new HttpRequestException("Fornecedor sintético indisponível.");
 
@@ -907,6 +976,60 @@ public sealed class SelfieSlowProviderTests(PostgresFixture postgres)
                 Interlocked.Increment(ref owner._calls);
                 return owner.Send(cancellationToken);
             }
+        }
+    }
+
+    /// <summary>
+    /// Corpo de resposta que nunca entrega um byte, como um socket parado: a leitura assíncrona só termina pelo
+    /// cancelamento, e a síncrona só quando o corpo é descartado.
+    /// </summary>
+    private sealed class StalledStream : Stream
+    {
+        private readonly TaskCompletionSource _closed = new(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        public override bool CanRead => true;
+
+        public override bool CanSeek => false;
+
+        public override bool CanWrite => false;
+
+        public override long Length => throw new NotSupportedException();
+
+        public override long Position
+        {
+            get => throw new NotSupportedException();
+            set => throw new NotSupportedException();
+        }
+
+        public override int Read(byte[] buffer, int offset, int count)
+        {
+            _closed.Task.Wait();
+            return 0;
+        }
+
+        public override async ValueTask<int> ReadAsync(Memory<byte> buffer, CancellationToken cancellationToken = default)
+        {
+            await _closed.Task.WaitAsync(cancellationToken);
+            return 0;
+        }
+
+        public override Task<int> ReadAsync(byte[] buffer, int offset, int count, CancellationToken cancellationToken) =>
+            ReadAsync(buffer.AsMemory(offset, count), cancellationToken).AsTask();
+
+        public override void Flush()
+        {
+        }
+
+        public override long Seek(long offset, SeekOrigin origin) => throw new NotSupportedException();
+
+        public override void SetLength(long value) => throw new NotSupportedException();
+
+        public override void Write(byte[] buffer, int offset, int count) => throw new NotSupportedException();
+
+        protected override void Dispose(bool disposing)
+        {
+            _closed.TrySetResult();
+            base.Dispose(disposing);
         }
     }
 
