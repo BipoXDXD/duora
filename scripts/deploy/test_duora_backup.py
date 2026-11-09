@@ -1,5 +1,6 @@
 """Testes do wrapper de backup. Rodar da raiz: python3 -m unittest discover -s scripts/deploy -v"""
 
+import configparser
 import contextlib
 import io
 import json
@@ -39,6 +40,14 @@ def backup_entry(*, stop: float, kind: str = "full", error: bool = False,
     return {"label": label or f"label-{int(stop)}", "type": kind, "error": error,
             "archive": {"start": wal_start, "stop": wal_stop}, "database": {"id": 1, "repo-key": 1},
             "timestamp": {"start": int(stop) - 60, "stop": int(stop)}}
+
+
+def effective_timer_setting(unit_text: str, key: str) -> str | None:
+    """Como o systemd lê a unit: só a seção [Timer] conta e a última atribuição vence."""
+    parser = configparser.RawConfigParser(strict=False, delimiters=("=",))
+    parser.optionxform = str
+    parser.read_string(unit_text)
+    return parser.get("Timer", key, fallback=None)
 
 
 def archiver(*, archived_ago: float | None = 30.0, failed_ago: float | None = None) -> backup.ArchiverStatus:
@@ -937,7 +946,7 @@ class VerifyRepositoryActionTests(unittest.TestCase):
         self.assertEqual(7, len(timers))
         for timer in timers:
             with self.subTest(timer=timer.name):
-                self.assertIn("Persistent=true", timer.read_text(encoding="utf-8").splitlines())
+                self.assertEqual("true", effective_timer_setting(timer.read_text(encoding="utf-8"), "Persistent"))
 
 
 class RepoSettingsTests(unittest.TestCase):
