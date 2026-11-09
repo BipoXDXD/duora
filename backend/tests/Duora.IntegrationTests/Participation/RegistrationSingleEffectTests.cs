@@ -1,3 +1,5 @@
+using System.Diagnostics;
+using System.Globalization;
 using System.Net;
 using Duora.IntegrationTests.Identity;
 using Microsoft.Extensions.Time.Testing;
@@ -7,12 +9,15 @@ using static Duora.Infrastructure.Participation.ParticipationSql;
 namespace Duora.IntegrationTests.Participation;
 
 /// <summary>
-/// T-28 e T-06 no caminho real da inscrição: PUT por HTTP, com cookie e CSRF, sobre o PostgreSQL. Os testes de domínio
+/// T-28 no caminho real da inscrição: PUT por HTTP, com cookie e CSRF, sobre o PostgreSQL. Os testes de domínio
 /// de <c>RegistrationBook</c> não passam por este SQL.
 /// </summary>
 public sealed class RegistrationSingleEffectTests(PostgresFixture postgres)
 {
     private const string Password = IdentityScenario.ValidPassword;
+
+    /// <summary>Maior que os 2 s do <c>lock_timeout</c>: chegando aqui, nenhuma requisição terminou e nenhuma foi bloqueada.</summary>
+    private static readonly TimeSpan BarrierCeiling = TimeSpan.FromSeconds(5);
 
     private static CancellationToken Ct => TestContext.Current.CancellationToken;
 
@@ -43,7 +48,7 @@ public sealed class RegistrationSingleEffectTests(PostgresFixture postgres)
     /// <summary>
     /// Segura a linha do evento até as duas requisições estarem na fila dela, para o resultado depender da serialização
     /// e não de uma chegada em momentos diferentes. Sem o lock da inscrição, as duas leem a mesma vaga e param no UPDATE
-    /// do contador: a segunda fura a capacidade.
+    /// do contador: a CHECK de capacidade recusa a segunda, e ela responde 500.
     /// </summary>
     [Fact]
     public async Task TwoPeopleRacingForTheLastSeatConfirmOneAndWaitlistTheOther()
@@ -56,7 +61,7 @@ public sealed class RegistrationSingleEffectTests(PostgresFixture postgres)
         await Execute(blocker, "select 1 from events.events where id=$1 for update", Ct, scenario.EventId);
 
         var requests = new[] { alice.PutAsync(scenario.RegistrationPath), bob.PutAsync(scenario.RegistrationPath) };
-        await scenario.WaitForBlockedBackendsAsync(requests.Length);
+        await scenario.WaitUntilAllAreBlockedAsync(requests);
         await hold.CommitAsync(Ct);
         var responses = await Task.WhenAll(requests);
 
@@ -140,19 +145,38 @@ public sealed class RegistrationSingleEffectTests(PostgresFixture postgres)
             return (long)(await query.ExecuteScalarAsync(Ct))!;
         }
 
-        public async Task WaitForBlockedBackendsAsync(int expected)
+        /// <summary>
+        /// Falha na hora, com o status de cada requisição, se alguma terminar antes da barreira. É o que acontece quando a
+        /// espera na linha do evento passa dos 2 s do <c>lock_timeout</c> e ela responde 503.
+        /// </summary>
+        public async Task WaitUntilAllAreBlockedAsync(Task<HttpResponseMessage>[] requests)
         {
-            using var timeout = CancellationTokenSource.CreateLinkedTokenSource(Ct);
-            timeout.CancelAfter(TimeSpan.FromSeconds(5));
-            await using var connection = await Source.OpenConnectionAsync(timeout.Token);
+            var waited = Stopwatch.StartNew();
+            await using var connection = await Source.OpenConnectionAsync(Ct);
             await using var query = Command(connection, """
                 select count(*)::integer from pg_stat_activity
                 where datname=current_database() and cardinality(pg_blocking_pids(pid))>0
                 """);
-            while ((int)(await query.ExecuteScalarAsync(timeout.Token))! < expected)
+            while ((int)(await query.ExecuteScalarAsync(Ct))! < requests.Length)
             {
-                await Task.Delay(TimeSpan.FromMilliseconds(10), timeout.Token);
+                if (requests.Any(request => request.IsCompleted) || waited.Elapsed > BarrierCeiling)
+                {
+                    Assert.Fail($"As requisições não chegaram juntas à barreira. Status: {await DescribeAsync(requests)}.");
+                }
+
+                await Task.Delay(TimeSpan.FromMilliseconds(10), Ct);
             }
+        }
+
+        private static async Task<string> DescribeAsync(Task<HttpResponseMessage>[] requests)
+        {
+            List<string> statuses = [];
+            foreach (var request in requests)
+            {
+                statuses.Add(request.IsCompletedSuccessfully ? ((int)(await request).StatusCode).ToString(CultureInfo.InvariantCulture) : request.Status.ToString());
+            }
+
+            return string.Join(", ", statuses);
         }
 
         public async ValueTask DisposeAsync()
