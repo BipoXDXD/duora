@@ -52,9 +52,8 @@ public sealed class RoomExitTests(PostgresFixture postgres)
         Assert.Equal(HttpStatusCode.NotFound, aliceRead.StatusCode);
         Assert.DoesNotContain(scene.Room.ToString(), await aliceRead.Content.ReadAsStringAsync(Ct), StringComparison.OrdinalIgnoreCase);
         using var bobRead = await bob.GetAsync(scene.RoomPath);
-        Assert.Equal(HttpStatusCode.OK, bobRead.StatusCode);
-        using var body = JsonDocument.Parse(await bobRead.Content.ReadAsStringAsync(Ct));
-        Assert.Equal("Aborted", body.RootElement.GetProperty("state").GetString());
+        Assert.Equal(HttpStatusCode.NotFound, bobRead.StatusCode);
+        Assert.DoesNotContain(scene.Room.ToString(), await bobRead.Content.ReadAsStringAsync(Ct), StringComparison.OrdinalIgnoreCase);
     }
 
     [Fact]

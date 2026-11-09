@@ -268,7 +268,7 @@ describe('tela da sala enquanto a próxima leitura não responde', () => {
     )
 
     await renderApp('/rooms/room-1')
-    const notice = await screen.findByRole('alert')
+    const notice = await screen.findByRole('status')
     const readsBeforeInterval = roomReadsIn(fetchSpy)
     await advancePollingAndNotify()
 
@@ -296,7 +296,7 @@ describe('tela da sala enquanto a próxima leitura não responde', () => {
     await waitFor(() => {
       expect(exitButton).not.toBeInTheDocument()
     })
-    expect(screen.getByRole('alert')).toBeInTheDocument()
+    expect(screen.getByRole('status')).toBeInTheDocument()
     expect(screen.queryByText(LOADING_TEXT)).not.toBeInTheDocument()
   })
 

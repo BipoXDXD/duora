@@ -45,7 +45,7 @@ public sealed class RoomExitEligibilityTests(PostgresFixture postgres)
         Assert.NotNull(departedAt);
         Assert.Null(await scene.DepartedAtAsync(scene.Seed.Bob));
 
-        // Com uma das contas inelegível a sala some para as duas, igual a sala inexistente; a outra pessoa sabe pelo status.
+        // Com uma das contas inelegível a sala some para as duas, igual a sala inexistente, sem revelar o motivo.
         using (var partnerRoom = await bob.GetAsync(scene.RoomPath))
         {
             Assert.Equal(HttpStatusCode.NotFound, partnerRoom.StatusCode);
@@ -55,7 +55,7 @@ public sealed class RoomExitEligibilityTests(PostgresFixture postgres)
         {
             Assert.Equal(HttpStatusCode.OK, partnerStatus.StatusCode);
             using var body = JsonDocument.Parse(await partnerStatus.Content.ReadAsStringAsync(Ct));
-            Assert.Equal("Unavailable", body.RootElement.GetProperty("state").GetString());
+            Assert.Equal("Waiting", body.RootElement.GetProperty("state").GetString());
         }
 
         scene.Clock.Advance(TimeSpan.FromSeconds(5));
