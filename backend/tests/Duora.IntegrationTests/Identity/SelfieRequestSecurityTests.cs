@@ -70,4 +70,27 @@ public sealed class SelfieRequestSecurityTests(PostgresFixture postgres)
         Assert.IsType<SelfieRequestOutcome.Unavailable>(await final.ServiceProvider.GetRequiredService<SelfieVerificationService>().RequestAsync(owner.UserId, ct));
         Assert.Equal(5, await scenario.ScalarAsync("select count(*) from identity.selfie_verifications where user_id = $1", owner.UserId));
     }
+
+    [Theory]
+    [InlineData(59_999, HttpStatusCode.ServiceUnavailable, 1)]
+    [InlineData(60_000, HttpStatusCode.Accepted, 2)]
+    public async Task ANewAttemptIsRefusedUntilAFullMinuteHasPassed(int elapsedMilliseconds, HttpStatusCode expected, int attempts)
+    {
+        // Segundo inteiro: o PostgreSQL guarda microssegundos e a fronteira exata não pode depender do arredondamento.
+        var start = DateTimeOffset.UtcNow;
+        var time = new FakeTimeProvider(start.AddTicks(-start.Ticks % TimeSpan.TicksPerSecond));
+        await using var factory = new DuoraWebFactory(postgres.ConnectionString) { Settings = Settings, Time = time };
+        var scenario = new IdentityScenario(postgres, factory);
+        var owner = await scenario.CreateConfirmedAccountAsync();
+        using var browser = await scenario.SignedInBrowserAsync(owner);
+        using var first = await browser.PostJsonAsync("/api/v1/me/selfie-verifications", new { });
+        Assert.Equal(HttpStatusCode.Accepted, first.StatusCode);
+        await scenario.ScalarAsync("update identity.selfie_verifications set state = 'Inconclusive' where user_id = $1 returning 1", owner.UserId);
+
+        time.Advance(TimeSpan.FromMilliseconds(elapsedMilliseconds));
+        using var second = await browser.PostJsonAsync("/api/v1/me/selfie-verifications", new { });
+
+        Assert.Equal(expected, second.StatusCode);
+        Assert.Equal(attempts, await scenario.ScalarAsync("select count(*) from identity.selfie_verifications where user_id = $1", owner.UserId));
+    }
 }

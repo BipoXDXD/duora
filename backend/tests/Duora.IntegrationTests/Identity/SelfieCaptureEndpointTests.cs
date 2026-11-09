@@ -1,5 +1,7 @@
 using System.Diagnostics;
 using System.Net;
+using System.Text.Json.Nodes;
+using System.Web;
 using Amazon.Runtime;
 using Duora.Core.Identity;
 using Microsoft.AspNetCore.Builder;
@@ -52,6 +54,10 @@ public sealed class SelfieCaptureEndpointTests(PostgresFixture postgres)
         </AssumeRoleResponse>
         """;
 
+    private const string OnlyStartLivenessPolicy = """
+        {"Version":"2012-10-17","Statement":[{"Effect":"Allow","Action":"rekognition:StartFaceLivenessSession","Resource":"*"}]}
+        """;
+
     private const string AccessDenied = """
         <ErrorResponse xmlns="https://sts.amazonaws.com/doc/2011-06-15/">
           <Error><Type>Sender</Type><Code>AccessDenied</Code>
@@ -83,6 +89,33 @@ public sealed class SelfieCaptureEndpointTests(PostgresFixture postgres)
         Assert.Contains($"Credential={keyId}/", call.Authorization, StringComparison.Ordinal);
         Assert.Contains("/us-east-1/sts/", call.Authorization, StringComparison.Ordinal);
         AssertNoLeak(secret, body, response, logs);
+    }
+
+    [Fact]
+    public async Task CaptureRequestsOnlyTheLivenessActionForFifteenMinutes()
+    {
+        string? form = null;
+        var transport = new RecordingAwsTransport(async (request, cancellationToken) =>
+        {
+            form = await request.Content!.ReadAsStringAsync(cancellationToken);
+            return RecordingAwsTransport.Xml(HttpStatusCode.OK, AssumeRoleSuccess);
+        });
+        await using var factory = Factory(transport, new CapturingLoggerProvider(), "SYNTHETICACCESSKEYID", "synthetic");
+        var scenario = new IdentityScenario(postgres, factory);
+        var owner = await scenario.CreateConfirmedAccountAsync();
+        var attempt = await CapturingAttemptAsync(scenario, factory, owner.UserId);
+        using var browser = await scenario.SignedInBrowserAsync(owner);
+
+        using var response = await browser.PostJsonAsync($"/api/v1/me/selfie-verifications/{attempt}/capture", new { });
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        Assert.Equal("no-store", response.Headers.CacheControl?.ToString());
+        var sent = HttpUtility.ParseQueryString(form!);
+        Assert.Equal("AssumeRole", sent["Action"]);
+        Assert.Equal("arn:aws:iam::000000000000:role/synthetic", sent["RoleArn"]);
+        Assert.Equal("900", sent["DurationSeconds"]);
+        Assert.Equal($"selfie-{attempt:N}", sent["RoleSessionName"]);
+        Assert.True(JsonNode.DeepEquals(JsonNode.Parse(OnlyStartLivenessPolicy), JsonNode.Parse(sent["Policy"] ?? "null")), $"Policy enviada: {sent["Policy"]}");
     }
 
     [Fact]
