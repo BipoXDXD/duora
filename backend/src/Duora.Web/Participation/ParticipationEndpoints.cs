@@ -26,7 +26,7 @@ internal static class ParticipationEndpoints
         routes.MapGet("/events/{eventId:guid}/participation", async (Guid eventId, HttpContext context, ParticipationService service, CancellationToken ct) =>
             await service.StatusAsync(eventId, User(context), ct) is { } s ? Results.Ok(new ParticipationResponse(s.State, s.RoomId)) : Results.NotFound()).Produces<ParticipationResponse>();
         routes.MapGet("/rooms/{roomId:guid}", async (Guid roomId, HttpContext context, ParticipationService service, CancellationToken ct) =>
-            await service.RoomAsync(roomId, User(context), ct) is { } room ? Results.Ok(Map(room)) : Results.NotFound()).Produces<RoomResponse>();
+            await service.RoomAsync(roomId, User(context), ct) is { } room ? Results.Ok(Map(room)) : Results.NotFound()).Produces<RoomResponse>().ProducesProblem(404);
         routes.MapPost("/rooms/{roomId:guid}/accept", async (Guid roomId, HttpContext context, ParticipationService service, CancellationToken ct) =>
             Result(await service.RespondAsync(roomId, User(context), true, ct)));
         routes.MapPost("/rooms/{roomId:guid}/reject", async (Guid roomId, HttpContext context, ParticipationService service, CancellationToken ct) =>

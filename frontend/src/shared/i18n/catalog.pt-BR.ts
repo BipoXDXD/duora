@@ -149,6 +149,7 @@ export const ptBR = {
   'participation.reject': 'Recusar convite',
   'participation.completed': 'Experiência concluída.',
   'participation.closed': 'Este encontro foi encerrado.',
+  'participation.unavailable': 'Este encontro não está disponível.',
   'participation.awaitingPartner': 'Aguardando a outra pessoa. Sua escolha permanece privada.',
   'participation.skip': 'Pular cartão',
   'participation.myChoice': 'Sua escolha',
