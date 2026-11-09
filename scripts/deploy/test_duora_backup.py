@@ -930,6 +930,15 @@ class VerifyRepositoryActionTests(unittest.TestCase):
                 self.assertIn(f"OnCalendar={calendar}\n", text)
                 self.assertNotIn("RandomizedDelaySec", text)
 
+    def test_calendar_timers_catch_up_runs_missed_while_the_host_was_down(self) -> None:
+        role = Path(__file__).resolve().parents[2] / "infra" / "ansible" / "roles" / "backup"
+        timers = sorted(path for path in (role / "files").glob("*.timer") if path.name != "duora-backup-verify.timer")
+
+        self.assertEqual(7, len(timers))
+        for timer in timers:
+            with self.subTest(timer=timer.name):
+                self.assertIn("Persistent=true", timer.read_text(encoding="utf-8").splitlines())
+
 
 class RepoSettingsTests(unittest.TestCase):
     def test_defaults_follow_pgbackrest(self) -> None:
