@@ -54,9 +54,10 @@ public sealed partial class ParticipationService
         {
             released = await ReleaseRoomsOfExhaustedJobAsync(connection, job, ct);
         }
-        catch (Exception) when (!ct.IsCancellationRequested)
+        catch (Exception error) when (!ct.IsCancellationRequested)
         {
             await tx.RollbackAsync(CancellationToken.None);
+            LogReleaseFailed(job, error);
             await PostponeExhaustedClaimAsync(connection, job, ct);
             throw;
         }
@@ -148,6 +149,11 @@ public sealed partial class ParticipationService
                 await ReleaseAsync(connection, row, "Expired", ct);
             }
         }
+        await FinishRoundAsync(connection, round, ct);
+    }
+
+    private async Task FinishRoundAsync(NpgsqlConnection connection, Guid round, CancellationToken ct)
+    {
         await Execute(connection, "update events.rounds set state='Closed',version=version+1 where id=$1 and deadline_at<=$2 and state<>'Closed'", ct, round, Now);
         await Execute(connection, """
             update events.events set state='Completed',version=version+1 where id=(select event_id from events.rounds where id=$1)
@@ -220,7 +226,17 @@ public sealed partial class ParticipationService
               where pairing_id in (select pairing_id from rooms) returning user_id)
             select count(*)::integer from rooms
             """, job.AggregateId, Now);
-        return (int)(await release.ExecuteScalarAsync(linked.Token))!;
+        var released = (int)(await release.ExecuteScalarAsync(linked.Token))!;
+        await FinishRoundAsync(connection, job.AggregateId, linked.Token);
+        return released;
+    }
+
+    private void LogReleaseFailed(ParticipationJob job, Exception error)
+    {
+        if (logger is not null)
+        {
+            LogReleaseRefused(logger, job.Id, job.Kind, error.GetType().Name);
+        }
     }
 
     /// <summary>Sem isto, um job esgotado que não consegue liberar seria sempre o primeiro da fila e travaria os outros.</summary>
@@ -237,6 +253,10 @@ public sealed partial class ParticipationService
             LogExhausted(logger, job.Id, job.Kind, cause, roomsReleased);
         }
     }
+
+    /// <summary>Só o tipo: a mensagem da exceção pode citar valores do banco. Este giro não consome tentativa e se repete até liberar.</summary>
+    [LoggerMessage(Level = LogLevel.Error, Message = "Participation job {JobId} ({Kind}) exhausted its attempts but could not release its open rooms ({Cause}); it will be tried again.")]
+    private static partial void LogReleaseRefused(ILogger logger, Guid jobId, string kind, string cause);
 
     [LoggerMessage(Level = LogLevel.Error, Message = "Participation job {JobId} ({Kind}) exhausted its attempts ({Cause}); {RoomsReleased} open rooms were released.")]
     private static partial void LogExhausted(ILogger logger, Guid jobId, string kind, string cause, int roomsReleased);

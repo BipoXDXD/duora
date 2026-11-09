@@ -150,6 +150,11 @@ public sealed class ParticipationJobExhaustionTests(PostgresFixture postgres)
         Assert.Equal(PostgresErrorCodes.LockNotAvailable, refused.SqlState);
         Assert.Equal(expired, await scenario.JobAsync(jobId));
         Assert.Equal(2, await scenario.ActiveReservationsAsync());
+        var alert = Assert.Single(scenario.Logs.Entries, entry => entry.Level == LogLevel.Error);
+        Assert.Contains("could not release", alert.Text, StringComparison.Ordinal);
+        Assert.Contains("close-round", alert.Text, StringComparison.Ordinal);
+        Assert.Contains(nameof(PostgresException), alert.Text, StringComparison.Ordinal);
+        Assert.DoesNotContain(scenario.Seed.Alice.ToString(), alert.Text, StringComparison.OrdinalIgnoreCase);
         var other = await scenario.AddDueJobAsync();
         var next = await scenario.Service.ClaimJobAsync(Ct);
         Assert.Equal(other, next?.Id);
@@ -163,11 +168,77 @@ public sealed class ParticipationJobExhaustionTests(PostgresFixture postgres)
         Assert.Equal(0, await scenario.ActiveReservationsAsync());
     }
 
+    /// <summary>No retry, marcar <c>Failed</c> e liberar também são um commit só: sem os locks, o job fica para o lease devolver.</summary>
+    [Fact]
+    public async Task ARetryThatCannotReleaseLeavesTheJobInFlightAndTheReservationsHeld()
+    {
+        await using var scenario = await Scenario.CreateAsync(postgres);
+        var jobId = await scenario.OnlyJobDueIsAsync("close-round", scenario.Round);
+        scenario.Clock.Advance(PastTheRoundDeadline);
+        await scenario.SetAttemptsAsync(jobId, 7);
+        var job = await scenario.Service.ClaimJobAsync(Ct);
+        Assert.NotNull(job);
+        await using var blocker = await scenario.Source.OpenConnectionAsync(Ct);
+        await using var hold = await blocker.BeginTransactionAsync(Ct);
+        await Execute(blocker, "select 1 from safety.user_guards where user_id=$1 for update", Ct, scenario.Seed.Alice);
+
+        var refused = await Assert.ThrowsAsync<PostgresException>(() => scenario.Service.RetryJobAsync(job, Ct));
+
+        Assert.Equal(PostgresErrorCodes.LockNotAvailable, refused.SqlState);
+        Assert.Equal("InFlight|8|-", await scenario.JobAsync(jobId));
+        Assert.Equal(2, await scenario.ActiveReservationsAsync());
+
+        await hold.RollbackAsync(Ct);
+        scenario.Clock.Advance(PastTheLease);
+
+        Assert.Null(await scenario.Service.ClaimJobAsync(Ct));
+        Assert.Equal("Failed|9|LeaseExpiredExhausted", await scenario.JobAsync(jobId));
+        Assert.Equal(0, await scenario.ActiveReservationsAsync());
+    }
+
+    [Fact]
+    public async Task AnExhaustedCloseRoundDoesNotTouchAnotherRoundThatIsAlsoPastItsDeadline()
+    {
+        await using var scenario = await Scenario.CreateAsync(postgres);
+        var otherRoom = await scenario.OpenRoomInAnotherRoundAsync();
+        var jobId = await scenario.OnlyJobDueIsAsync("close-round", scenario.Round);
+        scenario.Clock.Advance(PastTheRoundDeadline);
+        var untouched = await scenario.OpenRoomStateAsync(otherRoom);
+        Assert.Equal("Invited|1|2", untouched);
+
+        await scenario.ExhaustAsync("retry", "close-round");
+
+        Assert.StartsWith("Failed|", await scenario.JobAsync(jobId), StringComparison.Ordinal);
+        Assert.Equal(0, await scenario.ActiveReservationsAsync());
+        Assert.Equal(untouched, await scenario.OpenRoomStateAsync(otherRoom));
+    }
+
+    [Theory]
+    [InlineData("retry", false, "Closed|Completed")]
+    [InlineData("lease", false, "Closed|Completed")]
+    [InlineData("retry", true, "Closed|Running")]
+    public async Task AnExhaustedCloseRoundClosesItsRoundAndCompletesTheEventOnlyAfterTheLastRound(string path, bool anotherRoundIsOpen, string expected)
+    {
+        await using var scenario = await Scenario.CreateAsync(postgres);
+        if (anotherRoundIsOpen)
+        {
+            await scenario.AddScheduledRoundAsync();
+        }
+
+        await scenario.OnlyJobDueIsAsync("close-round", scenario.Round);
+        scenario.Clock.Advance(PastTheRoundDeadline);
+
+        await scenario.ExhaustAsync(path, "close-round");
+
+        Assert.Equal(expected, await scenario.RoundAndEventStateAsync());
+    }
+
     private sealed class Scenario : IAsyncDisposable
     {
         private Scenario(NpgsqlDataSource source, FakeTimeProvider clock, ParticipationService service, ParticipationSeed seed,
-            Guid room, CapturingLoggerProvider logs)
+            Guid room, CapturingLoggerProvider logs, string connectionString)
         {
+            ConnectionString = connectionString;
             Source = source;
             Clock = clock;
             Service = service;
@@ -175,6 +246,8 @@ public sealed class ParticipationJobExhaustionTests(PostgresFixture postgres)
             Room = room;
             Logs = logs;
         }
+
+        public string ConnectionString { get; }
 
         public NpgsqlDataSource Source { get; }
 
@@ -209,7 +282,7 @@ public sealed class ParticipationJobExhaustionTests(PostgresFixture postgres)
             clock.Advance(TimeSpan.FromMinutes(5));
             await service.BuildRoundPairingsAsync(seed.Rounds[0], Ct);
             var room = (await service.StatusAsync(seed.Events[0], seed.Alice, Ct))!.RoomId!.Value;
-            return new(source, clock, service, seed, room, logs);
+            return new(source, clock, service, seed, room, logs, connectionString);
         }
 
         public async Task AcceptBothAsync()
@@ -279,6 +352,38 @@ public sealed class ParticipationJobExhaustionTests(PostgresFixture postgres)
 
         public Task<string> JobAsync(Guid jobId) => TextAsync(
             "select status||'|'||attempts||'|'||coalesce(last_error_code,'-') from ops.jobs where id=$1", jobId);
+
+        /// <summary>Outra dupla, em outro evento: sala aberta numa rodada independente da que o teste esgota.</summary>
+        public async Task<Guid> OpenRoomInAnotherRoundAsync()
+        {
+            var other = await BrowserScenarioSeed.InitializeAsync(ConnectionString, Clock.GetUtcNow(), Ct, "-outra", declarePreferences: true);
+            foreach (var user in new[] { other.Alice, other.Bob })
+            {
+                Assert.Equal(ParticipationOutcome.Done, await Service.RegisterAsync(other.Events[0], user, false, Ct));
+                Assert.Equal(ParticipationOutcome.Done, await Service.RegisterAsync(other.Events[0], user, true, Ct));
+            }
+
+            Clock.Advance(TimeSpan.FromMinutes(5));
+            await Service.BuildRoundPairingsAsync(other.Rounds[0], Ct);
+            return (await Service.StatusAsync(other.Events[0], other.Alice, Ct))!.RoomId!.Value;
+        }
+
+        public async Task AddScheduledRoundAsync()
+        {
+            await using var connection = await Source.OpenConnectionAsync(Ct);
+            var start = Clock.GetUtcNow().AddHours(1);
+            await Execute(connection, "insert into events.rounds(id,event_id,number,state,starts_at,deadline_at,seed) values($1,$2,2,'Scheduled',$3,$4,42)", Ct, Guid.NewGuid(), Seed.Events[0], start, start.AddMinutes(12));
+        }
+
+        /// <summary><c>estado|versão|reservas ativas</c>.</summary>
+        public Task<string> OpenRoomStateAsync(Guid room) => TextAsync("""
+            select s.state||'|'||s.version||'|'||(select count(*) from events.pairing_participants pp where pp.pairing_id=s.pairing_id and pp.released_at is null)
+            from experiences.game_sessions s where s.id=$1
+            """, room);
+
+        public Task<string> RoundAndEventStateAsync() => TextAsync("""
+            select r.state||'|'||e.state from events.rounds r join events.events e on e.id=r.event_id where r.id=$1
+            """, Round);
 
         public Task<string> RoomStateAsync() => TextAsync("select state from experiences.game_sessions where id=$1", Room);
 
