@@ -15,6 +15,7 @@ arquivo quando entrar pacote ou ferramenta nova, quando mudar uma versão fixada
 | Licenças | `scripts/supply-chain/check_licenses.py` sobre os SBOMs | licença fora da allowlist, ou componente sem licença, sem exceção escrita |
 | Segredos | job `secret-scan` (Gitleaks, histórico inteiro alcançável do commit testado, `--log-opts=HEAD`; branches de outros PRs ficam fora) | qualquer segredo, inclusive um removido em commit posterior; o Trivy roda com o scanner de segredos desligado para não duplicar |
 | Actions | `.github/workflows/ci.yml` | action de terceiros sem SHA completo (revisão); o Dependabot atualiza SHA e comentário |
+| Liveness da selfie | `frontend/config/liveness-supply-chain.test.ts` e `frontend/src/features/account/SelfieCapture.test.tsx`; inventário em [liveness-supply-chain.md](liveness-supply-chain.md) | muda a versão do pacote, o lockfile, as URLs do WASM e do modelo ou as origens externas da CSP da selfie; o conteúdo servido pelo CDN não é verificado |
 | Atualizações | `.github/dependabot.yml`: NuGet, npm, Actions, Compose e pip (`/scripts/deploy`, `/tools/visual`). Cooldown de 7 dias em `nuget`, `npm` e `pip`; `github-actions` e `docker-compose` não têm cooldown | não bloqueia; abre PRs semanais revisados por humano |
 
 Os achados aparecem no log do job; o inventário de licenças e o changelog do contrato vão para o resumo do job.
