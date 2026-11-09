@@ -22,6 +22,7 @@ public sealed class RoomResponseAllowlistTests(PostgresFixture postgres)
     private const string ConstellationInvited = "constellation-invited";
     private const string ConstellationAnswered = "constellation-answered-before-reveal";
     private const string ConstellationRevealed = "constellation-after-first-reveal";
+    private const string ConstellationPassed = "constellation-after-skipped-card";
     private const string ConstellationCompleted = "constellation-completed";
     private const string RoutesInvited = "routes-invited";
     private const string RoutesIntroduction = "routes-introduction";
@@ -35,15 +36,21 @@ public sealed class RoomResponseAllowlistTests(PostgresFixture postgres)
     private const string BobFirstOption = "river-beta";
     private const string AliceFirstLabel = "Ember Alpha";
     private const string AliceFirstLabelPt = "Brasa Alfa";
+    private const string BobFirstLabel = "River Beta";
+    private const string BobFirstLabelPt = "Rio Beta";
+    private const string FirstPrompt = "First light?";
+    private const string FirstPromptPt = "Primeira luz?";
     private const string FirstStop = "stop";
     private const string SecondStop = "stop-second";
     private const string ChooseOption = "choose-option";
+    private const string SkipCard = "skip-card";
     private const string Acknowledge = "acknowledge";
     private const string ConfirmRoute = "confirm-route";
     private const string VersionKey = "version";
     private const string GameKey = "game";
     private const string ResourceVersionKey = "resourceVersion";
     private const string CurrentCardKey = "currentCard";
+    private const string PassedKey = "passed";
 
     private static readonly string[] None = [];
 
@@ -82,6 +89,8 @@ public sealed class RoomResponseAllowlistTests(PostgresFixture postgres)
         "game.revealed[].partnerOptionLabel", "game.revealed[].choseTheSame",
     ];
 
+    private static readonly string[] PassedCard = ["game.passed[].cardId", "game.passed[].prompt"];
+
     private static readonly string[] RoutesGame =
     [
         "routesGame.experienceId", "routesGame.rulesVersion", "routesGame.contentVersion", "routesGame.schemaVersion",
@@ -109,6 +118,7 @@ public sealed class RoomResponseAllowlistTests(PostgresFixture postgres)
     [InlineData(ConstellationInvited, "Invited")]
     [InlineData(ConstellationAnswered, "Active")]
     [InlineData(ConstellationRevealed, "Active")]
+    [InlineData(ConstellationPassed, "Active")]
     [InlineData(ConstellationCompleted, "Completed")]
     [InlineData(RoutesInvited, "Invited")]
     [InlineData(RoutesIntroduction, "Active")]
@@ -150,6 +160,23 @@ public sealed class RoomResponseAllowlistTests(PostgresFixture postgres)
         Assert.Equal(WithoutVersions(before), WithoutVersions(after));
     }
 
+    [Fact]
+    public async Task APassedCardDoesNotIdentifyWhoSkipped()
+    {
+        await using var scene = await SceneAsync(ConstellationPassed);
+
+        var skipper = await ReadRoomAsync(scene.Alice, scene.RoomPath);
+        var chooser = await ReadRoomAsync(scene.Bob, scene.RoomPath);
+
+        Assert.Equal(PassedCardJson(FirstPrompt), skipper[GameKey]![PassedKey]!.ToJsonString());
+        Assert.Equal(PassedCardJson(FirstPromptPt), chooser[GameKey]![PassedKey]!.ToJsonString());
+        Assert.Equal(WithoutLocalizedText(skipper), WithoutLocalizedText(chooser));
+        foreach (var room in new[] { skipper, chooser })
+        {
+            AssertAbsent(room.ToJsonString(), AliceFirstOption, AliceFirstLabel, AliceFirstLabelPt, BobFirstOption, BobFirstLabel, BobFirstLabelPt);
+        }
+    }
+
     [Theory]
     [InlineData(ConstellationAnswered, "actions")]
     [InlineData(RoutesClues, "routes-actions")]
@@ -188,6 +215,7 @@ public sealed class RoomResponseAllowlistTests(PostgresFixture postgres)
         ConstellationInvited or RoutesInvited => Room,
         ConstellationAnswered => [.. Room, .. ConstellationGame, .. OpenCard, .. (viewerIsAlice ? OwnAnswer : None)],
         ConstellationRevealed => [.. Room, .. ConstellationGame, .. OpenCard, .. RevealedCard],
+        ConstellationPassed => [.. Room, .. ConstellationGame, .. OpenCard, .. PassedCard],
         ConstellationCompleted => [.. Room, .. ConstellationGame, .. RevealedCard],
         RoutesIntroduction or RoutesClues => [.. Room, .. Audio, .. RoutesGame],
         RoutesChoosing => [.. Room, .. Audio, .. RoutesGame, .. OpenStop, .. ChosenStop],
@@ -231,6 +259,23 @@ public sealed class RoomResponseAllowlistTests(PostgresFixture postgres)
         var copy = room.DeepClone().AsObject();
         copy[GameKey]![CurrentCardKey] = null;
         return copy.ToJsonString();
+    }
+
+    private static string PassedCardJson(string prompt) => $$"""[{"cardId":"{{FirstCard}}","prompt":"{{prompt}}"}]""";
+
+    /// <summary>O jogo sem o texto que muda com o idioma: o que sobra tem de ser igual para quem pulou e para quem respondeu.</summary>
+    private static string WithoutLocalizedText(JsonObject room)
+    {
+        var game = room[GameKey]!.DeepClone().AsObject();
+        game.Remove("title");
+        game.Remove("objective");
+        game.Remove(CurrentCardKey);
+        foreach (var passed in game[PassedKey]!.AsArray())
+        {
+            passed!.AsObject().Remove("prompt");
+        }
+
+        return game.ToJsonString();
     }
 
     private static string WithoutVersions(JsonObject room)
@@ -304,12 +349,12 @@ public sealed class RoomResponseAllowlistTests(PostgresFixture postgres)
     {
         var en = new ConstellationContent(2, "Shared choices", "Explore choices together.",
         [
-            new(FirstCard, "First light?", [new(AliceFirstOption, AliceFirstLabel), new(BobFirstOption, "River Beta")]),
+            new(FirstCard, FirstPrompt, [new(AliceFirstOption, AliceFirstLabel), new(BobFirstOption, BobFirstLabel)]),
             new(SecondCard, "Last light?", [new("cedar-gamma", "Cedar Gamma"), new("harbor-delta", "Harbor Delta")]),
         ]);
         var pt = new ConstellationContent(2, "Escolhas em comum", "Explore escolhas em dupla.",
         [
-            new(FirstCard, "Primeira luz?", [new(AliceFirstOption, AliceFirstLabelPt), new(BobFirstOption, "Rio Beta")]),
+            new(FirstCard, FirstPromptPt, [new(AliceFirstOption, AliceFirstLabelPt), new(BobFirstOption, BobFirstLabelPt)]),
             new(SecondCard, "Última luz?", [new("cedar-gamma", "Cedro Gama"), new("harbor-delta", "Porto Delta")]),
         ]);
         var contentId = Guid.NewGuid();
@@ -390,6 +435,14 @@ public sealed class RoomResponseAllowlistTests(PostgresFixture postgres)
 
         private async Task PlayConstellationAsync(string stage)
         {
+            if (stage == ConstellationPassed)
+            {
+                var current = (await service.RoomAsync(room, Seed.Alice, Ct))!;
+                Assert.Equal(ParticipationOutcome.Done, await service.ActionAsync(room, Seed.Alice, AliceAction, current.Version, SkipCard, FirstCard, null, Ct));
+                await ChooseAsync(Seed.Bob, BobAction, FirstCard, BobFirstOption);
+                return;
+            }
+
             await ChooseAsync(Seed.Alice, AliceAction, FirstCard, AliceFirstOption);
             if (stage == ConstellationAnswered)
             {
