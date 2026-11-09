@@ -60,6 +60,7 @@ internal static class DuoraWebApp
         builder.Services.AddOpenApi(options =>
         {
             PatchFieldOpenApi.Configure(options);
+            ExplicitOffsetOpenApi.Configure(options);
             ProblemDetailsOpenApi.Configure(options);
             ProfileEndpoints.ConfigureOpenApi(options);
             RegionalPreferenceEndpoints.ConfigureOpenApi(options);
