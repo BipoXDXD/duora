@@ -51,6 +51,8 @@ public sealed class SelfieSlowProviderTests(PostgresFixture postgres)
 
     private const string TransportCanary = "CANARY-mensagem-do-fornecedor";
 
+    private const string HostDisposalStep = "descartando o host";
+
     private const int AttemptsInTheBacklog = 3;
 
     /// <summary>A 6 s por rodada, a última falha cai 174 s depois do pedido, e a próxima leitura fica liberada em 179 s.</summary>
@@ -68,14 +70,20 @@ public sealed class SelfieSlowProviderTests(PostgresFixture postgres)
     private readonly FakeTimeProvider _time = new(DateTimeOffset.FromUnixTimeSeconds(DateTimeOffset.UtcNow.ToUnixTimeSeconds()));
 
     /// <summary>Onde o teste está, para a falha por teto dizer onde parou. Escrito na tarefa do corpo e lido na do teto.</summary>
-    private volatile string _step = "início";
+    private volatile string _step = "corpo do teste";
+
+    /// <summary>Falha do corpo, guardada antes do descarte para não se perder se o descarte travar depois dela.</summary>
+    private volatile BodyFailure? _bodyFailure;
+
+    /// <summary>Descartes dos hosts do teste, do último criado para o primeiro.</summary>
+    private readonly Stack<Func<ValueTask>> _hostDisposals = new();
 
     [Fact]
-    public async Task AStalledSessionStartThroughTheRealSdkIsCutAndRetriedWithoutReleasingTheAccount()
+    public Task AStalledSessionStartThroughTheRealSdkIsCutAndRetriedWithoutReleasingTheAccount() => WithinTheWholeTestCeilingAsync(async () =>
     {
         var connection = await postgres.CreateMigratedDatabaseAsync(Ct);
         var transport = new SyntheticAwsTransport(Stall);
-        await using var host = RealSdkHost(connection, transport);
+        var host = RealSdkHost(connection, transport);
         var scenario = new IdentityScenario(connection, host);
         var account = await scenario.CreateConfirmedAccountAsync();
         await SelfieConcurrencyHarness.RequestAsync(host, account.UserId, Ct);
@@ -96,14 +104,14 @@ public sealed class SelfieSlowProviderTests(PostgresFixture postgres)
 
         Assert.Equal("Capturing|has-reference|no-feedback|open", await AttemptAsync(scenario));
         await AssertNotReleasedAsync(scenario, host, account.UserId);
-    }
+    });
 
     [Fact]
-    public async Task AStalledResultReadIsCutAndOnlyTheNextAnswerDecides()
+    public Task AStalledResultReadIsCutAndOnlyTheNextAnswerDecides() => WithinTheWholeTestCeilingAsync(async () =>
     {
         var provider = new FaultySelfieProvider(_time);
         var connection = await postgres.CreateMigratedDatabaseAsync(Ct);
-        await using var host = SelfieConcurrencyHarness.Host(connection, _time, provider);
+        var host = FakeProviderHost(connection, provider);
         var scenario = new IdentityScenario(connection, host);
         var account = await scenario.CreateConfirmedAccountAsync();
         await SelfieConcurrencyHarness.RequestAsync(host, account.UserId, Ct);
@@ -123,7 +131,7 @@ public sealed class SelfieSlowProviderTests(PostgresFixture postgres)
 
         Assert.Equal("Passed|has-reference|no-feedback|closed", await AttemptAsync(scenario));
         Assert.True(await SelfieConcurrencyHarness.EligibleAsync(host, account.UserId, Ct));
-    }
+    });
 
     /// <summary>
     /// O corte exato, no relógio do worker: em 9 999 ms a chamada ainda vale e a resposta decide; em 10 000 ms ela já foi
@@ -135,12 +143,12 @@ public sealed class SelfieSlowProviderTests(PostgresFixture postgres)
     [InlineData(9_999, false, true)]
     [InlineData(10_000, true, false)]
     [InlineData(10_000, false, false)]
-    public async Task TheCallIsCutExactlyAtTenSecondsOnTheWorkerClock(int answerAfterMilliseconds, bool honorsCancellation,
-        bool decides)
+    public Task TheCallIsCutExactlyAtTenSecondsOnTheWorkerClock(int answerAfterMilliseconds, bool honorsCancellation,
+        bool decides) => WithinTheWholeTestCeilingAsync(async () =>
     {
         var provider = new FaultySelfieProvider(_time);
         var connection = await postgres.CreateMigratedDatabaseAsync(Ct);
-        await using var host = SelfieConcurrencyHarness.Host(connection, _time, provider);
+        var host = FakeProviderHost(connection, provider);
         var scenario = new IdentityScenario(connection, host);
         var account = await scenario.CreateConfirmedAccountAsync();
         await SelfieConcurrencyHarness.RequestAsync(host, account.UserId, Ct);
@@ -162,7 +170,7 @@ public sealed class SelfieSlowProviderTests(PostgresFixture postgres)
         Assert.Equal(decides, await SelfieConcurrencyHarness.EligibleAsync(host, account.UserId, Ct));
         Assert.Equal(decides ? "Active" : "PendingEligibility", await scenario.ScalarTextAsync(
             "select status from identity.users where id = $1", account.UserId));
-    }
+    });
 
     /// <summary>
     /// A resposta que volta já concluída depois do prazo não decide: o <c>WaitAsync</c> devolve uma tarefa pronta mesmo com
@@ -173,12 +181,12 @@ public sealed class SelfieSlowProviderTests(PostgresFixture postgres)
     [InlineData(9_999, SelfieState.RecaptureRequired, "RecaptureRequired|has-reference|CAPTURE_QUALITY|closed", "Delivered|-|2", false, 1)]
     [InlineData(10_000, SelfieState.Passed, "Capturing|has-reference|PROVIDER_UNAVAILABLE|open", "Pending|ProviderUnavailable|2", false, 0)]
     [InlineData(10_000, SelfieState.RecaptureRequired, "Capturing|has-reference|PROVIDER_UNAVAILABLE|open", "Pending|ProviderUnavailable|2", false, 0)]
-    public async Task ASynchronousAnswerDecidesOnlyBeforeTheDeadline(int answerAfterMilliseconds, SelfieState answer,
-        string expectedAttempt, string expectedDelivery, bool released, int expectedFailures)
+    public Task ASynchronousAnswerDecidesOnlyBeforeTheDeadline(int answerAfterMilliseconds, SelfieState answer,
+        string expectedAttempt, string expectedDelivery, bool released, int expectedFailures) => WithinTheWholeTestCeilingAsync(async () =>
     {
         var provider = new FaultySelfieProvider(_time) { Answer = answer };
         var connection = await postgres.CreateMigratedDatabaseAsync(Ct);
-        await using var host = SelfieConcurrencyHarness.Host(connection, _time, provider);
+        var host = FakeProviderHost(connection, provider);
         var scenario = new IdentityScenario(connection, host);
         var account = await scenario.CreateConfirmedAccountAsync();
         await SelfieConcurrencyHarness.RequestAsync(host, account.UserId, Ct);
@@ -199,7 +207,7 @@ public sealed class SelfieSlowProviderTests(PostgresFixture postgres)
             "select status from identity.users where id = $1", account.UserId));
         Assert.Equal(expectedFailures, await scenario.ScalarAsync(
             "select count(*) from identity.selfie_failures where user_id = $1", account.UserId));
-    }
+    });
 
     /// <summary>
     /// A abertura de sessão segue a mesma regra da leitura: em 10 000 ms a sessão que volta já concluída é tratada como o
@@ -208,12 +216,12 @@ public sealed class SelfieSlowProviderTests(PostgresFixture postgres)
     [Theory]
     [InlineData(9_999, "Capturing|has-reference|no-feedback|open", "Pending|AwaitingCapture|1")]
     [InlineData(10_000, "Pending|no-reference|PROVIDER_UNAVAILABLE|open", "Pending|ProviderUnavailable|1")]
-    public async Task ASynchronouslyStartedSessionIsAppliedOnlyBeforeTheDeadline(int answerAfterMilliseconds, string expectedAttempt,
-        string expectedDelivery)
+    public Task ASynchronouslyStartedSessionIsAppliedOnlyBeforeTheDeadline(int answerAfterMilliseconds, string expectedAttempt,
+        string expectedDelivery) => WithinTheWholeTestCeilingAsync(async () =>
     {
         var provider = new FaultySelfieProvider(_time);
         var connection = await postgres.CreateMigratedDatabaseAsync(Ct);
-        await using var host = SelfieConcurrencyHarness.Host(connection, _time, provider);
+        var host = FakeProviderHost(connection, provider);
         var scenario = new IdentityScenario(connection, host);
         var account = await scenario.CreateConfirmedAccountAsync();
         await SelfieConcurrencyHarness.RequestAsync(host, account.UserId, Ct);
@@ -229,7 +237,7 @@ public sealed class SelfieSlowProviderTests(PostgresFixture postgres)
         Assert.Equal(expectedAttempt, await AttemptAsync(scenario));
         Assert.Equal(expectedDelivery, await DeliveryAsync(scenario));
         await AssertNotReleasedAsync(scenario, host, account.UserId);
-    }
+    });
 
     /// <summary>
     /// Uma chamada por vez ao fornecedor: a chamada cortada que ignora o cancelamento segura a vaga até terminar de fato.
@@ -237,12 +245,12 @@ public sealed class SelfieSlowProviderTests(PostgresFixture postgres)
     /// ela termina, o lote seguinte volta a chamar.
     /// </summary>
     [Fact]
-    public async Task NoSecondCallLeavesWhileTheAbandonedCallIsStillRunning()
+    public Task NoSecondCallLeavesWhileTheAbandonedCallIsStillRunning() => WithinTheWholeTestCeilingAsync(async () =>
     {
         var provider = new FaultySelfieProvider(_time);
         var connection = await postgres.CreateMigratedDatabaseAsync(Ct);
         var logs = new CapturingLoggerProvider();
-        await using var host = SelfieConcurrencyHarness.Host(connection, _time, provider, logs: logs);
+        var host = FakeProviderHost(connection, provider, logs: logs);
         var scenario = new IdentityScenario(connection, host);
         var account = await scenario.CreateConfirmedAccountAsync();
         await SelfieConcurrencyHarness.RequestAsync(host, account.UserId, Ct);
@@ -267,18 +275,18 @@ public sealed class SelfieSlowProviderTests(PostgresFixture postgres)
         Assert.Equal(1, await SelfieConcurrencyHarness.DispatchAsync(host, Ct));
         Assert.Equal(2, provider.StartCalls);
         Assert.Equal("Capturing|has-reference|no-feedback|open", await AttemptAsync(scenario));
-    }
+    });
 
     /// <summary>
     /// A resposta que a chamada abandonada entrega depois do corte não é lida por ninguém: a tentativa e a conta ficam
     /// como o corte deixou, e só a leitura seguinte decide.
     /// </summary>
     [Fact]
-    public async Task TheLateAnswerOfAnAbandonedCallIsNeverApplied()
+    public Task TheLateAnswerOfAnAbandonedCallIsNeverApplied() => WithinTheWholeTestCeilingAsync(async () =>
     {
         var provider = new FaultySelfieProvider(_time);
         var connection = await postgres.CreateMigratedDatabaseAsync(Ct);
-        await using var host = SelfieConcurrencyHarness.Host(connection, _time, provider);
+        var host = FakeProviderHost(connection, provider);
         var scenario = new IdentityScenario(connection, host);
         var account = await scenario.CreateConfirmedAccountAsync();
         await SelfieConcurrencyHarness.RequestAsync(host, account.UserId, Ct);
@@ -302,36 +310,67 @@ public sealed class SelfieSlowProviderTests(PostgresFixture postgres)
 
         Assert.Equal(2, provider.ReadCalls);
         Assert.Equal("Passed|has-reference|no-feedback|closed", await AttemptAsync(scenario));
-    }
+    });
 
     /// <summary>
     /// Fornecedor lento de verdade costuma mandar os cabeçalhos e travar no corpo. Pelo SDK real, o corpo parado é
     /// cortado pelos mesmos 10 s do relógio do worker: a entrega volta para a fila, a tentativa só ganha o sinal e a conta
-    /// fica pendente.
+    /// fica pendente. O corte só vem com a leitura presa num corpo ainda aberto: um corpo que chegasse já descartado
+    /// terminaria sozinho e passaria por corte.
     /// </summary>
     [Fact]
     public Task AResponseBodyThatStallsThroughTheRealSdkIsCutAtTheCallTimeout()
     {
-        var stalledBody = new StalledStream();
-        var transport = new SyntheticAwsTransport(_ => StalledBody(stalledBody));
-        return WithinTheWholeTestCeilingAsync(() => $"chamadas HTTP: {transport.Calls}; {stalledBody.State}", async () =>
+        var stalledBodies = new ConcurrentQueue<StalledStream>();
+        var transport = new SyntheticAwsTransport(_ => StalledBody(stalledBodies));
+        return WithinTheWholeTestCeilingAsync(() => $"chamadas HTTP: {transport.Calls}; {string.Join(" / ", stalledBodies.Select(body => body.State))}", async () =>
         {
-            _step = "preparando banco, host e conta";
             var connection = await postgres.CreateMigratedDatabaseAsync(Ct);
-            await using var host = RealSdkHost(connection, transport);
+            var host = RealSdkHost(connection, transport);
             var scenario = new IdentityScenario(connection, host);
             var account = await scenario.CreateConfirmedAccountAsync();
             await SelfieConcurrencyHarness.RequestAsync(host, account.UserId, Ct);
 
-            await CutDispatchAsync(host, () => transport.Calls == 1);
+            await CutDispatchAsync(host, () => transport.Calls == 1 && stalledBodies.TryPeek(out var body) && body.IsStalled);
 
-            _step = "conferindo o efeito do corte";
             Assert.Equal(1, transport.Calls);
+            Assert.Single(stalledBodies);
             Assert.Equal("Pending|no-reference|PROVIDER_UNAVAILABLE|open", await AttemptAsync(scenario));
             Assert.Equal("Pending|ProviderUnavailable|1", await DeliveryAsync(scenario));
             await AssertNotReleasedAsync(scenario, host, account.UserId);
-            _step = "descartando o host";
         });
+    }
+
+    [Fact]
+    public async Task TheCeilingNamesTheHostDisposalWhenItHangsAfterAPassingBody()
+    {
+        var failure = await CeilingFailureDuringAHangingDisposalAsync(() => Task.CompletedTask);
+
+        Assert.Contains($"etapa \"{HostDisposalStep}\"", failure.Message, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task TheCeilingNamesTheHostDisposalAndKeepsTheBodyFailureWhenItHangsAfterAFailingBody()
+    {
+        var failure = await CeilingFailureDuringAHangingDisposalAsync(
+            () => Task.FromException(new InvalidOperationException("falha-do-corpo")));
+
+        Assert.Contains($"etapa \"{HostDisposalStep}\"", failure.Message, StringComparison.Ordinal);
+        Assert.Contains("falha-do-corpo", failure.Message, StringComparison.Ordinal);
+        Assert.IsType<InvalidOperationException>(failure.InnerException);
+    }
+
+    [Fact]
+    public async Task AnInnerCeilingKeepsTheStepWhereTheBodyStoppedEvenAfterTheDisposal()
+    {
+        var failure = await Assert.ThrowsAsync<TimeoutException>(() => WithinTheWholeTestCeilingAsync(() =>
+        {
+            _step = "etapa-do-corpo";
+            return Task.FromException(new TimeoutException("teto interno"));
+        }));
+
+        Assert.Contains("etapa \"etapa-do-corpo\"", failure.Message, StringComparison.Ordinal);
+        Assert.DoesNotContain(HostDisposalStep, failure.Message, StringComparison.Ordinal);
     }
 
     /// <summary>
@@ -341,11 +380,11 @@ public sealed class SelfieSlowProviderTests(PostgresFixture postgres)
     [Theory]
     [InlineData(true, 26, 0, 27)]
     [InlineData(false, 1, 29, 31)]
-    public async Task AProviderThatStaysDownEndsTheAttemptExpiredWithoutCountingIt(bool startFails, int expectedStarts, int expectedReads, int expectedDeliveries)
+    public Task AProviderThatStaysDownEndsTheAttemptExpiredWithoutCountingIt(bool startFails, int expectedStarts, int expectedReads, int expectedDeliveries) => WithinTheWholeTestCeilingAsync(async () =>
     {
         var provider = new FaultySelfieProvider(_time);
         var connection = await postgres.CreateMigratedDatabaseAsync(Ct);
-        await using var host = SelfieConcurrencyHarness.Host(connection, _time, provider);
+        var host = FakeProviderHost(connection, provider);
         var scenario = new IdentityScenario(connection, host);
         var account = await scenario.CreateConfirmedAccountAsync();
         provider.ReadFault = Unavailable;
@@ -367,16 +406,16 @@ public sealed class SelfieSlowProviderTests(PostgresFixture postgres)
 
         provider.ReadFault = provider.StartFault = null;
         await SelfieConcurrencyHarness.RequestAsync(host, account.UserId, Ct);
-    }
+    });
 
     /// <summary>Em 2:31 restam 29 s: abrir a sessão daria à pessoa um Capturing que ela não tem tempo de usar.</summary>
     [Fact]
-    public async Task ASessionIsNotOpenedWithoutTimeLeftToCapture()
+    public Task ASessionIsNotOpenedWithoutTimeLeftToCapture() => WithinTheWholeTestCeilingAsync(async () =>
     {
         var provider = new FaultySelfieProvider(_time);
         var connection = await postgres.CreateMigratedDatabaseAsync(Ct);
         var logs = new CapturingLoggerProvider();
-        await using var host = SelfieConcurrencyHarness.Host(connection, _time, provider, logs: logs);
+        var host = FakeProviderHost(connection, provider, logs: logs);
         var scenario = new IdentityScenario(connection, host);
         var account = await scenario.CreateConfirmedAccountAsync();
         await SelfieConcurrencyHarness.RequestAsync(host, account.UserId, Ct);
@@ -399,14 +438,14 @@ public sealed class SelfieSlowProviderTests(PostgresFixture postgres)
         await AssertNotReleasedAsync(scenario, host, account.UserId);
 
         await SelfieConcurrencyHarness.RequestAsync(host, account.UserId, Ct);
-    }
+    });
 
     [Fact]
-    public async Task ASessionIsStillOpenedAtTheExactMinimumWindow()
+    public Task ASessionIsStillOpenedAtTheExactMinimumWindow() => WithinTheWholeTestCeilingAsync(async () =>
     {
         var provider = new FaultySelfieProvider(_time);
         var connection = await postgres.CreateMigratedDatabaseAsync(Ct);
-        await using var host = SelfieConcurrencyHarness.Host(connection, _time, provider);
+        var host = FakeProviderHost(connection, provider);
         var scenario = new IdentityScenario(connection, host);
         var account = await scenario.CreateConfirmedAccountAsync();
         await SelfieConcurrencyHarness.RequestAsync(host, account.UserId, Ct);
@@ -416,15 +455,15 @@ public sealed class SelfieSlowProviderTests(PostgresFixture postgres)
 
         Assert.Equal(1, provider.StartCalls);
         Assert.Equal("Capturing|has-reference|no-feedback|open", await AttemptAsync(scenario));
-    }
+    });
 
     /// <summary>O corte vale só para abrir sessão: quem já capturou ainda precisa ter o resultado lido no fim do prazo.</summary>
     [Fact]
-    public async Task AnOpenSessionIsStillReadWithLessThanTheMinimumWindow()
+    public Task AnOpenSessionIsStillReadWithLessThanTheMinimumWindow() => WithinTheWholeTestCeilingAsync(async () =>
     {
         var provider = new FaultySelfieProvider(_time);
         var connection = await postgres.CreateMigratedDatabaseAsync(Ct);
-        await using var host = SelfieConcurrencyHarness.Host(connection, _time, provider);
+        var host = FakeProviderHost(connection, provider);
         var scenario = new IdentityScenario(connection, host);
         var account = await scenario.CreateConfirmedAccountAsync();
         await SelfieConcurrencyHarness.RequestAsync(host, account.UserId, Ct);
@@ -435,17 +474,17 @@ public sealed class SelfieSlowProviderTests(PostgresFixture postgres)
 
         Assert.Equal(1, provider.ReadCalls);
         Assert.Equal("Passed|has-reference|no-feedback|closed", await AttemptAsync(scenario));
-    }
+    });
 
     /// <summary>Queda em cada ponto do fluxo: a API distingue a instabilidade sem mudar o passo seguinte, e a volta limpa o sinal.</summary>
     [Theory]
     [InlineData(true, "Pending|no-reference", "Wait")]
     [InlineData(false, "Capturing|has-reference", "Capture")]
-    public async Task AnOutageIsSignaledOnTheOpenAttemptAndTheRecoveryClearsIt(bool startFails, string attempt, string nextStep)
+    public Task AnOutageIsSignaledOnTheOpenAttemptAndTheRecoveryClearsIt(bool startFails, string attempt, string nextStep) => WithinTheWholeTestCeilingAsync(async () =>
     {
         var provider = new FaultySelfieProvider(_time) { Answer = SelfieState.Processing };
         var connection = await postgres.CreateMigratedDatabaseAsync(Ct);
-        await using var host = SelfieConcurrencyHarness.Host(connection, _time, provider);
+        var host = FakeProviderHost(connection, provider);
         var scenario = new IdentityScenario(connection, host);
         var account = await scenario.CreateConfirmedAccountAsync();
         await SelfieConcurrencyHarness.RequestAsync(host, account.UserId, Ct);
@@ -471,14 +510,14 @@ public sealed class SelfieSlowProviderTests(PostgresFixture postgres)
         Assert.Equal("Capturing|has-reference|no-feedback|open", await AttemptAsync(scenario));
         var recovered = await SelfieConcurrencyHarness.CurrentAsync(host, account.UserId, Ct);
         Assert.Equal(("Capture", (string?)null), (recovered.NextStep, recovered.FeedbackCode));
-    }
+    });
 
     [Fact]
-    public async Task AnOutageReachesTheOwnerThroughTheApiWithoutTheProviderMessage()
+    public Task AnOutageReachesTheOwnerThroughTheApiWithoutTheProviderMessage() => WithinTheWholeTestCeilingAsync(async () =>
     {
         var provider = new FaultySelfieProvider(_time) { StartFault = _ => throw TransportFailure("IOException") };
         var connection = await postgres.CreateMigratedDatabaseAsync(Ct);
-        await using var host = SelfieConcurrencyHarness.Host(connection, _time, provider);
+        var host = FakeProviderHost(connection, provider);
         var scenario = new IdentityScenario(connection, host);
         var account = await scenario.CreateConfirmedAccountAsync();
         await SelfieConcurrencyHarness.RequestAsync(host, account.UserId, Ct);
@@ -495,15 +534,15 @@ public sealed class SelfieSlowProviderTests(PostgresFixture postgres)
         Assert.Equal("Wait", (string?)status["nextStep"]);
         Assert.Equal("PROVIDER_UNAVAILABLE", (string?)status["feedbackCode"]);
         Assert.Equal(5, (int?)status["attempts"]!["remaining"]);
-    }
+    });
 
     /// <summary>A cada 5 s a queda repetiria a escrita: só a primeira falha da sequência grava.</summary>
     [Fact]
-    public async Task RepeatedFailuresWriteTheSignalOnce()
+    public Task RepeatedFailuresWriteTheSignalOnce() => WithinTheWholeTestCeilingAsync(async () =>
     {
         var provider = new FaultySelfieProvider(_time) { StartFault = Unavailable };
         var connection = await postgres.CreateMigratedDatabaseAsync(Ct);
-        await using var host = SelfieConcurrencyHarness.Host(connection, _time, provider);
+        var host = FakeProviderHost(connection, provider);
         var scenario = new IdentityScenario(connection, host);
         var account = await scenario.CreateConfirmedAccountAsync();
         await SelfieConcurrencyHarness.RequestAsync(host, account.UserId, Ct);
@@ -515,7 +554,7 @@ public sealed class SelfieSlowProviderTests(PostgresFixture postgres)
 
         Assert.Equal(2, provider.StartCalls);
         Assert.Equal(afterFirstFailure, await VersionAsync(scenario));
-    }
+    });
 
     /// <summary>
     /// A tentativa muda entre a leitura e a falha, com o lease ainda válido: o sinal não pisa na mudança, e a coluna que a
@@ -524,11 +563,11 @@ public sealed class SelfieSlowProviderTests(PostgresFixture postgres)
     [Theory]
     [InlineData("version = version + 1", "Capturing|has-reference|no-feedback|open")]
     [InlineData("state = 'Expired', completed_at = expires_at", "Expired|has-reference|no-feedback|closed")]
-    public async Task AnAttemptChangedDuringTheCallDoesNotReceiveTheSignal(string change, string expected)
+    public Task AnAttemptChangedDuringTheCallDoesNotReceiveTheSignal(string change, string expected) => WithinTheWholeTestCeilingAsync(async () =>
     {
         var provider = new FaultySelfieProvider(_time);
         var connection = await postgres.CreateMigratedDatabaseAsync(Ct);
-        await using var host = SelfieConcurrencyHarness.Host(connection, _time, provider);
+        var host = FakeProviderHost(connection, provider);
         var scenario = new IdentityScenario(connection, host);
         var account = await scenario.CreateConfirmedAccountAsync();
         await SelfieConcurrencyHarness.RequestAsync(host, account.UserId, Ct);
@@ -544,15 +583,15 @@ public sealed class SelfieSlowProviderTests(PostgresFixture postgres)
 
         Assert.Equal(1, provider.ReadCalls);
         Assert.Equal(expected, await AttemptAsync(scenario));
-    }
+    });
 
     /// <summary>Worker que perdeu o lease não escreve na tentativa: quem assumiu a entrega é que decide.</summary>
     [Fact]
-    public async Task AFailureAfterTheLeaseExpiredDoesNotSignal()
+    public Task AFailureAfterTheLeaseExpiredDoesNotSignal() => WithinTheWholeTestCeilingAsync(async () =>
     {
         var provider = new FaultySelfieProvider(_time);
         var connection = await postgres.CreateMigratedDatabaseAsync(Ct);
-        await using var host = SelfieConcurrencyHarness.Host(connection, _time, provider);
+        var host = FakeProviderHost(connection, provider);
         var scenario = new IdentityScenario(connection, host);
         var account = await scenario.CreateConfirmedAccountAsync();
         await SelfieConcurrencyHarness.RequestAsync(host, account.UserId, Ct);
@@ -567,16 +606,16 @@ public sealed class SelfieSlowProviderTests(PostgresFixture postgres)
         await SelfieConcurrencyHarness.DispatchAsync(host, Ct);
 
         Assert.Equal("Capturing|has-reference|no-feedback|open", await AttemptAsync(scenario));
-    }
+    });
 
     [Theory]
     [InlineData(SelfieState.Passed, 0)]
     [InlineData(SelfieState.RecaptureRequired, 1)]
-    public async Task AnAnswerAfterTheLeaseExpiredIsDiscardedAndReadAgainOnce(SelfieState answer, int expectedFailures)
+    public Task AnAnswerAfterTheLeaseExpiredIsDiscardedAndReadAgainOnce(SelfieState answer, int expectedFailures) => WithinTheWholeTestCeilingAsync(async () =>
     {
         var provider = new FaultySelfieProvider(_time) { Answer = answer };
         var connection = await postgres.CreateMigratedDatabaseAsync(Ct);
-        await using var host = SelfieConcurrencyHarness.Host(connection, _time, provider);
+        var host = FakeProviderHost(connection, provider);
         var scenario = new IdentityScenario(connection, host);
         var account = await scenario.CreateConfirmedAccountAsync();
         await SelfieConcurrencyHarness.RequestAsync(host, account.UserId, Ct);
@@ -600,19 +639,19 @@ public sealed class SelfieSlowProviderTests(PostgresFixture postgres)
         Assert.Equal(answer == SelfieState.Passed, await SelfieConcurrencyHarness.EligibleAsync(host, account.UserId, Ct));
         Assert.Equal(expectedFailures, await scenario.ScalarAsync(
             "select count(*) from identity.selfie_failures where user_id = $1", account.UserId));
-    }
+    });
 
     [Theory]
     [InlineData(true, "IOException")]
     [InlineData(true, "TimeoutException")]
     [InlineData(false, "IOException")]
     [InlineData(false, "TimeoutException")]
-    public async Task ATransportFailureIsRequeuedKeepingTheAttemptAndCountingNothing(bool startFails, string failure)
+    public Task ATransportFailureIsRequeuedKeepingTheAttemptAndCountingNothing(bool startFails, string failure) => WithinTheWholeTestCeilingAsync(async () =>
     {
         var provider = new FaultySelfieProvider(_time);
         var connection = await postgres.CreateMigratedDatabaseAsync(Ct);
         var logs = new CapturingLoggerProvider();
-        await using var host = SelfieConcurrencyHarness.Host(connection, _time, provider, logs: logs);
+        var host = FakeProviderHost(connection, provider, logs: logs);
         var scenario = new IdentityScenario(connection, host);
         var account = await scenario.CreateConfirmedAccountAsync();
         await SelfieConcurrencyHarness.RequestAsync(host, account.UserId, Ct);
@@ -641,7 +680,7 @@ public sealed class SelfieSlowProviderTests(PostgresFixture postgres)
         await SelfieConcurrencyHarness.DispatchAsync(host, Ct);
 
         Assert.Equal(startFails ? "Capturing|has-reference|no-feedback|open" : "Passed|has-reference|no-feedback|closed", await AttemptAsync(scenario));
-    }
+    });
 
     /// <summary>
     /// Pelo SDK real no <see cref="WorkerHost"/> real, com relógio real: o reset de conexão chega como
@@ -651,15 +690,15 @@ public sealed class SelfieSlowProviderTests(PostgresFixture postgres)
     [Theory]
     [InlineData("IOException")]
     [InlineData("TimeoutException")]
-    public async Task ATransportFailureDoesNotStopTheWorkerAndTheAttemptIsRetried(string failure)
+    public Task ATransportFailureDoesNotStopTheWorkerAndTheAttemptIsRetried(string failure) => WithinTheWholeTestCeilingAsync(async () =>
     {
         var connection = await postgres.CreateMigratedDatabaseAsync(Ct);
         var transport = new SyntheticAwsTransport(failure == "IOException" ? ConnectionReset : HttpClientTimeout);
-        await using var web = RealSdkHost(connection, transport);
+        var web = RealSdkHost(connection, transport);
         var scenario = new IdentityScenario(connection, web);
         var account = await scenario.CreateConfirmedAccountAsync();
         await SelfieConcurrencyHarness.RequestAsync(web, account.UserId, Ct);
-        using var workerHost = BuildWorker(connection, services => services.AddSingleton<HttpClientFactory>(transport));
+        var workerHost = BuildWorker(connection, services => services.AddSingleton<HttpClientFactory>(transport));
         var lifetime = workerHost.Services.GetRequiredService<IHostApplicationLifetime>();
         var loop = workerHost.Services.GetServices<IHostedService>().OfType<SelfieVerificationProviderService>().Single();
 
@@ -675,14 +714,14 @@ public sealed class SelfieSlowProviderTests(PostgresFixture postgres)
         Assert.False(loop.ExecuteTask!.IsCompleted);
         await AssertNotReleasedAsync(scenario, web, account.UserId);
         await workerHost.StopAsync(Ct);
-    }
+    });
 
     /// <summary>
     /// Erro de programação no fornecedor não entra na lista de transitórias: não reagenda, vira log de erro com o tipo,
     /// e a fila segue. A entrega fica presa só até o lease vencer, e o teto de tentativas a encerra.
     /// </summary>
     [Fact]
-    public async Task AnUnexpectedProviderErrorIsLoggedWithoutStoppingTheQueue()
+    public Task AnUnexpectedProviderErrorIsLoggedWithoutStoppingTheQueue() => WithinTheWholeTestCeilingAsync(async () =>
     {
         var provider = new FaultySelfieProvider(_time);
         var secondCall = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
@@ -697,14 +736,14 @@ public sealed class SelfieSlowProviderTests(PostgresFixture postgres)
             return Task.CompletedTask;
         };
         var connection = await postgres.CreateMigratedDatabaseAsync(Ct);
-        await using var web = SelfieConcurrencyHarness.Host(connection, _time, provider);
+        var web = FakeProviderHost(connection, provider);
         var scenario = new IdentityScenario(connection, web);
         var first = await scenario.CreateConfirmedAccountAsync();
         var second = await scenario.CreateConfirmedAccountAsync();
         await SelfieConcurrencyHarness.RequestAsync(web, first.UserId, Ct);
         await SelfieConcurrencyHarness.RequestAsync(web, second.UserId, Ct);
         var logs = new CapturingLoggerProvider();
-        using var workerHost = BuildWorker(connection, services =>
+        var workerHost = BuildWorker(connection, services =>
         {
             services.RemoveAll<ISelfieProvider>();
             services.AddSingleton<ISelfieProvider>(provider);
@@ -722,11 +761,11 @@ public sealed class SelfieSlowProviderTests(PostgresFixture postgres)
         Assert.False(loop.ExecuteTask!.IsCompleted);
         Assert.False(workerHost.Services.GetRequiredService<IHostApplicationLifetime>().ApplicationStopping.IsCancellationRequested);
         await workerHost.StopAsync(Ct);
-    }
+    });
 
     /// <summary>Parar o worker com a chamada em voo é rotina: nem erro no log, nem falha do fornecedor no rastro.</summary>
     [Fact]
-    public async Task StoppingTheWorkerDuringAProviderCallLogsNoErrorAndNoProviderFailure()
+    public Task StoppingTheWorkerDuringAProviderCallLogsNoErrorAndNoProviderFailure() => WithinTheWholeTestCeilingAsync(async () =>
     {
         var provider = new FaultySelfieProvider(_time);
         var entered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
@@ -736,12 +775,12 @@ public sealed class SelfieSlowProviderTests(PostgresFixture postgres)
             return Task.Delay(Timeout.Infinite, cancellationToken);
         };
         var connection = await postgres.CreateMigratedDatabaseAsync(Ct);
-        await using var web = SelfieConcurrencyHarness.Host(connection, _time, provider);
+        var web = FakeProviderHost(connection, provider);
         var scenario = new IdentityScenario(connection, web);
         var account = await scenario.CreateConfirmedAccountAsync();
         await SelfieConcurrencyHarness.RequestAsync(web, account.UserId, Ct);
         var logs = new CapturingLoggerProvider();
-        using var workerHost = BuildWorker(connection, services =>
+        var workerHost = BuildWorker(connection, services =>
         {
             services.RemoveAll<ISelfieProvider>();
             services.AddSingleton<ISelfieProvider>(provider);
@@ -755,18 +794,18 @@ public sealed class SelfieSlowProviderTests(PostgresFixture postgres)
         Assert.DoesNotContain(logs.Entries, entry => entry.Category == typeof(SelfieVerificationDispatcher).FullName);
         Assert.Equal("Pending|no-reference|no-feedback|open", await AttemptAsync(scenario));
         Assert.Equal("InFlight|-|1", await DeliveryAsync(scenario));
-    }
+    });
 
     /// <summary>
     /// Com o fornecedor travado, a fila anda em série: cada tentativa aberta recebe uma chamada, na ordem do pedido, e
     /// nenhuma repete antes das outras. Quando ele volta, cada tentativa é servida na primeira chamada.
     /// </summary>
     [Fact]
-    public async Task AStalledProviderReachesEveryOpenAttemptInOrderAndTheFirstCallAfterRecoveryIsServed()
+    public Task AStalledProviderReachesEveryOpenAttemptInOrderAndTheFirstCallAfterRecoveryIsServed() => WithinTheWholeTestCeilingAsync(async () =>
     {
         var provider = new FaultySelfieProvider(_time);
         var connection = await postgres.CreateMigratedDatabaseAsync(Ct);
-        await using var host = SelfieConcurrencyHarness.Host(connection, _time, provider);
+        var host = FakeProviderHost(connection, provider);
         var scenario = new IdentityScenario(connection, host);
         var requested = new List<Guid>();
         for (var attempt = 0; attempt < AttemptsInTheBacklog; attempt++)
@@ -799,7 +838,7 @@ public sealed class SelfieSlowProviderTests(PostgresFixture postgres)
         Assert.Equal(requested.Concat(requested), provider.StartedAttempts);
         Assert.Equal(AttemptsInTheBacklog, await scenario.ScalarAsync(
             "select count(*) from identity.selfie_verifications where state = 'Capturing' and completed_at is null"));
-    }
+    });
 
     /// <summary>
     /// Numa tentativa que já tem referência, o prazo de 3 minutos é o único limite em falha (a janela mínima de captura
@@ -810,11 +849,11 @@ public sealed class SelfieSlowProviderTests(PostgresFixture postgres)
     [Theory]
     [InlineData(179, 1, "Passed|has-reference|no-feedback|closed")]
     [InlineData(180, 0, "Expired|has-reference|PROVIDER_UNAVAILABLE|closed")]
-    public async Task AFailureStreakLeavesTheAttemptReadableUpToItsLastSecond(int secondsAfterTheRequest, int expectedReads, string expected)
+    public Task AFailureStreakLeavesTheAttemptReadableUpToItsLastSecond(int secondsAfterTheRequest, int expectedReads, string expected) => WithinTheWholeTestCeilingAsync(async () =>
     {
         var provider = new FaultySelfieProvider(_time);
         var connection = await postgres.CreateMigratedDatabaseAsync(Ct);
-        await using var host = SelfieConcurrencyHarness.Host(connection, _time, provider);
+        var host = FakeProviderHost(connection, provider);
         var scenario = new IdentityScenario(connection, host);
         var account = await scenario.CreateConfirmedAccountAsync();
         var requestedAt = _time.GetUtcNow();
@@ -837,14 +876,14 @@ public sealed class SelfieSlowProviderTests(PostgresFixture postgres)
         Assert.Equal(expected, await AttemptAsync(scenario));
         Assert.Equal(0, await scenario.ScalarAsync(
             "select count(*) from identity.selfie_failures where user_id = $1", account.UserId));
-    }
+    });
 
     [Fact]
-    public async Task AfterAnOutageTheExpiredAttemptCostsNoCallAndTheLiveOneIsServed()
+    public Task AfterAnOutageTheExpiredAttemptCostsNoCallAndTheLiveOneIsServed() => WithinTheWholeTestCeilingAsync(async () =>
     {
         var provider = new FaultySelfieProvider(_time) { StartFault = Unavailable };
         var connection = await postgres.CreateMigratedDatabaseAsync(Ct);
-        await using var host = SelfieConcurrencyHarness.Host(connection, _time, provider);
+        var host = FakeProviderHost(connection, provider);
         var scenario = new IdentityScenario(connection, host);
         var older = await scenario.CreateConfirmedAccountAsync();
         var newer = await scenario.CreateConfirmedAccountAsync();
@@ -867,7 +906,7 @@ public sealed class SelfieSlowProviderTests(PostgresFixture postgres)
             olderAttempt));
         Assert.Equal("Capturing", (await SelfieConcurrencyHarness.CurrentAsync(host, newer.UserId, Ct)).State);
         await AssertNotReleasedAsync(scenario, host, older.UserId);
-    }
+    });
 
     /// <summary>
     /// Pelo SDK real: erro do serviço reagenda a entrega e só grava na tentativa o sinal de instabilidade, sem mudar o
@@ -881,12 +920,12 @@ public sealed class SelfieSlowProviderTests(PostgresFixture postgres)
     [InlineData(HttpStatusCode.BadRequest, "ThrottlingException", 3)]
     [InlineData(HttpStatusCode.BadRequest, "ProvisionedThroughputExceededException", 3)]
     [InlineData(HttpStatusCode.BadRequest, "AccessDeniedException", 1)]
-    public async Task AServiceErrorThroughTheRealSdkIsRequeuedWithinTheCallTimeout(HttpStatusCode status, string error, int expectedHttpCalls)
+    public Task AServiceErrorThroughTheRealSdkIsRequeuedWithinTheCallTimeout(HttpStatusCode status, string error, int expectedHttpCalls) => WithinTheWholeTestCeilingAsync(async () =>
     {
         var connection = await postgres.CreateMigratedDatabaseAsync(Ct);
         var transport = new SyntheticAwsTransport(_ => ServiceError(status, error));
         var logs = new CapturingLoggerProvider();
-        await using var host = RealSdkHost(connection, transport, logs);
+        var host = RealSdkHost(connection, transport, logs);
         var scenario = new IdentityScenario(connection, host);
         var account = await scenario.CreateConfirmedAccountAsync();
         await SelfieConcurrencyHarness.RequestAsync(host, account.UserId, Ct);
@@ -902,18 +941,18 @@ public sealed class SelfieSlowProviderTests(PostgresFixture postgres)
         Assert.Null(trace.Exception);
         Assert.DoesNotContain(logs.Entries, entry => entry.Text.Contains(TransportCanary, StringComparison.Ordinal)
             || entry.Exception?.ToString().Contains(TransportCanary, StringComparison.Ordinal) == true);
-    }
+    });
 
     /// <summary>
     /// Por que este desenho já não martela o fornecedor: uma chamada por vez, com 1 s de pausa entre lotes, mesmo com
     /// mais tentativas abertas do que o reagendamento de 5 s consegue espaçar.
     /// </summary>
     [Fact]
-    public async Task TheWorkerCallsAFailingProviderAtMostOncePerSecond()
+    public Task TheWorkerCallsAFailingProviderAtMostOncePerSecond() => WithinTheWholeTestCeilingAsync(async () =>
     {
         var provider = new FaultySelfieProvider(_time) { StartFault = Unavailable };
         var connection = await postgres.CreateMigratedDatabaseAsync(Ct);
-        await using var web = SelfieConcurrencyHarness.Host(connection, _time, provider);
+        var web = FakeProviderHost(connection, provider);
         var scenario = new IdentityScenario(connection, web);
         for (var attempt = 0; attempt < AttemptsAboveTheRetrySpacing; attempt++)
         {
@@ -921,7 +960,7 @@ public sealed class SelfieSlowProviderTests(PostgresFixture postgres)
             await SelfieConcurrencyHarness.RequestAsync(web, account.UserId, Ct);
         }
 
-        using var workerHost = BuildWorker(connection, services =>
+        var workerHost = BuildWorker(connection, services =>
         {
             services.RemoveAll<ISelfieProvider>();
             services.AddSingleton<ISelfieProvider>(provider);
@@ -935,14 +974,14 @@ public sealed class SelfieSlowProviderTests(PostgresFixture postgres)
         var calls = provider.StartTimestamps.ToArray();
         var elapsed = Stopwatch.GetElapsedTime(calls[0], calls[^1]);
         Assert.True(elapsed >= TimeSpan.FromSeconds(calls.Length - 1), $"{calls.Length} chamadas em {elapsed}.");
-    }
+    });
 
     /// <summary>
     /// A fila da selfie tem laço próprio: o e-mail sai enquanto a chamada ao fornecedor segue presa. A chamada ignora o
     /// cancelamento e só o teste a libera; o e-mail sai em frações de segundo, bem antes do corte de 10 s do worker.
     /// </summary>
     [Fact]
-    public async Task AStalledSelfieCallDoesNotHoldTheEmailQueue()
+    public Task AStalledSelfieCallDoesNotHoldTheEmailQueue() => WithinTheWholeTestCeilingAsync(async () =>
     {
         var provider = new FaultySelfieProvider(_time);
         var entered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
@@ -953,11 +992,11 @@ public sealed class SelfieSlowProviderTests(PostgresFixture postgres)
             return release.Task;
         };
         var connection = await postgres.CreateMigratedDatabaseAsync(Ct);
-        await using var web = SelfieConcurrencyHarness.Host(connection, _time, provider);
+        var web = FakeProviderHost(connection, provider);
         var scenario = new IdentityScenario(connection, web);
         var account = await scenario.CreateConfirmedAccountAsync();
         await SelfieConcurrencyHarness.RequestAsync(web, account.UserId, Ct);
-        using var workerHost = BuildWorker(connection, services =>
+        var workerHost = BuildWorker(connection, services =>
         {
             services.RemoveAll<ISelfieProvider>();
             services.AddSingleton<ISelfieProvider>(provider);
@@ -988,7 +1027,7 @@ public sealed class SelfieSlowProviderTests(PostgresFixture postgres)
         }
 
         await workerHost.StopAsync(Ct);
-    }
+    });
 
     private static Task<long> EmailAsync(IdentityScenario scenario, string comparison) => scenario.ScalarAsync(
         $"select count(*) from ops.outbox_deliveries where consumer = 'transactional-email' and status {comparison} 'Delivered'");
@@ -996,8 +1035,11 @@ public sealed class SelfieSlowProviderTests(PostgresFixture postgres)
     private static Task<HttpResponseMessage> Stall(CancellationToken cancellationToken) =>
         Task.Delay(Timeout.Infinite, cancellationToken).ContinueWith(_ => new HttpResponseMessage(), TaskScheduler.Default);
 
-    private static Task<HttpResponseMessage> StalledBody(StalledStream body)
+    /// <summary>Cada resposta ganha um corpo novo: nenhuma chamada, de teste nenhum, herda o descarte de outra.</summary>
+    private static Task<HttpResponseMessage> StalledBody(ConcurrentQueue<StalledStream> bodies)
     {
+        var body = new StalledStream();
+        bodies.Enqueue(body);
         var response = new HttpResponseMessage(HttpStatusCode.OK) { Content = new StreamContent(body) };
         response.Content.Headers.ContentType = new MediaTypeHeaderValue("application/x-amz-json-1.1");
         return Task.FromResult(response);
@@ -1036,14 +1078,24 @@ public sealed class SelfieSlowProviderTests(PostgresFixture postgres)
         return Task.FromResult(response);
     }
 
-    private DuoraWebFactory RealSdkHost(string connection, SyntheticAwsTransport transport, CapturingLoggerProvider? logs = null) => new(connection, logs)
-    {
-        Time = _time,
-        Settings = SelfieTestSettings.Enabled(ScriptedSelfieProvider.Policy),
-        TestServices = services => services.AddSingleton<HttpClientFactory>(transport),
-    };
+    private DuoraWebFactory RealSdkHost(string connection, SyntheticAwsTransport transport, CapturingLoggerProvider? logs = null) =>
+        DisposedAtTheEnd(new DuoraWebFactory(connection, logs)
+        {
+            Time = _time,
+            Settings = SelfieTestSettings.Enabled(ScriptedSelfieProvider.Policy),
+            TestServices = services => services.AddSingleton<HttpClientFactory>(transport),
+        });
 
-    private static IHost BuildWorker(string connection, Action<IServiceCollection> services, CapturingLoggerProvider? logs = null)
+    private DuoraWebFactory FakeProviderHost(string connection, ISelfieProvider provider, CapturingLoggerProvider? logs = null) =>
+        DisposedAtTheEnd(SelfieConcurrencyHarness.Host(connection, _time, provider, logs: logs));
+
+    private DuoraWebFactory DisposedAtTheEnd(DuoraWebFactory host)
+    {
+        _hostDisposals.Push(host.DisposeAsync);
+        return host;
+    }
+
+    private IHost BuildWorker(string connection, Action<IServiceCollection> services, CapturingLoggerProvider? logs = null)
     {
         var builder = WorkerHost.CreateBuilder(
         [
@@ -1059,7 +1111,13 @@ public sealed class SelfieSlowProviderTests(PostgresFixture postgres)
             builder.Logging.AddProvider(logs);
         }
 
-        return builder.Build();
+        var worker = builder.Build();
+        _hostDisposals.Push(() =>
+        {
+            worker.Dispose();
+            return ValueTask.CompletedTask;
+        });
+        return worker;
     }
 
     /// <summary>Espera a condição no banco e falha na hora se o host do worker começar a parar.</summary>
@@ -1087,6 +1145,7 @@ public sealed class SelfieSlowProviderTests(PostgresFixture postgres)
         _time.Advance(CallTimeout);
         _step = "esperando o lote encerrar depois do corte";
         await batch.WaitAsync(CallCeiling, Ct);
+        _step = "seguindo depois do corte";
     }
 
     /// <summary>
@@ -1094,18 +1153,85 @@ public sealed class SelfieSlowProviderTests(PostgresFixture postgres)
     /// caminho do teste, como um timer dentro do <c>Advance</c> ou a parada do host no descarte, só é alcançado rodando o
     /// corpo em outra tarefa. Ao estourar qualquer teto, a falha traz a etapa e o estado de <paramref name="state"/>.
     /// </summary>
-    private async Task WithinTheWholeTestCeilingAsync(Func<string> state, Func<Task> body)
+    private Task WithinTheWholeTestCeilingAsync(Func<string> state, Func<Task> body) =>
+        WithinCeilingAsync(running => running.WaitAsync(WholeTestCeiling, Ct), state, body);
+
+    private Task WithinTheWholeTestCeilingAsync(Func<Task> body) => WithinTheWholeTestCeilingAsync(NoExtraState, body);
+
+    private static string NoExtraState() => "sem contadores deste teste";
+
+    private async Task WithinCeilingAsync(Func<Task, Task> waitForCeiling, Func<string> state, Func<Task> body)
     {
-        var running = Task.Run(body, Ct);
+        var running = Task.Run(() => RunThenDisposeHostsAsync(body), Ct);
         try
         {
-            await running.WaitAsync(WholeTestCeiling, Ct);
+            await waitForCeiling(running);
         }
         catch (Exception exception) when (exception is TimeoutException or OperationCanceledException && !Ct.IsCancellationRequested)
         {
-            var ceiling = running.IsCompleted ? "um teto interno" : $"o teto de {WholeTestCeiling.TotalSeconds:F0} s do teste";
-            throw new TimeoutException($"Estourou {ceiling} na etapa \"{_step}\" ({state()}).", exception);
+            throw CeilingFailure(running.IsCompleted, state(), exception);
         }
+    }
+
+    /// <summary>
+    /// O descarte fica aqui, e não num <c>await using</c> do corpo, para a etapa valer em toda saída: corpo verde, assert
+    /// que falhou ou teto interno que estourou.
+    /// </summary>
+    private async Task RunThenDisposeHostsAsync(Func<Task> body)
+    {
+        try
+        {
+            await body();
+        }
+        catch (Exception failure)
+        {
+            _bodyFailure = new BodyFailure(_step, failure);
+            throw;
+        }
+        finally
+        {
+            _step = HostDisposalStep;
+            while (_hostDisposals.TryPop(out var dispose))
+            {
+                await dispose();
+            }
+        }
+    }
+
+    private TimeoutException CeilingFailure(bool finished, string state, Exception exception)
+    {
+        var failure = _bodyFailure;
+        if (finished)
+        {
+            return new TimeoutException($"Estourou um teto interno na etapa \"{failure?.Step ?? _step}\" ({state}).", exception);
+        }
+
+        var earlier = failure is null
+            ? string.Empty
+            : $"; antes o corpo falhou na etapa \"{failure.Step}\" com {failure.Exception.GetType().Name}: {failure.Exception.Message}";
+        return new TimeoutException(
+            $"Estourou o teto de {WholeTestCeiling.TotalSeconds:F0} s do teste na etapa \"{_step}\" ({state}){earlier}.",
+            failure?.Exception ?? exception);
+    }
+
+    /// <summary>Roda o teto de verdade, só que disparado no instante em que o descarte, que nunca termina, começa.</summary>
+    private async Task<TimeoutException> CeilingFailureDuringAHangingDisposalAsync(Func<Task> body)
+    {
+        var disposalReached = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        _hostDisposals.Push(() =>
+        {
+            disposalReached.TrySetResult();
+            return new ValueTask(new TaskCompletionSource().Task);
+        });
+
+        return await Assert.ThrowsAsync<TimeoutException>(() => WithinCeilingAsync(
+            async _ =>
+            {
+                await disposalReached.Task.WaitAsync(CallCeiling, Ct);
+                throw new TimeoutException("Teto simulado.");
+            },
+            NoExtraState,
+            body));
     }
 
     /// <summary>Espera, em tempo real e com teto, o que acontece em outra thread; falha na hora se o lote acabou antes.</summary>
@@ -1165,6 +1291,8 @@ public sealed class SelfieSlowProviderTests(PostgresFixture postgres)
             "select count(*) from ops.outbox_deliveries where consumer = 'selfie-attempts-suspension'"));
     }
 
+    private sealed record BodyFailure(string Step, Exception Exception);
+
     /// <summary>Transporte do SDK da AWS só de teste: nenhuma chamada sai da máquina e o comportamento troca no meio do teste.</summary>
     private sealed class SyntheticAwsTransport(Func<CancellationToken, Task<HttpResponseMessage>> send) : HttpClientFactory
     {
@@ -1198,8 +1326,12 @@ public sealed class SelfieSlowProviderTests(PostgresFixture postgres)
     {
         private readonly TaskCompletionSource _closed = new(TaskCreationOptions.RunContinuationsAsynchronously);
         private volatile bool _syncReadStarted;
+        private volatile bool _asyncReadStarted;
 
-        public string State => $"leitura síncrona iniciada: {_syncReadStarted}; corpo descartado: {_closed.Task.IsCompleted}";
+        public bool IsStalled => (_syncReadStarted || _asyncReadStarted) && !_closed.Task.IsCompleted;
+
+        public string State =>
+            $"leitura síncrona iniciada: {_syncReadStarted}; assíncrona iniciada: {_asyncReadStarted}; corpo descartado: {_closed.Task.IsCompleted}";
 
         public override bool CanRead => true;
 
@@ -1228,6 +1360,7 @@ public sealed class SelfieSlowProviderTests(PostgresFixture postgres)
 
         public override async ValueTask<int> ReadAsync(Memory<byte> buffer, CancellationToken cancellationToken = default)
         {
+            _asyncReadStarted = true;
             await _closed.Task.WaitAsync(cancellationToken);
             return 0;
         }
