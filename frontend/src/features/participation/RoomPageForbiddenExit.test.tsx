@@ -127,6 +127,7 @@ describe('saída da sala quando a leitura é recusada', () => {
 })
 
 const LOADING_TEXT = 'Carregando suas preferências…'
+const UNAVAILABLE_TEXT = 'Este encontro não está disponível.'
 const EXIT_BUTTON = { name: 'Sair da sala' }
 const ACCEPT_BUTTON = { name: 'Aceitar convite' }
 
@@ -268,13 +269,14 @@ describe('tela da sala enquanto a próxima leitura não responde', () => {
     )
 
     await renderApp('/rooms/room-1')
-    const notice = await screen.findByRole('status')
+    const notice = await screen.findByText(UNAVAILABLE_TEXT)
     const readsBeforeInterval = roomReadsIn(fetchSpy)
     await advancePollingAndNotify()
 
     expect(roomReadsIn(fetchSpy)).toBe(readsBeforeInterval + 1)
     expect(screen.queryByText(LOADING_TEXT)).not.toBeInTheDocument()
-    expect(screen.queryByRole('alert')).toBe(notice)
+    expect(screen.getByText(UNAVAILABLE_TEXT)).toBe(notice)
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument()
 
     secondRead.release(problemResponse(404, 'NOT_FOUND'))
   })
@@ -296,7 +298,7 @@ describe('tela da sala enquanto a próxima leitura não responde', () => {
     await waitFor(() => {
       expect(exitButton).not.toBeInTheDocument()
     })
-    expect(screen.getByRole('status')).toBeInTheDocument()
+    expect(screen.getByText(UNAVAILABLE_TEXT)).toBeInTheDocument()
     expect(screen.queryByText(LOADING_TEXT)).not.toBeInTheDocument()
   })
 

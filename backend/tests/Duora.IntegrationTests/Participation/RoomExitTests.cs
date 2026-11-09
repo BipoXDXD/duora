@@ -1,5 +1,4 @@
 using System.Net;
-using System.Text.Json;
 using Duora.Infrastructure.Participation;
 using Duora.IntegrationTests.Identity;
 using Microsoft.Extensions.Time.Testing;
