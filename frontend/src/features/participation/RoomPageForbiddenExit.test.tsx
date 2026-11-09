@@ -88,9 +88,10 @@ describe('saída da sala quando a leitura é recusada', () => {
     expect(roomReadsIn(fetchSpy)).toBe(readsBeforeInterval + 1)
 
     // Sem leitura bem-sucedida, a consulta volta a "carregando" a cada intervalo e o botão é recriado ao fim dela.
-    await user.click(await screen.findByRole('button', { name: 'Sair da sala' }))
-    expect(await screen.findByText('Este encontro foi encerrado.')).toBeInTheDocument()
+    const exitButton = await screen.findByRole('button', { name: 'Sair da sala' })
     const readsAtExit = roomReadsIn(fetchSpy)
+    await user.click(exitButton)
+    expect(await screen.findByText('Este encontro foi encerrado.')).toBeInTheDocument()
     await advancePolling(ROOM_POLL_INTERVAL_MS * 3)
 
     expect(roomReadsIn(fetchSpy)).toBe(readsAtExit)
