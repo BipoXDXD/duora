@@ -1,3 +1,4 @@
+import { useState } from 'react'
 import { PrivateAudioPlayer } from './PrivateAudioPlayer'
 import { usePrivateOperation } from '@/features/session/private-operation'
 import { usePrivateMutation } from '@/features/session/private-mutation'
@@ -22,14 +23,24 @@ export function RoomPage(): React.JSX.Element {
   const { t } = useI18n()
   const client = useQueryClient()
   const key = ['account', id, 'room', roomId]
+  const [exited, setExited] = useState(false)
   const room = useQuery({
     queryKey: key,
     queryFn: ({ signal }) => privateOperation.run((operation) => fetchRoom(operation, roomId, signal)),
     gcTime: 0,
     refetchInterval: 2000,
+    enabled: !exited,
   })
   const refresh = async () => {
     await client.invalidateQueries({ queryKey: key })
+  }
+  if (exited) {
+    return (
+      <Page title={t('participation.room')}>
+        <p role="status">{t('participation.closed')}</p>
+        <TextLink to={paths.events}>{t('participation.backToEvents')}</TextLink>
+      </Page>
+    )
   }
   return (
     <Page title={t('participation.room')}>
@@ -40,6 +51,15 @@ export function RoomPage(): React.JSX.Element {
       ) : (
         <RoomBody room={room.data} refresh={refresh} />
       )}
+      {room.isError ? (
+        <ExitAfterForbiddenRead
+          roomId={roomId}
+          failure={classifyRequestFailure(room.error)}
+          onExited={() => {
+            setExited(true)
+          }}
+        />
+      ) : null}
       <TextLink to={paths.events}>{t('participation.backToEvents')}</TextLink>
     </Page>
   )
@@ -208,6 +228,45 @@ function RoomBody({
           {t('participation.exit')}
         </Button>
       ) : null}
+    </>
+  )
+}
+
+/**
+ * Participante que deixou de ser elegível não lê mais a sala, mas ainda pode sair dela (API-R04, ADR-0052). Conta
+ * privilegiada também recebe `FORBIDDEN` ao ler, e a rota de saída continua recusando-a.
+ */
+function ExitAfterForbiddenRead({
+  roomId,
+  failure,
+  onExited,
+}: {
+  readonly roomId: string
+  readonly failure: ReturnType<typeof classifyRequestFailure>
+  readonly onExited: () => void
+}): React.JSX.Element | null {
+  const { t } = useI18n()
+  const { roles } = useAccount()
+  const exit = usePrivateMutation({
+    mutationFn: (operation) => roomCommand(operation, roomId, 'exit'),
+    onSuccess: onExited,
+  })
+  const privileged = roles.some((role) => role !== 'participant')
+  if (privileged || failure.kind !== 'problem' || failure.code !== 'FORBIDDEN') {
+    return null
+  }
+  return (
+    <>
+      {exit.isError ? <RequestFailureAlert failure={classifyRequestFailure(exit.error)} /> : null}
+      <Button
+        variant="secondary"
+        disabled={exit.isPending}
+        onClick={() => {
+          exit.mutate()
+        }}
+      >
+        {t('participation.exit')}
+      </Button>
     </>
   )
 }
