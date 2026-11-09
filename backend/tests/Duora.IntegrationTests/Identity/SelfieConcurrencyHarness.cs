@@ -13,6 +13,8 @@ namespace Duora.IntegrationTests.Identity;
 // Two independent hosts share only the PostgreSQL database, clock and simulated external system.
 internal static class SelfieConcurrencyHarness
 {
+    private static readonly TimeSpan BatchCeiling = TimeSpan.FromSeconds(30);
+
     public static DuoraWebFactory Host(string connection, FakeTimeProvider time, ISelfieProvider provider,
         SelfieCommitFault? fault = null, Microsoft.Extensions.Logging.ILoggerProvider? logs = null) => new(connection, logs)
         {
@@ -29,10 +31,15 @@ internal static class SelfieConcurrencyHarness
             },
         };
 
+    /// <summary>
+    /// Com o relógio falso parado, o corte de 10 s nunca vence: um lote preso numa chamada só termina por este teto em
+    /// tempo real, e o teste falha em vez de pendurar a suíte.
+    /// </summary>
     public static async Task<int> DispatchAsync(DuoraWebFactory host, CancellationToken cancellationToken)
     {
         using var scope = host.Services.CreateScope();
-        return await scope.ServiceProvider.GetRequiredService<SelfieVerificationDispatcher>().DispatchBatchAsync(cancellationToken);
+        return await scope.ServiceProvider.GetRequiredService<SelfieVerificationDispatcher>().DispatchBatchAsync(cancellationToken)
+            .WaitAsync(BatchCeiling, cancellationToken);
     }
 
     public static async Task<SelfieStatus> CurrentAsync(DuoraWebFactory host, Guid userId, CancellationToken cancellationToken)
