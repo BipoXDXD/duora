@@ -4,7 +4,7 @@ import { usePrivateMutation } from '@/features/session/private-mutation'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { useParams } from 'react-router'
 import { useAccount } from '@/features/session/account-context'
-import { classifyRequestFailure } from '@/shared/api'
+import { classifyRequestFailure, type RequestFailure } from '@/shared/api'
 import { useI18n } from '@/shared/i18n/i18n-context'
 import { paths } from '@/shared/paths'
 import { Alert, RequestFailureAlert } from '@/shared/ui/alert'
@@ -14,6 +14,8 @@ import { useGameFocus } from './use-game-focus'
 import { ExperienceDeadline } from './ExperienceDeadline'
 import { RoutesGamePanel } from './RoutesGamePanel'
 import { act, actOnRoutes, fetchRoom, roomCommand, type RoutesAction, type Room } from './participation-api'
+
+const NOT_FOUND = 404
 
 export function RoomPage(): React.JSX.Element {
   const privateOperation = usePrivateOperation()
@@ -34,7 +36,7 @@ export function RoomPage(): React.JSX.Element {
   return (
     <Page title={t('participation.room')}>
       {room.isError ? (
-        <RequestFailureAlert failure={classifyRequestFailure(room.error)} />
+        <RoomFailure failure={classifyRequestFailure(room.error)} />
       ) : room.data === undefined ? (
         <p role="status">{t('preferences.loading')}</p>
       ) : (
@@ -44,6 +46,15 @@ export function RoomPage(): React.JSX.Element {
     </Page>
   )
 }
+/** 404 é o aviso neutro de sala indisponível: não distingue sala inexistente de encerrada, nem o motivo (TM-24). */
+function RoomFailure({ failure }: { readonly failure: RequestFailure }): React.JSX.Element {
+  const { t } = useI18n()
+  if (failure.kind === 'problem' && failure.status === NOT_FOUND) {
+    return <p role="status">{t('participation.unavailable')}</p>
+  }
+  return <RequestFailureAlert failure={failure} />
+}
+
 function RoomBody({
   room,
   refresh,

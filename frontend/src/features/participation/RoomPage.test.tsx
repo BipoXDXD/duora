@@ -29,6 +29,13 @@ const game = {
   availableActions: ['choose-option', 'skip-card'],
 }
 
+function notFound(traceId: string): Response {
+  return HttpResponse.json(
+    { type: 'urn:duora:problem:not-found', title: 'Not Found', status: 404, traceId },
+    { status: 404, headers: { 'Content-Type': 'application/problem+json' } },
+  )
+}
+
 describe('localized room', () => {
   it('displays agreed language and completes by text without requesting a microphone', async () => {
     let completed = false
@@ -73,16 +80,18 @@ describe('localized room', () => {
     server.use(
       http.get(`${API}/me`, () => HttpResponse.json(withSessionContext(me))),
       http.get(`${API}/rooms/room-2`, () =>
-        HttpResponse.json({
-          roomId: 'room-2',
-          state: rejected ? 'Aborted' : 'Invited',
-          version: '1',
-          communicationLanguage: 'pt',
-          communicationPolicyVersion: 1,
-          displayLocale: 'pt-BR',
-          invitationExpiresAt: '2026-10-19T18:00:00Z',
-          game: null,
-        }),
+        rejected
+          ? notFound('00-rejected')
+          : HttpResponse.json({
+              roomId: 'room-2',
+              state: 'Invited',
+              version: '1',
+              communicationLanguage: 'pt',
+              communicationPolicyVersion: 1,
+              displayLocale: 'pt-BR',
+              invitationExpiresAt: '2026-10-19T18:00:00Z',
+              game: null,
+            }),
       ),
       http.post(`${API}/rooms/room-2/reject`, () => {
         rejected = true
@@ -93,7 +102,30 @@ describe('localized room', () => {
     const { user } = await renderApp('/rooms/room-2')
     expect(await screen.findByRole('button', { name: 'Aceitar convite' })).toBeInTheDocument()
     await user.click(screen.getByRole('button', { name: 'Recusar convite' }))
-    await screen.findByText('Este encontro foi encerrado.')
+    await screen.findByText('Este encontro não está disponível.')
+  })
+  // Saída, suspensão e bloqueio chegam como a mesma resposta; só o traceId difere entre elas.
+  it.each(['00-saida', '00-suspensao', '00-bloqueio'])(
+    'shows the same neutral notice for an unavailable room (%s)',
+    async (traceId) => {
+      server.use(
+        http.get(`${API}/me`, () => HttpResponse.json(withSessionContext(me))),
+        http.get(`${API}/rooms/room-gone`, () => notFound(traceId)),
+      )
+      await renderApp('/rooms/room-gone')
+      expect(await screen.findByText('Este encontro não está disponível.')).toHaveAttribute('role', 'status')
+      expect(screen.queryByRole('alert')).not.toBeInTheDocument()
+      expect(screen.getByRole('link', { name: 'Voltar aos encontros' })).toBeInTheDocument()
+    },
+  )
+  it('shows the unavailable notice in English', async () => {
+    server.use(
+      http.get(`${API}/me`, () => HttpResponse.json(withSessionContext(me))),
+      http.get(`${API}/rooms/room-gone`, () => notFound('00-en')),
+    )
+    await renderApp('/rooms/room-gone', undefined, 'en-US')
+    expect(await screen.findByText('This encounter is not available.')).toHaveAttribute('role', 'status')
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument()
   })
 })
 
