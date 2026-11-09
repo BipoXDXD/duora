@@ -131,6 +131,8 @@ describe('localized room', () => {
     await user.click(await screen.findByRole('button', { name: 'Aceitar convite' }))
     expect(await screen.findByText('Este encontro foi encerrado.')).toHaveAttribute('role', 'status')
     expect(screen.queryByRole('button', { name: 'Aceitar convite' })).not.toBeInTheDocument()
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument()
+    expect(screen.getByText('Este encontro não está disponível.')).toHaveAttribute('role', 'status')
   })
   // Saída, suspensão e bloqueio chegam como a mesma resposta; só o traceId difere entre elas.
   it.each(['00-saida', '00-suspensao', '00-bloqueio'])(

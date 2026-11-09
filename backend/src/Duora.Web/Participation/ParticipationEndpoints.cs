@@ -28,9 +28,9 @@ internal static class ParticipationEndpoints
         routes.MapGet("/rooms/{roomId:guid}", async (Guid roomId, HttpContext context, ParticipationService service, CancellationToken ct) =>
             await service.RoomAsync(roomId, User(context), ct) is { } room ? Results.Ok(Map(room)) : Results.NotFound()).Produces<RoomResponse>().ProducesProblem(404);
         routes.MapPost("/rooms/{roomId:guid}/accept", async (Guid roomId, HttpContext context, ParticipationService service, CancellationToken ct) =>
-            Result(await service.RespondAsync(roomId, User(context), true, ct)));
+            Result(await service.RespondAsync(roomId, User(context), true, ct))).Produces(StatusCodes.Status204NoContent).ProducesProblem(StatusCodes.Status404NotFound);
         routes.MapPost("/rooms/{roomId:guid}/reject", async (Guid roomId, HttpContext context, ParticipationService service, CancellationToken ct) =>
-            Result(await service.RespondAsync(roomId, User(context), false, ct)));
+            Result(await service.RespondAsync(roomId, User(context), false, ct))).Produces(StatusCodes.Status204NoContent).ProducesProblem(StatusCodes.Status404NotFound);
         routes.MapPost("/rooms/{roomId:guid}/actions", async (Guid roomId, RoomActionRequest request, HttpContext context, ParticipationService service, CancellationToken ct) =>
             long.TryParse(request.ExpectedVersion, NumberStyles.None, CultureInfo.InvariantCulture, out var version)
                 ? Result(await service.ActionAsync(roomId, User(context), request.ActionId, version, request.Type, request.CardId, request.OptionId, ct))

@@ -129,7 +129,7 @@ function RoomBody({
       </Alert>
       <p>{t('preferences.noTranslation')}</p>
       <p>{t('preferences.voiceOptional')}</p>
-      {command.isError ? <RequestFailureAlert failure={classifyRequestFailure(command.error)} /> : null}
+      {command.isError ? <RoomFailure failure={classifyRequestFailure(command.error)} /> : null}
       {action.isError ? <RequestFailureAlert failure={classifyRequestFailure(action.error)} /> : null}
       {routesAction.isError ? <RequestFailureAlert failure={classifyRequestFailure(routesAction.error)} /> : null}
       {invited ? (
