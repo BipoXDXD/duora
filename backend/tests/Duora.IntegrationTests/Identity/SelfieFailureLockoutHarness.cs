@@ -22,6 +22,9 @@ internal sealed class ScriptedSelfieProvider(FakeTimeProvider time) : ISelfiePro
 
     public int ReadCalls => Volatile.Read(ref _readCalls);
 
+    /// <summary>Respostas roteirizadas que nenhuma leitura consumiu: zero prova que as leituras concorrentes responderam.</summary>
+    public int ScriptedReadsLeft => _reads.Count;
+
     public void Then(SelfieState state, string policy = Policy) =>
         _reads.Enqueue(() => new SelfieResult(state, state == SelfieState.Passed ? null : "CAPTURE_QUALITY", policy));
 
