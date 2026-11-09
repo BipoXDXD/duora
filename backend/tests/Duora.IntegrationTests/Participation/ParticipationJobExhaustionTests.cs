@@ -233,11 +233,77 @@ public sealed class ParticipationJobExhaustionTests(PostgresFixture postgres)
         Assert.Equal(expected, await scenario.RoundAndEventStateAsync());
     }
 
+    /// <summary>
+    /// A falha vem do último passo, concluir o evento, depois de salas, reservas e rodada: tudo volta atrás junto com o
+    /// <c>Failed</c>, e o job termina quando o passo voltar a funcionar.
+    /// </summary>
+    [Theory]
+    [InlineData("retry")]
+    [InlineData("lease")]
+    public async Task AFailureAfterTheReleaseRollsBackTheFailedStateAndEverythingElse(string path)
+    {
+        await using var scenario = await Scenario.CreateAsync(postgres, scratchDatabase: true);
+        var jobId = await scenario.OnlyJobDueIsAsync("close-round", scenario.Round);
+        scenario.Clock.Advance(PastTheRoundDeadline);
+        await scenario.RefuseEventCompletionAsync();
+        ParticipationJob? claimed = null;
+        if (path == "retry")
+        {
+            await scenario.SetAttemptsAsync(jobId, 7);
+            claimed = await scenario.Service.ClaimJobAsync(Ct);
+            Assert.NotNull(claimed);
+        }
+        else
+        {
+            await scenario.SetAttemptsAsync(jobId, 8, inFlightWithExpiredLease: true);
+        }
+
+        var refused = await Assert.ThrowsAsync<PostgresException>(() => claimed is null
+            ? scenario.Service.ClaimJobAsync(Ct)
+            : scenario.Service.RetryJobAsync(claimed, Ct));
+
+        Assert.Equal(PostgresErrorCodes.RaiseException, refused.SqlState);
+        Assert.Equal("InFlight|8|-", await scenario.JobAsync(jobId));
+        Assert.Equal(2, await scenario.ActiveReservationsAsync());
+        Assert.Equal("Invited", await scenario.RoomStateAsync());
+        Assert.Equal("Inviting|Running", await scenario.RoundAndEventStateAsync());
+
+        await scenario.AllowEventCompletionAsync();
+        scenario.Clock.Advance(PastTheLease);
+
+        Assert.Null(await scenario.Service.ClaimJobAsync(Ct));
+        Assert.Equal("Failed|9|LeaseExpiredExhausted", await scenario.JobAsync(jobId));
+        Assert.Equal(0, await scenario.ActiveReservationsAsync());
+        Assert.Equal("Closed|Completed", await scenario.RoundAndEventStateAsync());
+    }
+
+    /// <summary>Mesma regra do fechamento normal: só rodada em andamento fecha, a que não começou é cancelada e a terminada não muda.</summary>
+    [Theory]
+    [InlineData("Inviting", "Closed", 1)]
+    [InlineData("Scheduled", "Cancelled", 1)]
+    [InlineData("Cancelled", "Cancelled", 0)]
+    [InlineData("Closed", "Closed", 0)]
+    public async Task AnExhaustedCloseRoundFollowsTheRoundCloseRule(string initial, string expected, int versionIncrease)
+    {
+        await using var scenario = await Scenario.CreateAsync(postgres);
+        await scenario.OnlyJobDueIsAsync("close-round", scenario.Round);
+        var version = await scenario.SetRoundStateAsync(initial);
+        scenario.Clock.Advance(PastTheRoundDeadline);
+
+        await scenario.ExhaustAsync("retry", "close-round");
+
+        Assert.Equal($"{expected}|Completed", await scenario.RoundAndEventStateAsync());
+        Assert.Equal(version + versionIncrease, await scenario.RoundVersionAsync());
+    }
+
     private sealed class Scenario : IAsyncDisposable
     {
+        private readonly ScratchDatabase? _scratch;
+
         private Scenario(NpgsqlDataSource source, FakeTimeProvider clock, ParticipationService service, ParticipationSeed seed,
-            Guid room, CapturingLoggerProvider logs, string connectionString)
+            Guid room, CapturingLoggerProvider logs, string connectionString, ScratchDatabase? scratch)
         {
+            _scratch = scratch;
             ConnectionString = connectionString;
             Source = source;
             Clock = clock;
@@ -263,9 +329,12 @@ public sealed class ParticipationJobExhaustionTests(PostgresFixture postgres)
 
         public Guid Round => Seed.Rounds[0];
 
-        public static async Task<Scenario> CreateAsync(PostgresFixture postgres)
+        /// <param name="postgres">O PostgreSQL dos testes.</param>
+        /// <param name="scratchDatabase">Banco com acesso de migrador, para o teste instalar um gatilho de falha.</param>
+        public static async Task<Scenario> CreateAsync(PostgresFixture postgres, bool scratchDatabase = false)
         {
-            var connectionString = await postgres.CreateMigratedDatabaseAsync(Ct);
+            var scratch = scratchDatabase ? await postgres.CreateMigratedScratchDatabaseAsync(Ct) : null;
+            var connectionString = scratch?.AppConnectionString ?? await postgres.CreateMigratedDatabaseAsync(Ct);
             var now = DateTimeOffset.FromUnixTimeSeconds(DateTimeOffset.UtcNow.ToUnixTimeSeconds());
             var seed = await BrowserScenarioSeed.InitializeAsync(connectionString, now, Ct, declarePreferences: true);
             var source = NpgsqlDataSource.Create(connectionString);
@@ -282,7 +351,7 @@ public sealed class ParticipationJobExhaustionTests(PostgresFixture postgres)
             clock.Advance(TimeSpan.FromMinutes(5));
             await service.BuildRoundPairingsAsync(seed.Rounds[0], Ct);
             var room = (await service.StatusAsync(seed.Events[0], seed.Alice, Ct))!.RoomId!.Value;
-            return new(source, clock, service, seed, room, logs, connectionString);
+            return new(source, clock, service, seed, room, logs, connectionString, scratch);
         }
 
         public async Task AcceptBothAsync()
@@ -385,6 +454,37 @@ public sealed class ParticipationJobExhaustionTests(PostgresFixture postgres)
             select r.state||'|'||e.state from events.rounds r join events.events e on e.id=r.event_id where r.id=$1
             """, Round);
 
+        public Task RefuseEventCompletionAsync() => ExecuteAsMigratorAsync("""
+            create function events.refuse_completion_in_test() returns trigger language plpgsql as $$
+            begin raise exception 'forced by the test'; end $$;
+            create trigger refuse_completion_in_test before update on events.events for each row
+              when (new.state='Completed') execute function events.refuse_completion_in_test();
+            """);
+
+        public Task AllowEventCompletionAsync() => ExecuteAsMigratorAsync(
+            "drop trigger refuse_completion_in_test on events.events; drop function events.refuse_completion_in_test();");
+
+        public async Task<long> SetRoundStateAsync(string state)
+        {
+            await using var connection = await Source.OpenConnectionAsync(Ct);
+            await using var query = Command(connection, "update events.rounds set state=$2 where id=$1 returning version", Round, state);
+            return (long)(await query.ExecuteScalarAsync(Ct))!;
+        }
+
+        public async Task<long> RoundVersionAsync()
+        {
+            await using var connection = await Source.OpenConnectionAsync(Ct);
+            await using var query = Command(connection, "select version from events.rounds where id=$1", Round);
+            return (long)(await query.ExecuteScalarAsync(Ct))!;
+        }
+
+        private async Task ExecuteAsMigratorAsync(string sql)
+        {
+            await using var connection = new NpgsqlConnection(_scratch!.MigratorConnectionString);
+            await connection.OpenAsync(Ct);
+            await Execute(connection, sql, Ct);
+        }
+
         public Task<string> RoomStateAsync() => TextAsync("select state from experiences.game_sessions where id=$1", Room);
 
         /// <summary>Estado, versão da sala e datas de liberação, para provar que nada mudou.</summary>
@@ -400,7 +500,14 @@ public sealed class ParticipationJobExhaustionTests(PostgresFixture postgres)
             return (long)(await query.ExecuteScalarAsync(Ct))!;
         }
 
-        public ValueTask DisposeAsync() => Source.DisposeAsync();
+        public async ValueTask DisposeAsync()
+        {
+            await Source.DisposeAsync();
+            if (_scratch is not null)
+            {
+                await _scratch.DisposeAsync();
+            }
+        }
 
         private async Task<string> TextAsync(string sql, params object[] values)
         {

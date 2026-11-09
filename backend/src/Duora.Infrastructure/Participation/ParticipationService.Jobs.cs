@@ -154,7 +154,12 @@ public sealed partial class ParticipationService
 
     private async Task FinishRoundAsync(NpgsqlConnection connection, Guid round, CancellationToken ct)
     {
-        await Execute(connection, "update events.rounds set state='Closed',version=version+1 where id=$1 and deadline_at<=$2 and state<>'Closed'", ct, round, Now);
+        // Same rule as Round.Close and Round.Resume: only a round in progress closes (no writer persists Running, so that is
+        // Inviting), one that never started is cancelled, and a finished round never changes.
+        await Execute(connection, """
+            update events.rounds set state=case state when 'Inviting' then 'Closed' else 'Cancelled' end,version=version+1
+            where id=$1 and deadline_at<=$2 and state in ('Scheduled','Inviting')
+            """, ct, round, Now);
         await Execute(connection, """
             update events.events set state='Completed',version=version+1 where id=(select event_id from events.rounds where id=$1)
               and not exists(select 1 from events.rounds r where r.event_id=events.events.id and r.state not in ('Closed','Cancelled'))
