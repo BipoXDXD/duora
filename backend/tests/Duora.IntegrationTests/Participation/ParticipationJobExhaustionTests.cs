@@ -277,7 +277,11 @@ public sealed class ParticipationJobExhaustionTests(PostgresFixture postgres)
         Assert.Equal("Closed|Completed", await scenario.RoundAndEventStateAsync());
     }
 
-    /// <summary>Mesma regra do fechamento normal: só rodada em andamento fecha, a que não começou é cancelada e a terminada não muda.</summary>
+    /// <summary>
+    /// Mesma regra do fechamento normal: só rodada em andamento fecha, a que não começou é cancelada e a terminada não muda.
+    /// A sala aberta é liberada em todos os casos, inclusive com a rodada já <c>Cancelled</c>: o estado da rodada não pode
+    /// segurar as reservas, porque este é o último job que as libera.
+    /// </summary>
     [Theory]
     [InlineData("Inviting", "Closed", 1)]
     [InlineData("Scheduled", "Cancelled", 1)]
@@ -294,6 +298,8 @@ public sealed class ParticipationJobExhaustionTests(PostgresFixture postgres)
 
         Assert.Equal($"{expected}|Completed", await scenario.RoundAndEventStateAsync());
         Assert.Equal(version + versionIncrease, await scenario.RoundVersionAsync());
+        Assert.Equal(0, await scenario.ActiveReservationsAsync());
+        Assert.Equal("Expired", await scenario.RoomStateAsync());
     }
 
     private sealed class Scenario : IAsyncDisposable
