@@ -353,4 +353,33 @@ describe('tela da sala enquanto a próxima leitura não responde', () => {
       expect(identityReads).toBeGreaterThan(1)
     })
   })
+
+  it('revalida a identidade quando a leitura traz 401', async () => {
+    let identityReads = 0
+    useAntiforgeryEndpoint()
+    server.use(
+      http.get(`${API}/me`, () => {
+        identityReads += 1
+        return HttpResponse.json(withSessionContext(me))
+      }),
+      roomReads(() => problemResponse(401, 'UNAUTHENTICATED')),
+    )
+
+    await renderApp('/rooms/room-1')
+
+    await waitFor(() => {
+      expect(identityReads).toBeGreaterThan(1)
+    })
+  })
+
+  it('repete a leitura que falha com 503, sem esperar o próximo intervalo', async () => {
+    const fetchSpy = startPolling()
+    useSignedInParticipant()
+    server.use(roomReads(() => problemResponse(503, 'SERVICE_UNAVAILABLE'), invitedRoomResponse))
+
+    await renderApp('/rooms/room-1')
+
+    expect(await screen.findByRole('button', ACCEPT_BUTTON)).toBeInTheDocument()
+    expect(roomReadsIn(fetchSpy)).toBe(2)
+  })
 })
