@@ -59,7 +59,7 @@ public sealed class SelfieConcurrencyTests(PostgresFixture postgres)
         try
         {
             await barrier.WaitForEntryAsync(ct);
-            time.Advance(TimeSpan.FromSeconds(31));
+            Assert.Equal(1, await ExpireSelfieLeaseAsync(scenario));
         }
         finally
         {
@@ -98,7 +98,7 @@ public sealed class SelfieConcurrencyTests(PostgresFixture postgres)
         try
         {
             await barrier.WaitForEntryAsync(ct);
-            time.Advance(TimeSpan.FromSeconds(31));
+            Assert.Equal(1, await ExpireSelfieLeaseAsync(scenario));
             Assert.Equal(1, await DispatchAsync(second, ct));
             Assert.Equal("Capturing", (await CurrentAsync(second, account.UserId, ct)).State);
         }
@@ -141,7 +141,7 @@ public sealed class SelfieConcurrencyTests(PostgresFixture postgres)
         try
         {
             await barrier.WaitForEntryAsync(ct);
-            time.Advance(TimeSpan.FromSeconds(31));
+            Assert.Equal(1, await ExpireSelfieLeaseAsync(scenario));
             Assert.Equal(1, await DispatchAsync(second, ct));
             Assert.Equal("Inconclusive", (await CurrentAsync(second, account.UserId, ct)).State);
         }
@@ -336,6 +336,16 @@ public sealed class SelfieConcurrencyTests(PostgresFixture postgres)
         Assert.Equal(afterResult, await QueueFootprintAsync(scenario, account.UserId));
         Assert.Equal((1, 1), (provider.StartCalls, provider.ReadCalls));
     }
+
+    /// <summary>
+    /// Vence o lease pelo banco, com o relógio parado: avançar o relógio dispararia o corte de 10 s, a chamada em voo não
+    /// chegaria a responder e o guarda de lease da gravação deixaria de ser exercitado.
+    /// </summary>
+    private static Task<long> ExpireSelfieLeaseAsync(IdentityScenario scenario) => scenario.ScalarAsync("""
+        update ops.outbox_deliveries set lease_expires_at = lease_expires_at - interval '31 seconds'
+        where consumer = 'selfie-provider' and status = 'InFlight'
+        returning 1
+        """);
 
     private static async Task<string> CompleteAsync(Browser browser, Guid attempt, CancellationToken ct)
     {
