@@ -224,12 +224,13 @@ public sealed partial class ParticipationService(NpgsqlDataSource source, TimePr
             return null;
         }
 
+        // Só a sala mais recente conta: filtrar dentro do lateral faria a sala abortada trazer de volta a de uma rodada anterior.
         await using var command = Command(connection, """
-            select r.state,s.id,s.state from events.registrations r
-            left join lateral(select gs.id,gs.state from events.pairings p join experiences.game_sessions gs on gs.pairing_id=p.id
+            select r.state,case when s.state<>'Aborted' and not s.blocked then s.id end,s.state from events.registrations r
+            left join lateral(select gs.id,gs.state,
+                exists(select 1 from safety.blocks b where (b.blocker_id=p.user_low and b.blocked_id=p.user_high) or (b.blocker_id=p.user_high and b.blocked_id=p.user_low)) blocked
+              from events.pairings p join experiences.game_sessions gs on gs.pairing_id=p.id
               where p.event_id=r.event_id and (p.user_low=r.user_id or p.user_high=r.user_id)
-              and gs.state<>'Aborted'
-              and not exists(select 1 from safety.blocks b where (b.blocker_id=p.user_low and b.blocked_id=p.user_high) or (b.blocker_id=p.user_high and b.blocked_id=p.user_low))
               order by p.created_at desc limit 1) s on true
             where r.event_id=$1 and r.user_id=$2
             """, eventId, user);

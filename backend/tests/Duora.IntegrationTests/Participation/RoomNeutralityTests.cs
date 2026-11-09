@@ -40,7 +40,7 @@ public sealed partial class RoomNeutralityTests(PostgresFixture postgres)
         Assert.Equal(afterExit, afterBlock);
         Assert.All(NotFoundRoutes, route => Assert.StartsWith("404|", afterExit[route], StringComparison.Ordinal));
         Assert.Equal(afterExit["unknown-room"], afterExit["read"]);
-        Assert.Equal($"200|application/json; charset=utf-8|{WaitingWithoutRoom}", afterExit["status"]);
+        Assert.StartsWith($"200|application/json; charset=utf-8|{WaitingWithoutRoom}|", afterExit["status"], StringComparison.Ordinal);
         Assert.StartsWith("204|", afterExit["exit"], StringComparison.Ordinal);
         Assert.Equal(afterExit["status"], afterExit["status-after-exit"]);
     }
@@ -54,6 +54,26 @@ public sealed partial class RoomNeutralityTests(PostgresFixture postgres)
         var afterBlock = await ObservePartnerEndingAsync("block", Constellation, Invited, ct);
 
         Assert.Equal(afterBlock, afterRejection);
+    }
+
+    [Theory]
+    [InlineData("exit")]
+    [InlineData("suspension")]
+    [InlineData("block")]
+    public async Task AnAbortedRoomInALaterRoundDoesNotBringBackTheEarlierRoom(string how)
+    {
+        var ct = TestContext.Current.CancellationToken;
+        await using var scene = await SecondRoundSceneAsync(ct);
+        var statusPath = $"/api/v1/events/{scene.EventId}/participation";
+        using (var invited = await scene.Bob.GetAsync(statusPath))
+        {
+            Assert.Contains(scene.Room.ToString(), await invited.Content.ReadAsStringAsync(ct), StringComparison.Ordinal);
+        }
+
+        await EndByPartnerAsync(scene, how, ct);
+
+        using var status = await scene.Bob.GetAsync(statusPath);
+        Assert.Equal(WaitingWithoutRoom, await status.Content.ReadAsStringAsync(ct));
     }
 
     [Fact]
@@ -217,10 +237,15 @@ public sealed partial class RoomNeutralityTests(PostgresFixture postgres)
     }
 
     // Só o traceId muda de uma requisição para outra; qualquer outra diferença seria um sinal do motivo.
+    // Date e Set-Cookie variam em qualquer resposta e não dependem da sala.
     private static async Task<string> DescribeAsync(HttpResponseMessage response, CancellationToken ct)
     {
         var body = TraceId().Replace(await response.Content.ReadAsStringAsync(ct), string.Empty);
-        return $"{(int)response.StatusCode}|{response.Content.Headers.ContentType}|{body}";
+        var headers = response.Headers.Concat(response.Content.Headers)
+            .Where(header => header.Key is not ("Date" or "Set-Cookie" or "Content-Type"))
+            .Select(header => $"{header.Key}={string.Join(',', header.Value)}")
+            .Order(StringComparer.Ordinal);
+        return $"{(int)response.StatusCode}|{response.Content.Headers.ContentType}|{body}|{string.Join(';', headers)}";
     }
 
     [GeneratedRegex("\"traceId\":\"[^\"]*\"")]
@@ -255,6 +280,73 @@ public sealed partial class RoomNeutralityTests(PostgresFixture postgres)
         var alice = await identity.SignedInBrowserAsync(new(seed.Alice, "alice@example.com", IdentityScenario.ValidPassword));
         var bob = await identity.SignedInBrowserAsync(new(seed.Bob, "bob@example.com", IdentityScenario.ValidPassword));
         return new(factory, source, clock, service, seed, eventId, room, alice, bob);
+    }
+
+    /// <summary>A rodada 1 termina Completed e a rodada 2 fica em Invited; Alice do cenário é quem encerra a sala e Bob, quem jogou as duas.</summary>
+    private async Task<RoomScene> SecondRoundSceneAsync(CancellationToken ct)
+    {
+        var connectionString = await postgres.CreateMigratedDatabaseAsync(ct);
+        var now = DateTimeOffset.UtcNow;
+        var seed = await BrowserScenarioSeed.InitializeAsync(connectionString, now, ct, declarePreferences: true);
+        var clock = new FakeTimeProvider(now);
+        var factory = new DuoraWebFactory(connectionString) { Time = clock };
+        var source = NpgsqlDataSource.Create(connectionString);
+        var service = new ParticipationService(source, clock);
+        var eventId = seed.Events[0];
+        var secondRound = Guid.NewGuid();
+        await using (var connection = await source.OpenConnectionAsync(ct))
+        {
+            await Execute(connection, "insert into events.rounds(id,event_id,number,state,starts_at,deadline_at,seed) values($1,$2,2,'Scheduled',$3,$4,42)", ct,
+                secondRound, eventId, now.AddMinutes(17), now.AddMinutes(29));
+        }
+        Guid[] everyone = [seed.Alice, seed.Bob, seed.Third];
+        foreach (var user in everyone)
+        {
+            Assert.Equal(ParticipationOutcome.Done, await service.RegisterAsync(eventId, user, false, ct));
+            Assert.Equal(ParticipationOutcome.Done, await service.RegisterAsync(eventId, user, true, ct));
+        }
+        clock.Advance(TimeSpan.FromMinutes(5));
+        await service.BuildRoundPairingsAsync(seed.Rounds[0], ct);
+        List<Guid> paired = [];
+        foreach (var user in everyone)
+        {
+            if ((await service.StatusAsync(eventId, user, ct))!.RoomId is not null)
+            {
+                paired.Add(user);
+            }
+        }
+        Assert.Equal(2, paired.Count);
+        var firstRoom = (await service.StatusAsync(eventId, paired[0], ct))!.RoomId!.Value;
+        await PlayToCompletionAsync(service, firstRoom, paired[0], paired[1], ct);
+
+        clock.Advance(TimeSpan.FromMinutes(12));
+        await service.BuildRoundPairingsAsync(secondRound, ct);
+        var ending = everyone.Except(paired).Single();
+        var room = (await service.StatusAsync(eventId, ending, ct))!.RoomId!.Value;
+        Guid? watcher = null;
+        foreach (var user in paired)
+        {
+            if ((await service.StatusAsync(eventId, user, ct))!.RoomId == room)
+            {
+                watcher = user;
+            }
+        }
+        Assert.NotNull(watcher);
+        var emails = new Dictionary<Guid, string> { [seed.Alice] = "alice@example.com", [seed.Bob] = "bob@example.com", [seed.Third] = "third@example.com" };
+        var identity = new IdentityScenario(connectionString, factory);
+        var endingBrowser = await identity.SignedInBrowserAsync(new(ending, emails[ending], IdentityScenario.ValidPassword));
+        var watcherBrowser = await identity.SignedInBrowserAsync(new(watcher.Value, emails[watcher.Value], IdentityScenario.ValidPassword));
+        return new(factory, source, clock, service, seed with { Alice = ending, Bob = watcher.Value }, eventId, room, endingBrowser, watcherBrowser);
+    }
+
+    private static async Task PlayToCompletionAsync(ParticipationService service, Guid room, Guid first, Guid second, CancellationToken ct)
+    {
+        Assert.Equal(ParticipationOutcome.Done, await service.RespondAsync(room, first, true, ct));
+        Assert.Equal(ParticipationOutcome.Done, await service.RespondAsync(room, second, true, ct));
+        var version = (await service.RoomAsync(room, first, ct))!.Version;
+        Assert.Equal(ParticipationOutcome.Done, await service.ActionAsync(room, first, Guid.NewGuid(), version, "choose-option", "morning", "tea", ct));
+        version = (await service.RoomAsync(room, second, ct))!.Version;
+        Assert.Equal(ParticipationOutcome.Done, await service.ActionAsync(room, second, Guid.NewGuid(), version, "choose-option", "morning", "walk", ct));
     }
 
     private static async Task<Guid> RoundAsync(NpgsqlDataSource source, Guid eventId, CancellationToken ct)
