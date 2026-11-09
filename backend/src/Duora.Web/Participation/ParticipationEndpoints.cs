@@ -16,16 +16,7 @@ internal static class ParticipationEndpoints
         api.MapRoutesCatalogEndpoints();
         var routes = api.MapGroup("").WithTags("Participation").RequireAuthorization(ParticipationPolicies.EligibleParticipant)
             .ProducesProblem(401).ProducesProblem(403);
-        routes.AddEndpointFilter(async (context, next) =>
-        {
-            try
-            { return await next(context); }
-            catch (PostgresException e) when (e.SqlState is PostgresErrorCodes.LockNotAvailable or PostgresErrorCodes.DeadlockDetected or PostgresErrorCodes.SerializationFailure)
-            {
-                ApiProblems.SetRetryAfter(context.HttpContext, TimeSpan.FromSeconds(2));
-                return ApiProblems.Problem(503, ApiProblems.TemporarilyUnavailable);
-            }
-        });
+        routes.AddEndpointFilter(AnswerLockContentionAsUnavailableAsync);
         routes.MapGet("/events", async (ParticipationService service, CancellationToken ct) =>
             (await service.EventsAsync(ct)).Select(e => new EventResponse(e.Id, e.Title, e.StartsAt, e.StartsAt.AddMinutes(-10), e.State, e.TimeZone)).ToArray());
         routes.MapPut("/events/{eventId:guid}/registration", async (Guid eventId, HttpContext context, ParticipationService service, CancellationToken ct) =>
@@ -35,13 +26,11 @@ internal static class ParticipationEndpoints
         routes.MapGet("/events/{eventId:guid}/participation", async (Guid eventId, HttpContext context, ParticipationService service, CancellationToken ct) =>
             await service.StatusAsync(eventId, User(context), ct) is { } s ? Results.Ok(new ParticipationResponse(s.State, s.RoomId)) : Results.NotFound()).Produces<ParticipationResponse>();
         routes.MapGet("/rooms/{roomId:guid}", async (Guid roomId, HttpContext context, ParticipationService service, CancellationToken ct) =>
-            await service.RoomAsync(roomId, User(context), ct) is { } room ? Results.Ok(Map(room)) : Results.NotFound()).Produces<RoomResponse>();
+            await service.RoomAsync(roomId, User(context), ct) is { } room ? Results.Ok(Map(room)) : Results.NotFound()).Produces<RoomResponse>().ProducesProblem(404);
         routes.MapPost("/rooms/{roomId:guid}/accept", async (Guid roomId, HttpContext context, ParticipationService service, CancellationToken ct) =>
             Result(await service.RespondAsync(roomId, User(context), true, ct)));
         routes.MapPost("/rooms/{roomId:guid}/reject", async (Guid roomId, HttpContext context, ParticipationService service, CancellationToken ct) =>
             Result(await service.RespondAsync(roomId, User(context), false, ct)));
-        routes.MapPost("/rooms/{roomId:guid}/exit", async (Guid roomId, HttpContext context, ParticipationService service, CancellationToken ct) =>
-            Result(await service.ExitAsync(roomId, User(context), ct)));
         routes.MapPost("/rooms/{roomId:guid}/actions", async (Guid roomId, RoomActionRequest request, HttpContext context, ParticipationService service, CancellationToken ct) =>
             long.TryParse(request.ExpectedVersion, NumberStyles.None, CultureInfo.InvariantCulture, out var version)
                 ? Result(await service.ActionAsync(roomId, User(context), request.ActionId, version, request.Type, request.CardId, request.OptionId, ct))
@@ -50,11 +39,28 @@ internal static class ParticipationEndpoints
             long.TryParse(request.ExpectedVersion, NumberStyles.None, CultureInfo.InvariantCulture, out var version)
                 ? Result(await service.RoutesActionAsync(roomId, User(context), request.ActionId, version, request.Type, request.Stage, request.StepId, request.OptionId, ct))
                 : Result(ParticipationOutcome.Invalid));
+        // API-R04: "sempre permitir saída segura". Sem política própria, vale a fallback de participante: só sai a
+        // elegibilidade, e quem não participa da sala continua recebendo 404 (ADR-0052).
+        var exit = api.MapGroup("").WithTags("Participation").ProducesProblem(401).ProducesProblem(403);
+        exit.AddEndpointFilter(AnswerLockContentionAsUnavailableAsync);
+        exit.MapPost("/rooms/{roomId:guid}/exit", async (Guid roomId, HttpContext context, ParticipationService service, CancellationToken ct) =>
+            Result(await service.ExitAsync(roomId, User(context), ct)));
         api.MapPost("/admin/events", async (PublishEventRequest request, HttpContext context, ParticipationService service, CancellationToken ct) =>
             await service.PublishAsync(request.Title, request.StartsAt, request.Capacity, request.ExperienceVersionId, User(context), ct, request.TimeZone) is { } id
                 ? Results.Created($"/api/v1/events/{id}", new { eventId = id }) : Result(ParticipationOutcome.Invalid))
             .RequireAuthorization(SessionAuthorization.AdministrativeSession)
             .RequireProductAdministrator().RequireRecentMfa().ProducesProblem(401).ProducesProblem(403);
+    }
+
+    private static async ValueTask<object?> AnswerLockContentionAsUnavailableAsync(EndpointFilterInvocationContext context, EndpointFilterDelegate next)
+    {
+        try
+        { return await next(context); }
+        catch (PostgresException e) when (e.SqlState is PostgresErrorCodes.LockNotAvailable or PostgresErrorCodes.DeadlockDetected or PostgresErrorCodes.SerializationFailure)
+        {
+            ApiProblems.SetRetryAfter(context.HttpContext, TimeSpan.FromSeconds(2));
+            return ApiProblems.Problem(503, ApiProblems.TemporarilyUnavailable);
+        }
     }
 
     private static Guid User(HttpContext context) => DuoraClaims.ReadUserId(context.User)!.Value;

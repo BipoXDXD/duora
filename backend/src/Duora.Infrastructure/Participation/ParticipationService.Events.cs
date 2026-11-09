@@ -2,6 +2,7 @@ using System.Diagnostics.Metrics;
 using Duora.Core.Matching;
 using Duora.Infrastructure.Identity;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using Npgsql;
 using static Duora.Infrastructure.Participation.ParticipationSql;
@@ -30,7 +31,7 @@ public static class ParticipationServices
 }
 
 /// <summary>Coordinates ordered user guards, event/round and session locks in one PostgreSQL transaction.</summary>
-public sealed partial class ParticipationService(NpgsqlDataSource source, TimeProvider time, IOptions<ParticipationOptions>? options = null)
+public sealed partial class ParticipationService(NpgsqlDataSource source, TimeProvider time, IOptions<ParticipationOptions>? options = null, ILogger<ParticipationService>? logger = null)
 {
     private static readonly Meter MatchingMeter = new("Duora.Matching");
     private static readonly Counter<long> RoundsBuilt = MatchingMeter.CreateCounter<long>("duora.matching.rounds");
@@ -38,6 +39,8 @@ public sealed partial class ParticipationService(NpgsqlDataSource source, TimePr
     private static readonly Counter<long> CandidatesWaiting = MatchingMeter.CreateCounter<long>("duora.matching.waiting_candidates");
     private static readonly HashSet<string> EventTimeZones = TimeZoneInfo.GetSystemTimeZones()
         .Where(zone => zone.HasIanaId).Select(zone => zone.Id).Append("UTC").ToHashSet(StringComparer.Ordinal);
+    /// <summary>As três rodadas e o fechamento somam 36 min depois do início; a folga cobre o arredondamento do PostgreSQL.</summary>
+    private static readonly DateTimeOffset LatestEventStart = DateTimeOffset.MaxValue.AddHours(-1);
     private bool MatchingEnabled => options?.Value.MatchingEnabled ?? true;
 
     private DateTimeOffset Now => PreciseClock.Truncate(time.GetUtcNow());
@@ -72,7 +75,9 @@ public sealed partial class ParticipationService(NpgsqlDataSource source, TimePr
             return null;
         }
 
-        if ((timeZone is not null && !EventTimeZones.Contains(timeZone)) || string.IsNullOrWhiteSpace(title) || title.Length > 120 || capacity is < 1 or > 100 || startsAt <= Now.AddMinutes(10))
+        // O Npgsql só grava offset 0, e somar a agenda no relógio local de um offset alto estoura mesmo com o instante válido.
+        var startsAtUtc = startsAt.ToUniversalTime();
+        if (!IsPublishable(title, startsAtUtc, capacity, timeZone))
         {
             return null;
         }
@@ -105,11 +110,11 @@ public sealed partial class ParticipationService(NpgsqlDataSource source, TimePr
         }
 
         var id = Guid.CreateVersion7();
-        await Execute(connection, "insert into events.events(id,title,state,starts_at,capacity,experience_version_id,time_zone) values($1,$2,'Published',$3,$4,$5,$6)", ct, id, title, startsAt, capacity, contentId, (object?)timeZone ?? DBNull.Value);
+        await Execute(connection, "insert into events.events(id,title,state,starts_at,capacity,experience_version_id,time_zone) values($1,$2,'Published',$3,$4,$5,$6)", ct, id, title, startsAtUtc, capacity, contentId, (object?)timeZone ?? DBNull.Value);
         for (var number = 1; number <= 3; number++)
         {
             var round = Guid.CreateVersion7();
-            var start = startsAt.AddMinutes((number - 1) * 12);
+            var start = startsAtUtc.AddMinutes((number - 1) * 12);
             var algorithm = options?.Value.RegionalMatchingStartsAt is { } cutover && start >= cutover
                 ? PairingAlgorithmVersion.GreedyByPriorityV3 : PairingAlgorithmVersion.GreedyByPriorityV2;
             await Execute(connection, "insert into events.rounds(id,event_id,number,state,starts_at,deadline_at,seed,algorithm_version) values($1,$2,$3,'Scheduled',$4,$5,$6,$7)", ct, round, id, number, start, start.AddMinutes(12), Random.Shared.NextInt64(), (int)algorithm);
@@ -119,6 +124,12 @@ public sealed partial class ParticipationService(NpgsqlDataSource source, TimePr
         await transaction.CommitAsync(ct);
         return id;
     }
+
+    private bool IsPublishable(string title, DateTimeOffset startsAtUtc, int capacity, string? timeZone) =>
+        (timeZone is null || EventTimeZones.Contains(timeZone))
+        && !string.IsNullOrWhiteSpace(title) && title.Length <= 120 && !title.Any(char.IsControl)
+        && capacity is >= 1 and <= 100
+        && startsAtUtc > Now.AddMinutes(10) && startsAtUtc <= LatestEventStart;
 
     public async Task<ParticipationOutcome> RegisterAsync(Guid eventId, Guid user, bool checkIn, CancellationToken ct)
     {
@@ -224,11 +235,13 @@ public sealed partial class ParticipationService(NpgsqlDataSource source, TimePr
             return null;
         }
 
+        // Só a sala mais recente conta: filtrar dentro do lateral faria a sala abortada trazer de volta a de uma rodada anterior.
         await using var command = Command(connection, """
-            select r.state,s.id,s.state from events.registrations r
-            left join lateral(select gs.id,gs.state from events.pairings p join experiences.game_sessions gs on gs.pairing_id=p.id
+            select r.state,case when s.state<>'Aborted' and not s.blocked then s.id end,s.state from events.registrations r
+            left join lateral(select gs.id,gs.state,
+                exists(select 1 from safety.blocks b where (b.blocker_id=p.user_low and b.blocked_id=p.user_high) or (b.blocker_id=p.user_high and b.blocked_id=p.user_low)) blocked
+              from events.pairings p join experiences.game_sessions gs on gs.pairing_id=p.id
               where p.event_id=r.event_id and (p.user_low=r.user_id or p.user_high=r.user_id)
-              and not exists(select 1 from safety.blocks b where (b.blocker_id=p.user_low and b.blocked_id=p.user_high) or (b.blocker_id=p.user_high and b.blocked_id=p.user_low))
               order by p.created_at desc limit 1) s on true
             where r.event_id=$1 and r.user_id=$2
             """, eventId, user);
@@ -239,7 +252,7 @@ public sealed partial class ParticipationService(NpgsqlDataSource source, TimePr
         }
 
         return reader.IsDBNull(1) ? new(reader.GetString(0) == "CheckedIn" ? "Waiting" : reader.GetString(0), null)
-            : new(reader.GetString(2) is "Aborted" or "Expired" ? "Unavailable" : reader.GetString(2), reader.GetGuid(1));
+            : new(reader.GetString(2) == "Expired" ? "Unavailable" : reader.GetString(2), reader.GetGuid(1));
     }
 
     public async Task BuildRoundPairingsAsync(Guid roundId, CancellationToken ct)
