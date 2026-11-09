@@ -1,5 +1,6 @@
 using System.Net.Sockets;
 using System.Runtime.CompilerServices;
+using System.Text;
 using System.Text.Json;
 using Duora.Infrastructure.Media;
 using Npgsql;
@@ -225,6 +226,17 @@ public sealed class StorageOperationBoundaryTests
     public async Task ADeniedReplyIsNeverAcceptedAsAResponse()
     {
         byte[] wire = [0, 0, 0, 19, .. """{"status":"denied"}"""u8];
+        using var stream = new MemoryStream(wire);
+
+        await Assert.ThrowsAsync<IOException>(() => PrivateGenerationWire.ReadResponseAsync(stream, Ct));
+    }
+
+    [Theory]
+    [InlineData((byte)27, """{"status":"ok","length":-1}""")]
+    [InlineData((byte)33, """{"status":"ok","length":16777217}""")]
+    public async Task ADeclaredBodyOutsideTheEnvelopeIsNeverAcceptedAsAResponse(byte frameLength, string frame)
+    {
+        byte[] wire = [0, 0, 0, frameLength, .. Encoding.UTF8.GetBytes(frame)];
         using var stream = new MemoryStream(wire);
 
         await Assert.ThrowsAsync<IOException>(() => PrivateGenerationWire.ReadResponseAsync(stream, Ct));
