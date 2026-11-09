@@ -1,5 +1,4 @@
 using System.Net;
-using Duora.Core.Identity;
 using Duora.Infrastructure.Participation;
 using Duora.IntegrationTests.Identity;
 using Microsoft.Extensions.Time.Testing;
@@ -16,6 +15,9 @@ public sealed class ParticipationLockContentionTests(PostgresFixture postgres)
 {
     private const int RetryAfterSeconds = 2;
 
+    /// <summary>Bem acima dos 2 s do <c>lock_timeout</c>: passar daqui é requisição presa, não contenção respondida.</summary>
+    private static readonly TimeSpan RequestCeiling = TimeSpan.FromSeconds(30);
+
     private static CancellationToken Ct => TestContext.Current.CancellationToken;
 
     [Fact]
@@ -26,13 +28,13 @@ public sealed class ParticipationLockContentionTests(PostgresFixture postgres)
 
         await using (await scene.HoldGuardAsync(scene.AliceId))
         {
-            using var busy = await scene.Alice.PutAsync(path);
+            using var busy = await scene.Alice.PutAsync(path).WaitAsync(RequestCeiling, Ct);
 
             await AssertUnavailableAsync(busy);
             Assert.Equal((0L, 0), await scene.RegistrationStateAsync());
         }
 
-        using var retried = await scene.Alice.PutAsync(path);
+        using var retried = await scene.Alice.PutAsync(path).WaitAsync(RequestCeiling, Ct);
 
         Assert.Equal(HttpStatusCode.NoContent, retried.StatusCode);
         Assert.Equal((1L, 1), await scene.RegistrationStateAsync());
@@ -52,13 +54,13 @@ public sealed class ParticipationLockContentionTests(PostgresFixture postgres)
 
         await using (await scene.HoldGuardAsync(scene.AliceId))
         {
-            using var busy = await scene.Alice.PostJsonAsync(path, null);
+            using var busy = await scene.Alice.PostJsonAsync(path, null).WaitAsync(RequestCeiling, Ct);
 
             await AssertUnavailableAsync(busy);
             Assert.Equal(before, await scene.RoomStateAsync(room));
         }
 
-        using var retried = await scene.Alice.PostJsonAsync(path, null);
+        using var retried = await scene.Alice.PostJsonAsync(path, null).WaitAsync(RequestCeiling, Ct);
 
         Assert.Equal(HttpStatusCode.NoContent, retried.StatusCode);
         var (state, accepted, _) = await scene.RoomStateAsync(room);
