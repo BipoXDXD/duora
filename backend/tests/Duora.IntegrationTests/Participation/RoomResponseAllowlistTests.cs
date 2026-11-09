@@ -23,6 +23,7 @@ public sealed class RoomResponseAllowlistTests(PostgresFixture postgres)
     private const string ConstellationAnswered = "constellation-answered-before-reveal";
     private const string ConstellationRevealed = "constellation-after-first-reveal";
     private const string ConstellationPassed = "constellation-after-skipped-card";
+    private const string ConstellationPassedByBob = "constellation-after-skipped-card-by-bob";
     private const string ConstellationCompleted = "constellation-completed";
     private const string RoutesInvited = "routes-invited";
     private const string RoutesIntroduction = "routes-introduction";
@@ -51,6 +52,7 @@ public sealed class RoomResponseAllowlistTests(PostgresFixture postgres)
     private const string ResourceVersionKey = "resourceVersion";
     private const string CurrentCardKey = "currentCard";
     private const string PassedKey = "passed";
+    private const string PromptKey = "prompt";
 
     private static readonly string[] None = [];
 
@@ -119,6 +121,7 @@ public sealed class RoomResponseAllowlistTests(PostgresFixture postgres)
     [InlineData(ConstellationAnswered, "Active")]
     [InlineData(ConstellationRevealed, "Active")]
     [InlineData(ConstellationPassed, "Active")]
+    [InlineData(ConstellationPassedByBob, "Active")]
     [InlineData(ConstellationCompleted, "Completed")]
     [InlineData(RoutesInvited, "Invited")]
     [InlineData(RoutesIntroduction, "Active")]
@@ -160,18 +163,20 @@ public sealed class RoomResponseAllowlistTests(PostgresFixture postgres)
         Assert.Equal(WithoutVersions(before), WithoutVersions(after));
     }
 
-    [Fact]
-    public async Task APassedCardDoesNotIdentifyWhoSkipped()
+    [Theory]
+    [InlineData(ConstellationPassed)]
+    [InlineData(ConstellationPassedByBob)]
+    public async Task APassedCardDoesNotIdentifyWhoSkipped(string stage)
     {
-        await using var scene = await SceneAsync(ConstellationPassed);
+        await using var scene = await SceneAsync(stage);
 
-        var skipper = await ReadRoomAsync(scene.Alice, scene.RoomPath);
-        var chooser = await ReadRoomAsync(scene.Bob, scene.RoomPath);
+        var alice = await ReadRoomAsync(scene.Alice, scene.RoomPath);
+        var bob = await ReadRoomAsync(scene.Bob, scene.RoomPath);
 
-        Assert.Equal(PassedCardJson(FirstPrompt), skipper[GameKey]![PassedKey]!.ToJsonString());
-        Assert.Equal(PassedCardJson(FirstPromptPt), chooser[GameKey]![PassedKey]!.ToJsonString());
-        Assert.Equal(WithoutLocalizedText(skipper), WithoutLocalizedText(chooser));
-        foreach (var room in new[] { skipper, chooser })
+        Assert.Equal(PassedCardJson(FirstPrompt), alice[GameKey]![PassedKey]!.ToJsonString());
+        Assert.Equal(PassedCardJson(FirstPromptPt), bob[GameKey]![PassedKey]!.ToJsonString());
+        Assert.Equal(WithoutLocalizedFields(alice), WithoutLocalizedFields(bob));
+        foreach (var room in new[] { alice, bob })
         {
             AssertAbsent(room.ToJsonString(), AliceFirstOption, AliceFirstLabel, AliceFirstLabelPt, BobFirstOption, BobFirstLabel, BobFirstLabelPt);
         }
@@ -215,7 +220,7 @@ public sealed class RoomResponseAllowlistTests(PostgresFixture postgres)
         ConstellationInvited or RoutesInvited => Room,
         ConstellationAnswered => [.. Room, .. ConstellationGame, .. OpenCard, .. (viewerIsAlice ? OwnAnswer : None)],
         ConstellationRevealed => [.. Room, .. ConstellationGame, .. OpenCard, .. RevealedCard],
-        ConstellationPassed => [.. Room, .. ConstellationGame, .. OpenCard, .. PassedCard],
+        ConstellationPassed or ConstellationPassedByBob => [.. Room, .. ConstellationGame, .. OpenCard, .. PassedCard],
         ConstellationCompleted => [.. Room, .. ConstellationGame, .. RevealedCard],
         RoutesIntroduction or RoutesClues => [.. Room, .. Audio, .. RoutesGame],
         RoutesChoosing => [.. Room, .. Audio, .. RoutesGame, .. OpenStop, .. ChosenStop],
@@ -263,19 +268,30 @@ public sealed class RoomResponseAllowlistTests(PostgresFixture postgres)
 
     private static string PassedCardJson(string prompt) => $$"""[{"cardId":"{{FirstCard}}","prompt":"{{prompt}}"}]""";
 
-    /// <summary>O jogo sem o texto que muda com o idioma: o que sobra tem de ser igual para quem pulou e para quem respondeu.</summary>
-    private static string WithoutLocalizedText(JsonObject room)
+    /// <summary>
+    /// A sala inteira, para comparar por valor as duas pessoas. As únicas exceções são os campos que mudam porque cada
+    /// uma lê no próprio idioma: <c>displayLocale</c>, <c>title</c>, <c>objective</c>, os <c>prompt</c> e os <c>label</c>.
+    /// </summary>
+    private static string WithoutLocalizedFields(JsonObject room)
     {
-        var game = room[GameKey]!.DeepClone().AsObject();
+        var copy = room.DeepClone().AsObject();
+        copy.Remove("displayLocale");
+        var game = copy[GameKey]!.AsObject();
         game.Remove("title");
         game.Remove("objective");
-        game.Remove(CurrentCardKey);
-        foreach (var passed in game[PassedKey]!.AsArray())
+        var card = game[CurrentCardKey]!.AsObject();
+        card.Remove(PromptKey);
+        foreach (var option in card["options"]!.AsArray())
         {
-            passed!.AsObject().Remove("prompt");
+            option!.AsObject().Remove("label");
         }
 
-        return game.ToJsonString();
+        foreach (var passed in game[PassedKey]!.AsArray())
+        {
+            passed!.AsObject().Remove(PromptKey);
+        }
+
+        return copy.ToJsonString();
     }
 
     private static string WithoutVersions(JsonObject room)
@@ -435,11 +451,14 @@ public sealed class RoomResponseAllowlistTests(PostgresFixture postgres)
 
         private async Task PlayConstellationAsync(string stage)
         {
-            if (stage == ConstellationPassed)
+            if (stage is ConstellationPassed or ConstellationPassedByBob)
             {
-                var current = (await service.RoomAsync(room, Seed.Alice, Ct))!;
-                Assert.Equal(ParticipationOutcome.Done, await service.ActionAsync(room, Seed.Alice, AliceAction, current.Version, SkipCard, FirstCard, null, Ct));
-                await ChooseAsync(Seed.Bob, BobAction, FirstCard, BobFirstOption);
+                var (skipper, skipAction, chooser, chooseAction, option) = stage == ConstellationPassed
+                    ? (Seed.Alice, AliceAction, Seed.Bob, BobAction, BobFirstOption)
+                    : (Seed.Bob, BobAction, Seed.Alice, AliceAction, AliceFirstOption);
+                var current = (await service.RoomAsync(room, skipper, Ct))!;
+                Assert.Equal(ParticipationOutcome.Done, await service.ActionAsync(room, skipper, skipAction, current.Version, SkipCard, FirstCard, null, Ct));
+                await ChooseAsync(chooser, chooseAction, FirstCard, option);
                 return;
             }
 
