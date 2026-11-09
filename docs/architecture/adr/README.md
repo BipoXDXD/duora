@@ -60,6 +60,7 @@ da spec. A partir do 0016, os ADRs resolvem lacunas encontradas na spec.
 | [0049](0049-execucao-da-reconciliacao-de-inscricoes-legadas.md) | Execução da reconciliação de inscrições legadas (#321) | Accepted para o desenho; implementação com revisão humana | Prévia real com volume, consumidor da #320, retenção da outbox ou política de suspensão |
 | [0050](0050-foto-de-perfil-para-outra-pessoa-api-p04.md) | Foto de perfil vista por outra pessoa (API-P04): momento, contexto, faixa etária e escopo | Proposed; escolhas D1 a D5 registradas em 06/11/2026; contrato, migração, risco R e política de privacidade com o dono | Decisão do dono, Connections integrado ou issue própria do P04 |
 | [0051](0051-papel-postgres-na-sonda-da-selfie.md) | Papel `postgres` na sonda do fornecedor da selfie, como exceção à spec 10 | Proposed | Troca da imagem do PostgreSQL ou mudança do `pg_hba` |
+| [0052](0052-saida-da-sala-sem-elegibilidade.md) | Saída da sala (API-R04) sem exigir elegibilidade, como exceção ao ADR-0024 | Proposed | Novo estado de conta com sala aberta ou novo efeito da saída |
 
 ## Regras
 
