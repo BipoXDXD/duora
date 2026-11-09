@@ -15,6 +15,8 @@ public sealed class RoundCloseJobTests(PostgresFixture postgres)
 {
     private const int MaximumDueJobs = 40;
 
+    private static readonly TimeSpan LeaseDuration = TimeSpan.FromSeconds(60);
+
     private static CancellationToken Ct => TestContext.Current.CancellationToken;
 
     [Fact]
@@ -62,26 +64,50 @@ public sealed class RoundCloseJobTests(PostgresFixture postgres)
     }
 
     [Fact]
-    public async Task AWorkerWhoseLeaseExpiredCannotCloseTheRoundAndTheNewOwnerClosesItOnce()
+    public async Task ALeaseThatReachedItsExpiryWithNoNewClaimCannotCloseTheRoundAndStaysInFlight()
+    {
+        await using var round = await OpenRoundAsync();
+        var invited = await round.RoomAsync(round.InvitedRoom);
+        var active = await round.RoomAsync(round.ActiveRoom);
+        var closing = await round.RoundRowAsync();
+        var running = await round.EventRowAsync();
+        round.Clock.SetUtcNow(round.Deadline);
+        var job = await ClaimCloseJobAsync(round);
+        var claimed = await round.CloseJobRowAsync();
+        Assert.Equal("InFlight", claimed.Status);
+        round.Clock.Advance(LeaseDuration);
+
+        Assert.False(await round.Service.CompleteJobAsync(job, Ct));
+
+        Assert.Equal(claimed, await round.CloseJobRowAsync());
+        Assert.Equal(invited, await round.RoomAsync(round.InvitedRoom));
+        Assert.Equal(active, await round.RoomAsync(round.ActiveRoom));
+        Assert.Equal(closing, await round.RoundRowAsync());
+        Assert.Equal(running, await round.EventRowAsync());
+        Assert.Equal(4L, await round.ActiveReservationsAsync());
+    }
+
+    [Fact]
+    public async Task AWorkerFencedOutByANewClaimCannotCloseTheRoundAndTheNewOwnerClosesItOnce()
     {
         await using var round = await OpenRoundAsync();
         var invited = await round.RoomAsync(round.InvitedRoom);
         var closing = await round.RoundRowAsync();
         var running = await round.EventRowAsync();
         round.Clock.SetUtcNow(round.Deadline);
-        var expired = await ClaimCloseJobAsync(round);
-        round.Clock.Advance(TimeSpan.FromSeconds(61));
+        var fenced = await ClaimCloseJobAsync(round);
+        round.Clock.Advance(LeaseDuration);
         var owner = await ClaimCloseJobAsync(round);
-        Assert.True(owner.Token > expired.Token);
+        Assert.True(owner.Token > fenced.Token);
 
-        Assert.False(await round.Service.CompleteJobAsync(expired, Ct));
+        Assert.False(await round.Service.CompleteJobAsync(fenced, Ct));
 
         Assert.Equal(invited, await round.RoomAsync(round.InvitedRoom));
         Assert.Equal(closing, await round.RoundRowAsync());
         Assert.Equal(4L, await round.ActiveReservationsAsync());
 
         Assert.True(await round.Service.CompleteJobAsync(owner, Ct));
-        Assert.False(await round.Service.CompleteJobAsync(expired, Ct));
+        Assert.False(await round.Service.CompleteJobAsync(fenced, Ct));
 
         Assert.Equal(("Expired", invited.Version + 1), await round.RoomAsync(round.InvitedRoom));
         Assert.Equal(("Closed", closing.Version + 1), await round.RoundRowAsync());
@@ -127,8 +153,9 @@ public sealed class RoundCloseJobTests(PostgresFixture postgres)
         await round.ExecuteAsync("update ops.jobs set available_at=$2 where kind='close-round' and aggregate_id=$1", round.Round, round.Deadline.AddMinutes(-1));
         round.Clock.SetUtcNow(round.Deadline.AddTicks(-1));
 
-        await RunDueJobsAsync(round.Service);
+        var delivered = await RunDueJobsAsync(round.Service);
 
+        Assert.Contains(delivered, job => job.Kind == "close-round" && job.AggregateId == round.Round);
         Assert.Equal(invited, await round.RoomAsync(round.InvitedRoom));
         Assert.Equal(active, await round.RoomAsync(round.ActiveRoom));
         Assert.Equal(inviting, await round.RoundRowAsync());
