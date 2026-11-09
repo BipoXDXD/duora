@@ -97,6 +97,7 @@ function RoomBody({
   const command = usePrivateMutation({
     mutationFn: (operation, action: 'accept' | 'reject' | 'exit') => roomCommand(operation, room.roomId, action),
     onSuccess: refresh,
+    onError: refresh,
   })
   const action = usePrivateMutation({
     mutationFn: (operation, choice: { type: 'choose-option' | 'skip-card'; cardId: string; optionId?: string }) =>
