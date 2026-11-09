@@ -1,16 +1,25 @@
 # ADR-0052: Saída da sala sem exigir elegibilidade
 
 - **Status:** Proposed (2026-11-09). Toca autorização: o aceite vem com a revisão humana no merge.
-- **Origem:** API-R04, "Sempre permitir saída segura; liberar reserva" (`spec.md:578`); exceção ao ADR-0024, que aplica
-  `RequireEligibleParticipant()` no grupo de participação
-- **Revisar quando:** outro estado de conta passar a existir com sala aberta, ou a saída ganhar efeito além de abortar e
-  liberar
+- **Origem:** API-R04, "Sempre permitir saída segura; liberar reserva" (`spec.md:578`); INV-01 (`spec.md:55`)
+- **Relaciona:** a política aplicada ao grupo de participação (`ParticipationPolicies`, vinda do ADR-0024, hoje
+  superado pelo ADR-0029); [ADR-0028](0028-voz-ao-vivo-webrtc-relay-cloudflare-turn.md), que decide o contrário para a voz
+- **Revisar quando:** outro estado de conta passar a existir com sala aberta, a saída ganhar efeito além de abortar e
+  liberar, ou a voz (API-R10) for implementada
 
 ## Contexto
 
 `POST /rooms/{roomId}/exit` herdava `EligibleParticipant` do grupo. Quem deixava de ser elegível com a sala aberta recebia
 `403` e não conseguia sair, o que contraria a API-R04. A elegibilidade decide quem entra em uma experiência, não quem
 pode deixá-la.
+
+INV-01 diz que só contas elegíveis participam, e a saída não é participação: ela encerra a participação, sem dar acesso
+a jogo, conteúdo ou outra pessoa.
+
+Há um precedente contrário. Em API-R10 (sair da voz), o ADR-0028 e a spec (`spec.md:584`) dizem que o "sempre permitido"
+não dispensa a policy. As duas saídas diferem nisto: a saída da sala é o único caminho da pessoa para deixar a sala e
+liberar a reserva, enquanto a da voz tem substitutos no servidor (fim da sala, queda da conexão de hub com fail-closed).
+Este ADR não muda a API-R10; se a voz deve seguir a mesma regra fica para quando ela for implementada.
 
 Alternativas consideradas:
 

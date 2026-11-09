@@ -40,6 +40,7 @@ export function RoomPage(): React.JSX.Element {
       ) : (
         <RoomBody room={room.data} refresh={refresh} />
       )}
+      {room.isError ? <ExitAfterForbiddenRead roomId={roomId} failure={classifyRequestFailure(room.error)} /> : null}
       <TextLink to={paths.events}>{t('participation.backToEvents')}</TextLink>
     </Page>
   )
@@ -208,6 +209,40 @@ function RoomBody({
           {t('participation.exit')}
         </Button>
       ) : null}
+    </>
+  )
+}
+
+/** Quem deixou de ser elegível não lê mais a sala, mas ainda pode sair dela (API-R04, ADR-0052). */
+function ExitAfterForbiddenRead({
+  roomId,
+  failure,
+}: {
+  readonly roomId: string
+  readonly failure: ReturnType<typeof classifyRequestFailure>
+}): React.JSX.Element | null {
+  const { t } = useI18n()
+  const exit = usePrivateMutation({
+    mutationFn: (operation) => roomCommand(operation, roomId, 'exit'),
+  })
+  if (failure.kind !== 'problem' || failure.code !== 'FORBIDDEN') {
+    return null
+  }
+  if (exit.isSuccess) {
+    return <p role="status">{t('participation.closed')}</p>
+  }
+  return (
+    <>
+      {exit.isError ? <RequestFailureAlert failure={classifyRequestFailure(exit.error)} /> : null}
+      <Button
+        variant="secondary"
+        disabled={exit.isPending}
+        onClick={() => {
+          exit.mutate()
+        }}
+      >
+        {t('participation.exit')}
+      </Button>
     </>
   )
 }

@@ -127,6 +127,27 @@ public sealed class RoomExitEligibilityTests(PostgresFixture postgres)
     }
 
     [Fact]
+    public async Task LockContentionOnExitAnswers503WithRetryAfterAndChangesNothing()
+    {
+        await using var scene = await OpenRoomAsync("Active");
+        var before = await scene.RoomRowAsync();
+        using var alice = await scene.SignInAsync("alice", scene.Seed.Alice);
+        await scene.MakeIneligibleAsync(scene.Seed.Alice, "Restricted");
+        await using var holder = await scene.OpenConnectionAsync();
+        await using var transaction = await holder.BeginTransactionAsync(Ct);
+        await Execute(holder, "select 1 from safety.user_guards where user_id=$1 for update", Ct, scene.Seed.Alice);
+
+        using var exit = await alice.PostJsonAsync(scene.ExitPath, null);
+
+        Assert.Equal(TimeSpan.FromSeconds(2), exit.Headers.RetryAfter?.Delta);
+        await ProblemAssert.IsProblemAsync(exit, HttpStatusCode.ServiceUnavailable, "TEMPORARILY_UNAVAILABLE");
+        await transaction.RollbackAsync(Ct);
+        Assert.Equal(before, await scene.RoomRowAsync());
+        Assert.Equal(2L, await scene.ActiveReservationsAsync());
+        Assert.Null(await scene.DepartedAtAsync(scene.Seed.Alice));
+    }
+
+    [Fact]
     public async Task APrivilegedAccountStaysForbidden()
     {
         await using var scene = await OpenRoomAsync("Active");
@@ -213,6 +234,8 @@ public sealed class RoomExitEligibilityTests(PostgresFixture postgres)
 
         public Task<Browser> SignInAsync(string name, Guid user) =>
             identity.SignedInBrowserAsync(new(user, $"{name}@example.com", IdentityScenario.ValidPassword));
+
+        public ValueTask<NpgsqlConnection> OpenConnectionAsync() => source.OpenConnectionAsync(Ct);
 
         public async Task MakeIneligibleAsync(Guid user, string ineligibleState)
         {
