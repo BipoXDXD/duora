@@ -1643,6 +1643,14 @@ describe('desistir do envio incerto', () => {
 
 describe('regras de fotos', () => {
   const INTRO = 'A foto só é aprovada se seguir estas regras:'
+  const RULES = [
+    'A foto precisa mostrar você.',
+    'Sem outras pessoas identificáveis.',
+    'Sem nudez nem conteúdo sexual explícito.',
+    'Sem violência gráfica.',
+    'Sem conteúdo de ódio.',
+    'Sem dados de contato à mostra.',
+  ]
   const rejected = { ...stored, status: 'Rejected', rejectionCode: 'PHOTO_REVIEW_REJECTED' }
 
   const listedRules = (): readonly (string | null)[] => screen.getAllByRole('listitem').map((item) => item.textContent)
@@ -1653,14 +1661,7 @@ describe('regras de fotos', () => {
 
     expect(await screen.findByRole('heading', { name: 'Regras de fotos' })).toBeVisible()
     expect(screen.getByText(INTRO)).toBeVisible()
-    expect(listedRules()).toEqual([
-      'A foto precisa mostrar você.',
-      'Sem outras pessoas identificáveis.',
-      'Sem nudez nem conteúdo sexual explícito.',
-      'Sem violência gráfica.',
-      'Sem conteúdo de ódio.',
-      'Sem dados de contato à mostra.',
-    ])
+    expect(listedRules()).toEqual(RULES)
   })
 
   it('lista os mesmos critérios em inglês', async () => {
@@ -1716,6 +1717,23 @@ describe('regras de fotos', () => {
       expect(screen.queryByRole('button', { name: 'Ver regras de fotos' })).not.toBeInTheDocument()
     },
   )
+
+  it('quem tem foto recusada encontra os critérios ao seguir "Consulte as regras"', async () => {
+    useList(rejected)
+    mount()
+
+    await userEvent.click(await screen.findByRole('button', { name: 'Ver regras de fotos' }))
+
+    for (const rule of RULES) expect(screen.getByText(rule)).toBeVisible()
+  })
+
+  it('conta PendingEligibility, que também envia, vê os critérios', async () => {
+    useList()
+    mount({ status: 'PendingEligibility' })
+
+    expect(await screen.findByRole('heading', { name: 'Regras de fotos' })).toBeVisible()
+    expect(listedRules()).toEqual(RULES)
+  })
 
   it('"Consulte as regras" leva às regras na mesma tela', async () => {
     useList(rejected)
