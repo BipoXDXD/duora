@@ -12,11 +12,14 @@ mkdir "$stage/images" "$stage/source-manifests"
 python3 "$script_dir/send.py" requested > "$stage/requested.tsv"
 while IFS=$'\t' read -r role reference; do
   crane manifest "$reference" > "$stage/source-manifests/$role.json"
-  if jq -e 'has("manifests")' "$stage/source-manifests/$role.json" >/dev/null; then
-    digest=$(jq -er '[.manifests[] | select(.platform.os == "linux" and .platform.architecture == "amd64")] | if length == 1 then .[0].digest else error("ambiguous platform") end' "$stage/source-manifests/$role.json")
-  else
-    digest=$(crane digest "$reference")
-  fi
+  # jq -e: 0 and 1 answer the question; any other status is a jq failure.
+  index_check=0
+  jq -e 'has("manifests")' "$stage/source-manifests/$role.json" >/dev/null || index_check=$?
+  case $index_check in
+    0) digest=$(jq -er '[.manifests[] | select(.platform.os == "linux" and .platform.architecture == "amd64")] | if length == 1 then .[0].digest else error("ambiguous platform") end' "$stage/source-manifests/$role.json") ;;
+    1) digest=$(crane digest "$reference") ;;
+    *) exit "$index_check" ;;
+  esac
   [[ $digest =~ ^sha256:[0-9a-f]{64}$ ]]
   repository=${reference%@*}
   repository=${repository%:*}
