@@ -2,6 +2,7 @@ using System.Diagnostics.Metrics;
 using Duora.Core.Matching;
 using Duora.Infrastructure.Identity;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using Npgsql;
 using static Duora.Infrastructure.Participation.ParticipationSql;
@@ -30,7 +31,7 @@ public static class ParticipationServices
 }
 
 /// <summary>Coordinates ordered user guards, event/round and session locks in one PostgreSQL transaction.</summary>
-public sealed partial class ParticipationService(NpgsqlDataSource source, TimeProvider time, IOptions<ParticipationOptions>? options = null)
+public sealed partial class ParticipationService(NpgsqlDataSource source, TimeProvider time, IOptions<ParticipationOptions>? options = null, ILogger<ParticipationService>? logger = null)
 {
     private static readonly Meter MatchingMeter = new("Duora.Matching");
     private static readonly Counter<long> RoundsBuilt = MatchingMeter.CreateCounter<long>("duora.matching.rounds");
