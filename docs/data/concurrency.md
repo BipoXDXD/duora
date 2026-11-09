@@ -607,7 +607,10 @@ convite ou início do jogo. O claim usa SKIP LOCKED, lease de 60 s, tentativa pe
 Cada item tem teto de 3 s e marca Done sob token/lease antes dos locks de negócio, no mesmo commit do efeito.
 Job antigo, convite já respondido ou deadline substituído não repetem efeito. O relógio do motor e os instantes
 comparados são truncados a microssegundos, a precisão persistida do PostgreSQL. Queda recupera pelo lease;
-erro volta a Pending após 15 s, até oito tentativas, depois Failed. A fila implementada ainda não oferece
+erro volta a Pending após 15 s, até oito tentativas, depois Failed. `close-round` é o último job que libera reservas: ao virar
+Failed, ele expira na mesma transação as salas ainda abertas da rodada e libera as reservas delas, sem tocar em sala já resolvida.
+Convite e prazo de jogo que viram Failed ficam cobertos pelo `close-round`, e `build-round` que falha não grava reserva. Cada
+esgotamento gera um log de erro com job, tipo, causa e número de salas, sem dado pessoal; não há alerta externo ligado a ele. A fila implementada ainda não oferece
 painel administrativo, limpeza periódica nem os tipos gerais de retenção previstos no ADR-0021.
 
 `Participation:MatchingEnabled=false` pausa novos claims de build-round e sua execução; reiniciar o worker
