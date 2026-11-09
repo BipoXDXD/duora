@@ -38,6 +38,16 @@ export function rejectionMessage(code: string | null): PlainMessageKey {
     : 'photoOwner.rejectedGeneric'
 }
 
+/** Critérios aceitos em P173-1 (ADR-0035), na ordem em que a seção de regras os lista. */
+export const PHOTO_RULES: readonly PlainMessageKey[] = [
+  'photoOwner.ruleShowsYou',
+  'photoOwner.ruleNoOtherPeople',
+  'photoOwner.ruleNoSexualContent',
+  'photoOwner.ruleNoGraphicViolence',
+  'photoOwner.ruleNoHate',
+  'photoOwner.ruleNoContactDetails',
+]
+
 /** Só a recusa humana manda consultar as regras (`media-review.md`). */
 export function citesPhotoRules(code: string | null): boolean {
   return code === 'PHOTO_REVIEW_REJECTED'

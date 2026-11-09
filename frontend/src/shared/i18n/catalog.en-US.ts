@@ -646,8 +646,14 @@ export const en = {
   'photoOwner.giveUp': 'Give up',
   'photoOwner.abandoned': 'Upload discarded. Check the list before uploading again: the photo may have arrived.',
   'photoOwner.rulesTitle': 'Photo rules',
-  // Neutral placeholder: the real wording needs approval before uploads are turned on (#69, screens.md).
-  'photoOwner.rulesPending': 'Photo rules are being prepared.',
+  // P173-1 criteria (ADR-0035). The wording needs the owner's approval before uploads are turned on (#69, screens.md).
+  'photoOwner.rulesIntro': 'A photo is approved only if it follows these rules:',
+  'photoOwner.ruleShowsYou': 'The photo must show you.',
+  'photoOwner.ruleNoOtherPeople': 'No other identifiable people.',
+  'photoOwner.ruleNoSexualContent': 'No nudity or explicit sexual content.',
+  'photoOwner.ruleNoGraphicViolence': 'No graphic violence.',
+  'photoOwner.ruleNoHate': 'No hateful content.',
+  'photoOwner.ruleNoContactDetails': 'No visible contact details.',
   'photoOwner.showRules': 'See photo rules',
   'photoOwner.rejectedGeneric': 'This photo was not approved. Upload another photo.',
   'photoOwner.reasonUnsupportedFormat': 'This image format is not accepted. Upload another photo.',

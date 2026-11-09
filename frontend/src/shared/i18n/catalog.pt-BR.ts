@@ -655,8 +655,14 @@ export const ptBR = {
   'photoOwner.giveUp': 'Desistir',
   'photoOwner.abandoned': 'Envio descartado. Confira a lista antes de enviar de novo: a foto pode já ter chegado.',
   'photoOwner.rulesTitle': 'Regras de fotos',
-  // Marcador neutro: a redação real precisa de aprovação antes de ligar o upload (#69, screens.md).
-  'photoOwner.rulesPending': 'Regras de fotos em preparação.',
+  // Critérios de P173-1 (ADR-0035). A redação precisa de aprovação do dono antes de ligar o upload (#69, screens.md).
+  'photoOwner.rulesIntro': 'A foto só é aprovada se seguir estas regras:',
+  'photoOwner.ruleShowsYou': 'A foto precisa mostrar você.',
+  'photoOwner.ruleNoOtherPeople': 'Sem outras pessoas identificáveis.',
+  'photoOwner.ruleNoSexualContent': 'Sem nudez nem conteúdo sexual explícito.',
+  'photoOwner.ruleNoGraphicViolence': 'Sem violência gráfica.',
+  'photoOwner.ruleNoHate': 'Sem conteúdo de ódio.',
+  'photoOwner.ruleNoContactDetails': 'Sem dados de contato à mostra.',
   'photoOwner.showRules': 'Ver regras de fotos',
   'photoOwner.rejectedGeneric': 'A foto não foi aprovada. Envie outra foto.',
   'photoOwner.reasonUnsupportedFormat': 'Este formato de imagem não é aceito. Envie outra foto.',

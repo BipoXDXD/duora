@@ -1642,23 +1642,41 @@ describe('desistir do envio incerto', () => {
 })
 
 describe('regras de fotos', () => {
-  const PLACEHOLDER = 'Regras de fotos em preparação.'
+  const INTRO = 'A foto só é aprovada se seguir estas regras:'
   const rejected = { ...stored, status: 'Rejected', rejectionCode: 'PHOTO_REVIEW_REJECTED' }
 
-  it('mostra o marcador pendente, sem texto de regra inventado, com o gate aberto', async () => {
+  const listedRules = (): readonly (string | null)[] => screen.getAllByRole('listitem').map((item) => item.textContent)
+
+  it('lista os critérios de P173-1 em português, com o gate aberto', async () => {
     useList()
     mount()
 
     expect(await screen.findByRole('heading', { name: 'Regras de fotos' })).toBeVisible()
-    expect(screen.getByText(PLACEHOLDER)).toBeVisible()
+    expect(screen.getByText(INTRO)).toBeVisible()
+    expect(listedRules()).toEqual([
+      'A foto precisa mostrar você.',
+      'Sem outras pessoas identificáveis.',
+      'Sem nudez nem conteúdo sexual explícito.',
+      'Sem violência gráfica.',
+      'Sem conteúdo de ódio.',
+      'Sem dados de contato à mostra.',
+    ])
   })
 
-  it('tem o marcador em inglês', async () => {
+  it('lista os mesmos critérios em inglês', async () => {
     useList()
     mount({ locale: 'en-US' })
 
     expect(await screen.findByRole('heading', { name: 'Photo rules' })).toBeVisible()
-    expect(screen.getByText('Photo rules are being prepared.')).toBeVisible()
+    expect(screen.getByText('A photo is approved only if it follows these rules:')).toBeVisible()
+    expect(listedRules()).toEqual([
+      'The photo must show you.',
+      'No other identifiable people.',
+      'No nudity or explicit sexual content.',
+      'No graphic violence.',
+      'No hateful content.',
+      'No visible contact details.',
+    ])
   })
 
   it('não aparece com o upload desligado', async () => {
@@ -1667,7 +1685,7 @@ describe('regras de fotos', () => {
 
     await screen.findByText('As fotos ainda não estão disponíveis no Duora.')
     expect(screen.queryByRole('heading', { name: 'Regras de fotos' })).not.toBeInTheDocument()
-    expect(screen.queryByText(PLACEHOLDER)).not.toBeInTheDocument()
+    expect(screen.queryByText(INTRO)).not.toBeInTheDocument()
   })
 
   it('some quando o upload é desligado depois de a tela abrir', async () => {
@@ -1683,18 +1701,18 @@ describe('regras de fotos', () => {
 
     await screen.findByText('As fotos ainda não estão disponíveis no Duora.')
     expect(screen.queryByRole('heading', { name: 'Regras de fotos' })).not.toBeInTheDocument()
-    expect(screen.queryByText(PLACEHOLDER)).not.toBeInTheDocument()
+    expect(screen.queryByText(INTRO)).not.toBeInTheDocument()
   })
 
   it.each(['Restricted', 'Suspended'] as const)(
-    'conta %s, que não envia, não vê o marcador nem o atalho',
+    'conta %s, que não envia, não vê as regras nem o atalho',
     async (status) => {
       useList(rejected)
       mount({ status })
 
       await screen.findByRole('heading', { name: `Foto ${PHOTO}` })
       expect(screen.queryByRole('heading', { name: 'Regras de fotos' })).not.toBeInTheDocument()
-      expect(screen.queryByText(PLACEHOLDER)).not.toBeInTheDocument()
+      expect(screen.queryByText(INTRO)).not.toBeInTheDocument()
       expect(screen.queryByRole('button', { name: 'Ver regras de fotos' })).not.toBeInTheDocument()
     },
   )
