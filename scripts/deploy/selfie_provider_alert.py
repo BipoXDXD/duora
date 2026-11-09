@@ -39,8 +39,8 @@ REASONS = {
     'selfie_provider_recovered': (f'{NOT_A_DEPLOY} A ultima falha observada tem 15 min ou mais. As leituras podem ter '
                                   f'parado nesse intervalo, e com pouco trafego pode ser so falta de tentativas. '
                                   f'Ver {GUIDE}'),
-    'selfie_queue_stalled': (f'{NOT_A_DEPLOY} Ha entrega da selfie esperando e nenhum worker com trabalho em maos ha '
-                             f'2 min. Ver {GUIDE}'),
+    'selfie_queue_stalled': (f'{NOT_A_DEPLOY} Ha entrega da selfie esperando e nenhum worker com trabalho nas ultimas '
+                             f'leituras, ha 2 min. Ver {GUIDE}'),
     'selfie_queue_resumed': f'{NOT_A_DEPLOY} A fila da selfie voltou a andar ou esvaziou. Ver {GUIDE}',
     'selfie_probe_blind': f'{NOT_A_DEPLOY} A consulta a fila falha ha 10 min e este alerta esta cego. Ver {GUIDE}',
     'selfie_probe_restored': f'{NOT_A_DEPLOY} A consulta a fila voltou a responder. Ver {GUIDE}',

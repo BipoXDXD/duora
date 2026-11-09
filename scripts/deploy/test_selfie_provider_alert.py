@@ -393,6 +393,10 @@ class OutboxTests(unittest.TestCase):
         self.assertNotIn('Nenhuma falha', alert.REASONS[RECOVERED])
         self.assertIn('leituras podem ter parado', alert.REASONS[RECOVERED])
 
+    def test_stall_reason_claims_only_what_the_samples_saw(self):
+        self.assertIn('nenhum worker com trabalho nas ultimas leituras', alert.REASONS[STALLED])
+        self.assertNotIn('em maos', alert.REASONS[STALLED])
+
     def test_event_is_private_and_reaches_the_disk_before_it_is_visible(self):
         self.almost_open()
         synced = []
