@@ -102,7 +102,8 @@ describe('cadeia de suprimentos do liveness da selfie', () => {
     expect(instance.faceModelUrl).toBe(MODEL_URL)
   })
 
-  it('a CSP da selfie libera só as duas origens externas do liveness', () => {
+  // Só confere as origens com host explícito; a política inteira é comparada em test_caddy_security_headers.py.
+  it('as origens https e wss explícitas da CSP da selfie são o CDN e o streaming do liveness', () => {
     const externalSources = selfieConnectSources().filter((source) => /^(https|wss):\/\/[^{]+$/.test(source))
 
     expect(externalSources).toEqual([CDN_ORIGIN, STREAMING_ORIGIN])

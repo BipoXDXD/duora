@@ -46,7 +46,13 @@ diretório descartável, tratados como dados, sem execução.
 
 - **[medido]** Os três WASM do CDN são **idênticos, byte a byte**, aos de `dist/` do `@tensorflow/tfjs-backend-wasm`
   4.11.0 instalado, cuja integridade o lockfile fixa. Vale para esta medição, não como garantia futura.
-- **[medido]** Os dois arquivos do modelo não têm equivalente no npm: não houve com o que compará-los.
+- **[medido]** Os dois arquivos do modelo não têm equivalente no npm e não foram comparados com nada.
+- **[doc]** A fonte independente do modelo existe: para a v3.x do componente, a AWS indica `https://tfhub.dev/mediapipe/tfjs-model/face_detection/short/1`
+  ([Custom CDN](https://ui.docs.amplify.aws/react/connected-components/liveness/customization#custom-cdn)).
+  **[código]** O detector usa `MediaPipeFaceDetector`, coerente com essa fonte, embora o caminho no CDN se chame `blazeface`.
+- **[medido]** Essa URL responde a `GET` e redireciona para o storage da Kaggle (`HEAD` dá 404). O `model.json` de lá tem
+  75722 bytes, contra 101979 no CDN, e o conteúdo não foi baixado nem comparado. **[inferência]** A diferença pode ser só de
+  formatação do JSON, então a comparação deve olhar a topologia e o hash dos pesos, e pode revelar divergência real.
 - **[medido]** Os objetos têm `Last-Modified` de 04/11/2026, `x-amz-version-id`, resposta sem `Cache-Control` e
   `Access-Control-Allow-Origin: *`. **[inferência]** O caminho versionado (`4.11.0`, `1.0.2`) não torna o conteúdo
   imutável: os arquivos foram regravados quatro dias antes da medição. Não achei documento da AWS prometendo
@@ -89,8 +95,9 @@ Limite: o host de produção usa `/opt/duora/Caddyfile.duora-web.coolify`, fixad
 `frontend/config/liveness-supply-chain.test.ts` e `frontend/src/features/account/SelfieCapture.test.tsx` falham, no job
 `frontend`, se mudar: versão exata no
 `package.json`; especificador e integridade no lockfile; versão instalada do pacote e do WASM; os três nomes de binário;
-as URLs padrão, lidas do detector real; o `config` da captura (só `credentialProvider`); as origens externas do
-`connect-src` da selfie. Uma PR do Dependabot que suba o pacote passa a falhar até alguém rever este inventário.
+as URLs padrão, lidas do detector real; o `config` da captura (só `credentialProvider`); as origens `https://` e
+`wss://` explícitas do `connect-src` da selfie. A comparação exata da política inteira, contra a resposta do Caddy, fica em
+`scripts/deploy/test_caddy_security_headers.py`. Uma PR do Dependabot que suba o pacote passa a falhar até alguém rever este inventário.
 
 **Não fixa o conteúdo do CDN**, o nome do arquivo de pesos, o Caddyfile do host nem uma requisição real ao CDN.
 
@@ -101,26 +108,32 @@ Ameaça: o conteúdo servido pelo CDN muda (comprometimento ou republicação) e
 modelo influenciam a detecção local de rosto e a estabilidade da captura. O CDN é da própria AWS, que já é fornecedora do
 serviço.
 
-| Opção | Prós | Contras | Custo | Protege o conteúdo? |
-|---|---|---|---|---|
-| **A. Manter o CDN e aceitar** (estado com este PR) | Nenhuma mudança; AWS mantém os arquivos; caminho padrão do componente | Risco continua; registro formal do aceite | Nenhum | Não: só a versão e a URL |
-| **B. Self-host na mesma origem** | Caminho documentado pela AWS; WASM sai do npm com `sha512` do lockfile; modelo versionado no repositório; permite tirar o CDN da CSP e uma origem de terceiro da página com câmera | Revisar os arquivos a cada atualização do pacote; ~300 KB de modelo no repositório, com origem e licença a confirmar; ~730 KB por captura saem do nosso servidor; muda o carregamento da selfie, que pede teste no fornecedor real | Agente: meio dia a um dia. Sem custo novo de infraestrutura relevante. Remover o CDN da CSP exige janela (`caddy_sha256`) | Sim |
-| **C. SRI declarativo** | Mecanismo padrão | **Não se aplica**: os arquivos não entram por `<script>`/`<link>` | Não há como implementar | Não |
-| **D. Hash em runtime** (envolver `fetch` e passar `integrity` nas 5 URLs exatas) | Mantém o CDN; sem mudar CSP nem janela; bloqueia conteúdo divergente | Monkeypatch global não suportado pela AWS; republicação com outros bytes derruba a selfie; o `model.json` e os pesos precisam de hash fixo sem fonte independente. **[inferência]** Viável pelo código (`fetch` global no momento da chamada, CDN com CORS), não testado | Agente: meio dia, mais teste em navegador e monitoramento de falha | Sim, a custo de disponibilidade |
-| **E. Monitorar o hash no CI** (job agendado compara o CDN com os valores gravados) | Barato; revela mudança; compara o WASM com o npm | Só detecta, depois do fato; alerta em republicação legítima; altera workflow, em PR separado | Agente: 2 a 4 h | Só detecção |
+Congelar os bytes e verificar o conteúdo são coisas diferentes. Fixar o hash do que o CDN serve hoje só impede mudanças
+futuras; verificar exige comparar com uma fonte independente: o npm para o WASM, o TF Hub para o modelo.
+
+Esforços são estimativas, sem medição.
+
+| Opção | Prós | Contras | Custo | Congela os bytes? | Verifica o conteúdo? |
+|---|---|---|---|---|---|
+| **A. Manter o CDN e registrar aceite formal** (com este PR o CDN está mantido, sem aceite formal) | Nenhuma mudança; AWS mantém os arquivos; caminho padrão do componente | Risco continua; exige registrar o aceite; cada atualização do pacote exige revisar os pinos à mão | Revisão manual dos pinos e deste inventário a cada atualização (estimativa: até 1 h por vez); sem custo de infraestrutura | Não: só a versão e a URL | Não |
+| **B. Self-host na mesma origem** | Caminho documentado pela AWS; WASM sai do npm com `sha512` do lockfile; modelo versionado no repositório; permite tirar o CDN da CSP e uma origem de terceiro da página com câmera | Revisar os arquivos a cada atualização do pacote; ~300 KB de modelo no repositório, com licença a confirmar; **[inferência]** o modelo versionado no repositório provavelmente fica fora dos SBOMs, da checagem de licenças e do Dependabot, por não ser pacote; ~730 KB por captura saem do nosso servidor; muda o carregamento da selfie, que pede teste no fornecedor real | Estimativa de agente: meio dia a um dia. Sem custo novo de infraestrutura relevante. Remover o CDN da CSP exige janela (`caddy_sha256`) | Sim | WASM: sim, pelo lockfile. Modelo: só se comparado com o TF Hub (pré-requisito) |
+| **C. SRI declarativo** | Mecanismo padrão | **Não se aplica**: os arquivos não entram por `<script>`/`<link>` | Não há como implementar | Não | Não |
+| **D. Hash em runtime** (envolver `fetch` e passar `integrity` nas 5 URLs exatas) | Mantém o CDN; sem mudar CSP nem janela; bloqueia conteúdo divergente | Monkeypatch global não suportado pela AWS; republicação com outros bytes derruba a selfie; o hash do modelo só verifica algo se antes for comparado com o TF Hub. **[inferência]** Viável pelo código (`fetch` global no momento da chamada, CDN com CORS), não testado | Estimativa de agente: meio dia, mais teste em navegador e monitoramento de falha | Sim, a custo de disponibilidade | WASM: sim, com o hash do npm. Modelo: só se comparado com o TF Hub |
+| **E. Monitorar o hash no CI** (job agendado compara o CDN com os valores gravados) | Barato; revela mudança; compara o WASM com o npm | Só detecta, depois do fato; alerta em republicação legítima; altera workflow, em PR separado | Estimativa de agente: 2 a 4 h | Não: só detecta mudança | WASM: sim, contra o npm. Modelo: só se comparado com o TF Hub |
 
 Complemento barato de A ou E: restringir o `connect-src` ao caminho `/face-detection/`. Reduz o alcance no host, exige
 janela e não protege o conteúdo.
 
 ### Recomendação
 
-**B em dois passos, com A valendo até lá.** Primeiro passo só no frontend: servir os arquivos em `/assets/`, já
+**B em dois passos; até lá o CDN fica mantido, sem aceite formal.** Primeiro passo só no frontend: comparar o modelo com o
+TF Hub, servir os arquivos em `/assets/`, já
 coberto por `connect-src 'self'`, e validar com captura real. Segundo passo, na próxima janela do Caddyfile do host: tirar o
 CDN do `connect-src`, deixando a CSP mais curta.
 
-Motivo: é o único caminho documentado pela AWS que verifica o conteúdo sem depender de monkeypatch, e o WASM já tem
-procedência no lockfile. Custo principal: revisar e reempacotar os arquivos a cada atualização do pacote, dentro do prazo de
-suporte da AWS, e confirmar origem e licença do modelo.
+Motivo: é o único caminho documentado pela AWS que congela os bytes sem depender de monkeypatch. O WASM já tem procedência no
+lockfile; o modelo só fica verificado depois da comparação com o TF Hub, e sem ela o self-host apenas congela o que o CDN serve. Custo principal: revisar e reempacotar os arquivos a cada atualização do pacote, dentro do prazo de
+suporte da AWS, e confirmar a licença do modelo.
 
-A confirmar antes de B: licença do modelo; tipo MIME `application/wasm` servido pelo Caddy; carregamento correto em
+A confirmar antes de B: comparação do modelo com o TF Hub; licença do modelo; tipo MIME `application/wasm` servido pelo Caddy; carregamento correto em
 `/assets/` (hoje com `immutable`, então os nomes precisam mudar a cada versão).
