@@ -46,6 +46,28 @@ public sealed class RoundCloseJobTests(PostgresFixture postgres)
         Assert.Equal(("Completed", running.Version + 1), await round.EventRowAsync());
     }
 
+    /// <summary>
+    /// Sala concluída já liberou as reservas, e <c>ReleaseAsync</c> só muda sala aberta: tratá-la como aberta não deixaria
+    /// rastro. O motivo é trocado à mão para revelar uma segunda liberação, que reescreveria <c>release_reason</c>.
+    /// </summary>
+    [Fact]
+    public async Task CloseRoundLeavesACompletedRoomAndItsPairingUntouched()
+    {
+        await using var round = await OpenRoundAsync();
+        await round.CompleteActiveRoomAsync();
+        var completed = await round.RoomAsync(round.ActiveRoom);
+        Assert.Equal("Completed", completed.State);
+        await round.ExecuteAsync("update events.pairings set release_reason='Unavailable' where id=(select pairing_id from experiences.game_sessions where id=$1)", round.ActiveRoom);
+        var pairing = await round.PairingReleaseAsync(round.ActiveRoom);
+
+        round.Clock.SetUtcNow(round.Deadline);
+        await RunDueJobsAsync(round.Service);
+
+        Assert.Equal(completed, await round.RoomAsync(round.ActiveRoom));
+        Assert.Equal(pairing, await round.PairingReleaseAsync(round.ActiveRoom));
+        Assert.Equal("Expired", (await round.RoomAsync(round.InvitedRoom)).State);
+    }
+
     [Fact]
     public async Task AWorkerWhoseLeaseExpiredCannotCloseTheRoundAndTheNewOwnerClosesItOnce()
     {
@@ -209,6 +231,10 @@ public sealed class RoundCloseJobTests(PostgresFixture postgres)
 
     private sealed class OpenRound(NpgsqlDataSource source, FakeTimeProvider clock, ParticipationService service, Guid eventId, Guid round, Guid[] users) : IAsyncDisposable
     {
+        private Guid _activeLow;
+
+        private Guid _activeHigh;
+
         public FakeTimeProvider Clock => clock;
 
         public ParticipationService Service => service;
@@ -239,6 +265,8 @@ public sealed class RoundCloseJobTests(PostgresFixture postgres)
             Assert.Equal(2, rooms.Count);
             InvitedRoom = rooms[0].Room;
             ActiveRoom = rooms[1].Room;
+            _activeLow = rooms[1].Low;
+            _activeHigh = rooms[1].High;
             Assert.Equal(ParticipationOutcome.Done, await service.RespondAsync(ActiveRoom, rooms[1].Low, true, Ct));
             Assert.Equal(ParticipationOutcome.Done, await service.RespondAsync(ActiveRoom, rooms[1].High, true, Ct));
             const int ExpiryJobsOfBothRooms = 3; // expire-invite das duas salas e game-deadline da sala ativa.
@@ -248,6 +276,23 @@ public sealed class RoundCloseJobTests(PostgresFixture postgres)
                 """, Ct, new[] { InvitedRoom, ActiveRoom }, clock.GetUtcNow()));
             await using var deadline = Command(connection, "select deadline_at from events.rounds where id=$1", round);
             Deadline = new DateTimeOffset((DateTime)(await deadline.ExecuteScalarAsync(Ct))!);
+        }
+
+        public async Task CompleteActiveRoomAsync()
+        {
+            var firstVersion = (await service.RoomAsync(ActiveRoom, _activeLow, Ct))!.Version;
+            Assert.Equal(ParticipationOutcome.Done, await service.ActionAsync(ActiveRoom, _activeLow, Guid.NewGuid(), firstVersion, "choose-option", "morning", "tea", Ct));
+            var secondVersion = (await service.RoomAsync(ActiveRoom, _activeHigh, Ct))!.Version;
+            Assert.Equal(ParticipationOutcome.Done, await service.ActionAsync(ActiveRoom, _activeHigh, Guid.NewGuid(), secondVersion, "choose-option", "morning", "walk", Ct));
+        }
+
+        public async Task<(DateTime ReleasedAt, string Reason)> PairingReleaseAsync(Guid room)
+        {
+            await using var connection = await source.OpenConnectionAsync(Ct);
+            await using var query = Command(connection, "select p.released_at,p.release_reason from events.pairings p join experiences.game_sessions s on s.pairing_id=p.id where s.id=$1", room);
+            await using var reader = await query.ExecuteReaderAsync(Ct);
+            Assert.True(await reader.ReadAsync(Ct));
+            return (reader.GetDateTime(0), reader.GetString(1));
         }
 
         public Task<(string State, long Version)> RoomAsync(Guid room) => StateAsync("select state,version from experiences.game_sessions where id=$1", room);

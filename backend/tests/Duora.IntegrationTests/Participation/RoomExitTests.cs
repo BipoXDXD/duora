@@ -57,6 +57,29 @@ public sealed class RoomExitTests(PostgresFixture postgres)
         Assert.Equal("Aborted", body.RootElement.GetProperty("state").GetString());
     }
 
+    /// <summary>
+    /// Sala concluída já liberou as reservas: sair não pode encerrá-la de novo. O motivo é trocado à mão para revelar uma
+    /// segunda liberação, que reescreveria <c>release_reason</c> sem mudar mais nada.
+    /// </summary>
+    [Fact]
+    public async Task ExitFromACompletedRoomKeepsItCompletedAndOnlyRecordsTheDeparture()
+    {
+        await using var scene = await OpenRoomAsync("Completed");
+        var completed = await scene.RoomRowAsync();
+        Assert.Equal("Completed", completed.State);
+        await scene.ExecuteAsync("update events.pairings set release_reason='Unavailable' where id=(select pairing_id from experiences.game_sessions where id=$1)", scene.Room);
+        var pairing = await scene.PairingReleaseAsync();
+        using var alice = await scene.SignInAsync("alice", scene.Seed.Alice);
+
+        using var exit = await alice.PostJsonAsync(scene.ExitPath, null);
+
+        Assert.Equal(HttpStatusCode.NoContent, exit.StatusCode);
+        Assert.Equal(completed, await scene.RoomRowAsync());
+        Assert.Equal(pairing, await scene.PairingReleaseAsync());
+        Assert.NotNull(await scene.DepartedAtAsync(scene.Seed.Alice));
+        Assert.Null(await scene.DepartedAtAsync(scene.Seed.Bob));
+    }
+
     [Fact]
     public async Task ExitStillWorksWhenThePartnerIsIneligible()
     {
@@ -122,10 +145,18 @@ public sealed class RoomExitTests(PostgresFixture postgres)
         clock.Advance(TimeSpan.FromMinutes(5));
         await service.BuildRoundPairingsAsync(seed.Rounds[0], Ct);
         var room = (await service.StatusAsync(seed.Events[0], seed.Alice, Ct))!.RoomId!.Value;
-        if (openState == "Active")
+        if (openState != "Invited")
         {
             Assert.Equal(ParticipationOutcome.Done, await service.RespondAsync(room, seed.Alice, true, Ct));
             Assert.Equal(ParticipationOutcome.Done, await service.RespondAsync(room, seed.Bob, true, Ct));
+        }
+
+        if (openState == "Completed")
+        {
+            var firstVersion = (await service.RoomAsync(room, seed.Alice, Ct))!.Version;
+            Assert.Equal(ParticipationOutcome.Done, await service.ActionAsync(room, seed.Alice, Guid.NewGuid(), firstVersion, "choose-option", "morning", "tea", Ct));
+            var secondVersion = (await service.RoomAsync(room, seed.Bob, Ct))!.Version;
+            Assert.Equal(ParticipationOutcome.Done, await service.ActionAsync(room, seed.Bob, Guid.NewGuid(), secondVersion, "choose-option", "morning", "walk", Ct));
         }
 
         return new OpenRoom(source, clock, factory, new IdentityScenario(connectionString, factory), seed, room);
@@ -160,6 +191,15 @@ public sealed class RoomExitTests(PostgresFixture postgres)
             await using var connection = await source.OpenConnectionAsync(Ct);
             await using var query = Command(connection, "select count(*) from events.pairing_participants where user_id=any($1) and released_at is null", new[] { seed.Alice, seed.Bob });
             return (long)(await query.ExecuteScalarAsync(Ct))!;
+        }
+
+        public async Task<(DateTime ReleasedAt, string Reason)> PairingReleaseAsync()
+        {
+            await using var connection = await source.OpenConnectionAsync(Ct);
+            await using var query = Command(connection, "select p.released_at,p.release_reason from events.pairings p join experiences.game_sessions s on s.pairing_id=p.id where s.id=$1", room);
+            await using var reader = await query.ExecuteReaderAsync(Ct);
+            Assert.True(await reader.ReadAsync(Ct));
+            return (reader.GetDateTime(0), reader.GetString(1));
         }
 
         public async Task<DateTimeOffset?> DepartedAtAsync(Guid user)
