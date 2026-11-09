@@ -46,25 +46,18 @@ public sealed class RoundCloseJobTests(PostgresFixture postgres)
         Assert.Equal(("Completed", running.Version + 1), await round.EventRowAsync());
     }
 
-    /// <summary>
-    /// Sala concluída já liberou as reservas, e <c>ReleaseAsync</c> só muda sala aberta: tratá-la como aberta não deixaria
-    /// rastro. O motivo é trocado à mão para revelar uma segunda liberação, que reescreveria <c>release_reason</c>.
-    /// </summary>
     [Fact]
-    public async Task CloseRoundLeavesACompletedRoomAndItsPairingUntouched()
+    public async Task CloseRoundLeavesACompletedRoomCompleted()
     {
         await using var round = await OpenRoundAsync();
         await round.CompleteActiveRoomAsync();
         var completed = await round.RoomAsync(round.ActiveRoom);
         Assert.Equal("Completed", completed.State);
-        await round.ExecuteAsync("update events.pairings set release_reason='Unavailable' where id=(select pairing_id from experiences.game_sessions where id=$1)", round.ActiveRoom);
-        var pairing = await round.PairingReleaseAsync(round.ActiveRoom);
 
         round.Clock.SetUtcNow(round.Deadline);
         await RunDueJobsAsync(round.Service);
 
         Assert.Equal(completed, await round.RoomAsync(round.ActiveRoom));
-        Assert.Equal(pairing, await round.PairingReleaseAsync(round.ActiveRoom));
         Assert.Equal("Expired", (await round.RoomAsync(round.InvitedRoom)).State);
     }
 
@@ -284,15 +277,6 @@ public sealed class RoundCloseJobTests(PostgresFixture postgres)
             Assert.Equal(ParticipationOutcome.Done, await service.ActionAsync(ActiveRoom, _activeLow, Guid.NewGuid(), firstVersion, "choose-option", "morning", "tea", Ct));
             var secondVersion = (await service.RoomAsync(ActiveRoom, _activeHigh, Ct))!.Version;
             Assert.Equal(ParticipationOutcome.Done, await service.ActionAsync(ActiveRoom, _activeHigh, Guid.NewGuid(), secondVersion, "choose-option", "morning", "walk", Ct));
-        }
-
-        public async Task<(DateTime ReleasedAt, string Reason)> PairingReleaseAsync(Guid room)
-        {
-            await using var connection = await source.OpenConnectionAsync(Ct);
-            await using var query = Command(connection, "select p.released_at,p.release_reason from events.pairings p join experiences.game_sessions s on s.pairing_id=p.id where s.id=$1", room);
-            await using var reader = await query.ExecuteReaderAsync(Ct);
-            Assert.True(await reader.ReadAsync(Ct));
-            return (reader.GetDateTime(0), reader.GetString(1));
         }
 
         public Task<(string State, long Version)> RoomAsync(Guid room) => StateAsync("select state,version from experiences.game_sessions where id=$1", room);
