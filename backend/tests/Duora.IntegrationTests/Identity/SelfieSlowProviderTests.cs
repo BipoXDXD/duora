@@ -190,6 +190,36 @@ public sealed class SelfieSlowProviderTests(PostgresFixture postgres)
     }
 
     /// <summary>
+    /// A abertura de sessão segue a mesma regra da leitura: em 10 000 ms a sessão que volta já concluída é tratada como o
+    /// corte e não chega a ser gravada, então a tentativa continua sem referência e só ganha o sinal.
+    /// </summary>
+    [Theory]
+    [InlineData(9_999, "Capturing|has-reference|no-feedback|open", "Pending|AwaitingCapture|1")]
+    [InlineData(10_000, "Pending|no-reference|PROVIDER_UNAVAILABLE|open", "Pending|ProviderUnavailable|1")]
+    public async Task ASynchronouslyStartedSessionIsAppliedOnlyBeforeTheDeadline(int answerAfterMilliseconds, string expectedAttempt,
+        string expectedDelivery)
+    {
+        var provider = new FaultySelfieProvider(_time);
+        var connection = await postgres.CreateMigratedDatabaseAsync(Ct);
+        await using var host = SelfieConcurrencyHarness.Host(connection, _time, provider);
+        var scenario = new IdentityScenario(connection, host);
+        var account = await scenario.CreateConfirmedAccountAsync();
+        await SelfieConcurrencyHarness.RequestAsync(host, account.UserId, Ct);
+        provider.StartFault = _ =>
+        {
+            _time.Advance(TimeSpan.FromMilliseconds(answerAfterMilliseconds));
+            return Task.CompletedTask;
+        };
+
+        await SelfieConcurrencyHarness.DispatchAsync(host, Ct);
+
+        Assert.Equal(1, provider.StartCalls);
+        Assert.Equal(expectedAttempt, await AttemptAsync(scenario));
+        Assert.Equal(expectedDelivery, await DeliveryAsync(scenario));
+        await AssertNotReleasedAsync(scenario, host, account.UserId);
+    }
+
+    /// <summary>
     /// Uma chamada por vez ao fornecedor: a chamada cortada que ignora o cancelamento segura a vaga até terminar de fato.
     /// Enquanto ela roda, nenhum lote deste worker chama o fornecedor nem toma entrega, e o aviso sai uma vez só. Quando
     /// ela termina, o lote seguinte volta a chamar.
