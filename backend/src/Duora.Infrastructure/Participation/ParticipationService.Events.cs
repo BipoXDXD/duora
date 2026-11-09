@@ -38,6 +38,8 @@ public sealed partial class ParticipationService(NpgsqlDataSource source, TimePr
     private static readonly Counter<long> CandidatesWaiting = MatchingMeter.CreateCounter<long>("duora.matching.waiting_candidates");
     private static readonly HashSet<string> EventTimeZones = TimeZoneInfo.GetSystemTimeZones()
         .Where(zone => zone.HasIanaId).Select(zone => zone.Id).Append("UTC").ToHashSet(StringComparer.Ordinal);
+    /// <summary>As três rodadas e o fechamento somam 36 min depois do início; a folga cobre o arredondamento do PostgreSQL.</summary>
+    private static readonly DateTimeOffset LatestEventStart = DateTimeOffset.MaxValue.AddHours(-1);
     private bool MatchingEnabled => options?.Value.MatchingEnabled ?? true;
 
     private DateTimeOffset Now => PreciseClock.Truncate(time.GetUtcNow());
@@ -72,7 +74,7 @@ public sealed partial class ParticipationService(NpgsqlDataSource source, TimePr
             return null;
         }
 
-        if ((timeZone is not null && !EventTimeZones.Contains(timeZone)) || string.IsNullOrWhiteSpace(title) || title.Length > 120 || capacity is < 1 or > 100 || startsAt <= Now.AddMinutes(10))
+        if ((timeZone is not null && !EventTimeZones.Contains(timeZone)) || string.IsNullOrWhiteSpace(title) || title.Length > 120 || title.Any(char.IsControl) || capacity is < 1 or > 100 || startsAt <= Now.AddMinutes(10) || startsAt > LatestEventStart)
         {
             return null;
         }
