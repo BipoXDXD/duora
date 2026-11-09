@@ -74,7 +74,9 @@ public sealed partial class ParticipationService(NpgsqlDataSource source, TimePr
             return null;
         }
 
-        if ((timeZone is not null && !EventTimeZones.Contains(timeZone)) || string.IsNullOrWhiteSpace(title) || title.Length > 120 || title.Any(char.IsControl) || capacity is < 1 or > 100 || startsAt <= Now.AddMinutes(10) || startsAt > LatestEventStart)
+        // O Npgsql só grava offset 0, e somar a agenda no relógio local de um offset alto estoura mesmo com o instante válido.
+        var startsAtUtc = startsAt.ToUniversalTime();
+        if (!IsPublishable(title, startsAtUtc, capacity, timeZone))
         {
             return null;
         }
@@ -107,11 +109,11 @@ public sealed partial class ParticipationService(NpgsqlDataSource source, TimePr
         }
 
         var id = Guid.CreateVersion7();
-        await Execute(connection, "insert into events.events(id,title,state,starts_at,capacity,experience_version_id,time_zone) values($1,$2,'Published',$3,$4,$5,$6)", ct, id, title, startsAt, capacity, contentId, (object?)timeZone ?? DBNull.Value);
+        await Execute(connection, "insert into events.events(id,title,state,starts_at,capacity,experience_version_id,time_zone) values($1,$2,'Published',$3,$4,$5,$6)", ct, id, title, startsAtUtc, capacity, contentId, (object?)timeZone ?? DBNull.Value);
         for (var number = 1; number <= 3; number++)
         {
             var round = Guid.CreateVersion7();
-            var start = startsAt.AddMinutes((number - 1) * 12);
+            var start = startsAtUtc.AddMinutes((number - 1) * 12);
             var algorithm = options?.Value.RegionalMatchingStartsAt is { } cutover && start >= cutover
                 ? PairingAlgorithmVersion.GreedyByPriorityV3 : PairingAlgorithmVersion.GreedyByPriorityV2;
             await Execute(connection, "insert into events.rounds(id,event_id,number,state,starts_at,deadline_at,seed,algorithm_version) values($1,$2,$3,'Scheduled',$4,$5,$6,$7)", ct, round, id, number, start, start.AddMinutes(12), Random.Shared.NextInt64(), (int)algorithm);
@@ -121,6 +123,12 @@ public sealed partial class ParticipationService(NpgsqlDataSource source, TimePr
         await transaction.CommitAsync(ct);
         return id;
     }
+
+    private bool IsPublishable(string title, DateTimeOffset startsAtUtc, int capacity, string? timeZone) =>
+        (timeZone is null || EventTimeZones.Contains(timeZone))
+        && !string.IsNullOrWhiteSpace(title) && title.Length <= 120 && !title.Any(char.IsControl)
+        && capacity is >= 1 and <= 100
+        && startsAtUtc > Now.AddMinutes(10) && startsAtUtc <= LatestEventStart;
 
     public async Task<ParticipationOutcome> RegisterAsync(Guid eventId, Guid user, bool checkIn, CancellationToken ct)
     {
