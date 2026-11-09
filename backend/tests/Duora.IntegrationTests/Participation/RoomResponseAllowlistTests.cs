@@ -407,8 +407,7 @@ public sealed class RoomResponseAllowlistTests(PostgresFixture postgres)
         private async Task PlayRoutesAsync(string stage)
         {
             await BothAsync(Acknowledge, "Introduction");
-            var aliceClue = (await service.RoomAsync(room, Seed.Alice, Ct))!.RoutesGame!.MyClues[0];
-            _aliceClueSet = _routes.EnUS.ClueSets[0][0].Text == aliceClue ? 0 : 1;
+            _aliceClueSet = await PersistedClueSetAsync(Seed.Alice);
             if (stage == RoutesClues)
             {
                 return;
@@ -422,6 +421,14 @@ public sealed class RoomResponseAllowlistTests(PostgresFixture postgres)
                 await RouteActionAsync(chooser == Seed.Alice ? Seed.Bob : Seed.Alice, ChooseOption, null, SecondStop, "lake");
                 await BothAsync(ConfirmRoute, null);
             }
+        }
+
+        /// <summary>Lido do banco, não da projeção: a projeção é o que está sob teste e não pode definir o canário.</summary>
+        private async Task<int> PersistedClueSetAsync(Guid user)
+        {
+            await using var connection = await source.OpenConnectionAsync(Ct);
+            await using var query = Command(connection, "select (private_state->>'clueSetIndex')::int from experiences.game_participants where game_session_id=$1 and user_id=$2", room, user);
+            return (int)(await query.ExecuteScalarAsync(Ct))!;
         }
 
         private async Task BothAsync(string type, string? routeStage)
