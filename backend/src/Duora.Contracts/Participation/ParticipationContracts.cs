@@ -1,3 +1,5 @@
+using System.Text.Json.Serialization;
+
 namespace Duora.Contracts.Participation;
 
 public sealed record EventResponse(Guid EventId, string Title, DateTimeOffset StartsAt, DateTimeOffset CheckInOpensAt, string State, string? TimeZone);
@@ -14,4 +16,4 @@ public sealed record OptionResponse(string OptionId, string Label);
 public sealed record AnswerResponse(string Kind, OptionResponse? Option);
 public sealed record RevealedResponse(string CardId, string Prompt, string MyOptionLabel, string PartnerOptionLabel, bool ChoseTheSame);
 public sealed record PassedResponse(string CardId, string Prompt);
-public sealed record PublishEventRequest(string Title, DateTimeOffset StartsAt, int Capacity, Guid ExperienceVersionId, string? TimeZone = null);
+public sealed record PublishEventRequest(string Title, [property: JsonConverter(typeof(ExplicitOffsetDateTimeOffsetConverter))] DateTimeOffset StartsAt, int Capacity, Guid ExperienceVersionId, string? TimeZone = null);

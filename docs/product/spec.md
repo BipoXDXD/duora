@@ -571,9 +571,9 @@ Suspender a participação não deve eliminar o canal de recurso: uma sessão re
 | API-E03 | `POST /events/{eventId}/registrations` | Chave de idempotência → vaga/espera | Uma inscrição por pessoa/evento; capacidade transacional |
 | API-E04 | `DELETE /events/{eventId}/registrations/me` | Retirada → `204` | Liberar vaga e reserva quando aplicável |
 | API-E05 | `POST /events/{eventId}/check-ins` | Check-in → estado | Janela e elegibilidade revalidadas |
-| API-E06 | `GET /events/{eventId}/participation` | Rodada própria e convite atual | Sem expor motivo individual de não pareamento |
+| API-E06 | `GET /events/{eventId}/participation` | Rodada própria e convite atual | Sem expor motivo individual de não pareamento; sala `Aborted` não aparece, seja qual for o motivo (TM-24) |
 | API-R01 | `POST /rooms/{roomId}/acceptances` | `expectedVersion` → aceitação | Participante convidado, prazo válido |
-| API-R02 | `GET /rooms/{roomId}` | Snapshot autorizado e versão | Somente pistas e dados permitidos ao solicitante |
+| API-R02 | `GET /rooms/{roomId}` | Snapshot autorizado e versão | Somente pistas e dados permitidos ao solicitante; sala `Aborted` responde `404`, como inexistente, seja qual for o motivo (saída, recusa, suspensão ou bloqueio; TM-24) |
 | API-R03 | `POST /rooms/{roomId}/actions` | `actionId`, tipo, payload, versão → resultado | Ação do ator, etapa válida e deduplicação |
 | API-R04 | `POST /rooms/{roomId}/departures` | Saída → estado final/próprio | Sempre permitir saída segura; liberar reserva |
 | API-R05 | `GET /rooms/{roomId}/my-decision` | Escolha própria e janela | Não retorna status individual do outro participante |

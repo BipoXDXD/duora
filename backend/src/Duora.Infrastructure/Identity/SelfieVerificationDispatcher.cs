@@ -19,6 +19,8 @@ public sealed partial class SelfieVerificationDispatcher
     /// gravada pelo dono da entrega.
     /// </summary>
     private static readonly TimeSpan CallTimeout = TimeSpan.FromSeconds(10);
+
+    private const string AnswerAfterDeadline = "Selfie provider answered after the call deadline.";
     private static readonly TimeSpan TransientDataRetention = TimeSpan.FromHours(24);
 
     /// <summary>
@@ -215,7 +217,8 @@ public sealed partial class SelfieVerificationDispatcher
     /// devolvido a tarefa (o SDK da AWS lê o corpo da resposta de forma síncrona). O <c>WaitAsync</c> devolve o controle
     /// mesmo que o fornecedor ignore o token. A chamada que segue rodando fica abandonada: ninguém lê a resposta dela, e
     /// ela leva a vaga até terminar. Um bloqueio síncrono que também ignore o token não é interrompido: o
-    /// <c>WaitAsync</c> só age sobre a tarefa devolvida.
+    /// <c>WaitAsync</c> só age sobre a tarefa devolvida, e devolve pronta até com prazo zero. Por isso a resposta que volta
+    /// depois do prazo é recusada aqui, com o mesmo efeito do corte.
     /// </summary>
     private async Task<T> CallProviderAsync<T>(Func<CancellationToken, Task<T>> call, CancellationToken cancellationToken)
     {
@@ -225,7 +228,8 @@ public sealed partial class SelfieVerificationDispatcher
         var pending = call(linked.Token);
         try
         {
-            return await pending.WaitAsync(RemainingUntil(deadline), _time, cancellationToken);
+            var answer = await pending.WaitAsync(RemainingUntil(deadline), _time, cancellationToken);
+            return _time.GetUtcNow() < deadline ? answer : throw new TimeoutException(AnswerAfterDeadline);
         }
         finally
         {

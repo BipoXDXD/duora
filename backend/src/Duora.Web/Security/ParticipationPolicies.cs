@@ -8,7 +8,7 @@ namespace Duora.Web.Security;
 /// <summary>
 /// Policies de participação (INV-01, T-01; ADR-0024). Toda rota de evento, sala, decisão, conversa ou perfil alheio
 /// exige <see cref="EligibleParticipant"/>; as rotas de conta, sessão e verificação ficam fora, porque o titular
-/// precisa delas justamente enquanto não é elegível (spec 8.2).
+/// precisa delas justamente enquanto não é elegível (spec 8.2), e também a saída da sala (API-R04, ADR-0052).
 /// </summary>
 internal static class ParticipationPolicies
 {

@@ -147,6 +147,7 @@ export const en = {
   'participation.reject': 'Decline invitation',
   'participation.completed': 'Experience completed.',
   'participation.closed': 'This encounter has ended.',
+  'participation.unavailable': 'This encounter is not available.',
   'participation.awaitingPartner': 'Waiting for the other person. Your choice stays private.',
   'participation.skip': 'Skip card',
   'participation.myChoice': 'Your choice',
