@@ -118,6 +118,30 @@ public sealed class RoomExitTests(PostgresFixture postgres)
         Assert.Null(await scene.DepartedAtAsync(other));
     }
 
+    [Theory]
+    [InlineData("Invited")]
+    [InlineData("Active")]
+    public async Task ExitByAnAccountOutsideTheRoomAnswersNotFoundWithNoDataAndLeavesTheRoomIntact(string openState)
+    {
+        await using var scene = await OpenRoomAsync(openState);
+        var before = await scene.RoomRowAsync();
+        using var outsider = await scene.SignInAsync("third", scene.Seed.Third);
+
+        using var exit = await outsider.PostJsonAsync(scene.ExitPath, null);
+
+        Assert.Equal(HttpStatusCode.NotFound, exit.StatusCode);
+        var body = await exit.Content.ReadAsStringAsync(Ct);
+        foreach (var secret in new[] { scene.Room.ToString(), scene.Seed.Alice.ToString(), scene.Seed.Bob.ToString(), "alice@", "bob@" })
+        {
+            Assert.DoesNotContain(secret, body, StringComparison.OrdinalIgnoreCase);
+        }
+
+        Assert.Equal(before, await scene.RoomRowAsync());
+        Assert.Equal(2L, await scene.ActiveReservationsAsync());
+        Assert.Null(await scene.DepartedAtAsync(scene.Seed.Alice));
+        Assert.Null(await scene.DepartedAtAsync(scene.Seed.Bob));
+    }
+
     private static DateTimeOffset Truncated(DateTimeOffset instant) => new(instant.Ticks - (instant.Ticks % 10), TimeSpan.Zero);
 
     private async Task<OpenRoom> OpenRoomAsync(string openState)
