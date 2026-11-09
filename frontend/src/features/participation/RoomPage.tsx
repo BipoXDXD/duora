@@ -14,7 +14,15 @@ import { Page, TextLink } from '@/shared/ui/page'
 import { useGameFocus } from './use-game-focus'
 import { ExperienceDeadline } from './ExperienceDeadline'
 import { RoutesGamePanel } from './RoutesGamePanel'
-import { act, actOnRoutes, fetchRoom, roomCommand, type RoutesAction, type Room } from './participation-api'
+import {
+  act,
+  actOnRoutes,
+  readRoom,
+  roomCommand,
+  type RoomRead,
+  type RoutesAction,
+  type Room,
+} from './participation-api'
 
 export function RoomPage(): React.JSX.Element {
   const privateOperation = usePrivateOperation()
@@ -26,7 +34,7 @@ export function RoomPage(): React.JSX.Element {
   const [exited, setExited] = useState(false)
   const room = useQuery({
     queryKey: key,
-    queryFn: ({ signal }) => privateOperation.run((operation) => fetchRoom(operation, roomId, signal)),
+    queryFn: ({ signal }) => privateOperation.run((operation) => readRoom(operation, roomId, signal)),
     gcTime: 0,
     refetchInterval: 2000,
     enabled: !exited,
@@ -42,19 +50,22 @@ export function RoomPage(): React.JSX.Element {
       </Page>
     )
   }
+  const read: RoomRead | undefined = room.isError
+    ? { kind: 'failed', failure: classifyRequestFailure(room.error) }
+    : room.data
   return (
     <Page title={t('participation.room')}>
-      {room.isError ? (
-        <RequestFailureAlert failure={classifyRequestFailure(room.error)} />
-      ) : room.data === undefined ? (
+      {read === undefined ? (
         <p role="status">{t('preferences.loading')}</p>
+      ) : read.kind === 'failed' ? (
+        <RequestFailureAlert failure={read.failure} />
       ) : (
-        <RoomBody room={room.data} refresh={refresh} />
+        <RoomBody room={read.room} refresh={refresh} />
       )}
-      {room.isError ? (
+      {read?.kind === 'failed' ? (
         <ExitAfterForbiddenRead
           roomId={roomId}
-          failure={classifyRequestFailure(room.error)}
+          failure={read.failure}
           onExited={() => {
             setExited(true)
           }}

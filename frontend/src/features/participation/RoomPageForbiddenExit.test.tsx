@@ -124,3 +124,230 @@ describe('saída da sala quando a leitura é recusada', () => {
     expect(screen.queryByRole('button', { name: 'Sair da sala' })).not.toBeInTheDocument()
   })
 })
+
+const LOADING_TEXT = 'Carregando suas preferências…'
+const EXIT_BUTTON = { name: 'Sair da sala' }
+const ACCEPT_BUTTON = { name: 'Aceitar convite' }
+
+function problemResponse(status: number, code: string): Response {
+  return HttpResponse.json(
+    { type: 'about:blank', title: 'Refused', status, code },
+    { status, headers: { 'Content-Type': 'application/problem+json' } },
+  )
+}
+
+function invitedRoomResponse(): Response {
+  return HttpResponse.json({
+    roomId: 'room-1',
+    state: 'Invited',
+    version: '1',
+    communicationLanguage: 'pt',
+    communicationPolicyVersion: 1,
+    displayLocale: 'pt-BR',
+    invitationExpiresAt: '2026-10-19T18:00:00Z',
+    game: null,
+  })
+}
+
+/** Resposta que o teste libera quando quer, para observar a tela com a leitura ainda em andamento. */
+function pendingResponse(): { readonly promise: Promise<Response>; readonly release: (response: Response) => void } {
+  let release: (response: Response) => void = () => undefined
+  const promise = new Promise<Response>((resolve) => {
+    release = resolve
+  })
+  return { promise, release }
+}
+
+/** Entrega uma resposta por leitura, em ordem; depois da última, repete-a como faria o servidor a cada intervalo. */
+function roomReads(...responses: readonly (() => Response | Promise<Response>)[]) {
+  let index = 0
+  return http.get(`${API}/rooms/room-1`, () => {
+    const respond = responses[Math.min(index, responses.length - 1)]
+    index += 1
+    return respond?.()
+  })
+}
+
+function useSignedInParticipant(): void {
+  server.use(http.get(`${API}/me`, () => HttpResponse.json(withSessionContext(me))))
+  useAntiforgeryEndpoint()
+}
+
+/** O TanStack Query entrega a mudança de estado num `setTimeout(0)` real, que só roda depois de o intervalo disparar. */
+async function advancePollingAndNotify(): Promise<void> {
+  await act(async () => {
+    await vi.advanceTimersByTimeAsync(ROOM_POLL_INTERVAL_MS)
+    await new Promise((resolve) => setTimeout(resolve, 0))
+  })
+}
+
+function startPolling() {
+  vi.useFakeTimers({ toFake: ['setInterval', 'clearInterval'] })
+  return vi.spyOn(globalThis, 'fetch')
+}
+
+describe('tela da sala enquanto a próxima leitura não responde', () => {
+  it('mostra "carregando", sem aviso nem saída, até a primeira leitura responder', async () => {
+    const firstRead = pendingResponse()
+    useSignedInParticipant()
+    server.use(roomReads(() => firstRead.promise))
+
+    await renderApp('/rooms/room-1')
+
+    expect(await screen.findByText(LOADING_TEXT)).toBeInTheDocument()
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', EXIT_BUTTON)).not.toBeInTheDocument()
+
+    firstRead.release(problemResponse(403, 'FORBIDDEN'))
+
+    expect(await screen.findByRole('button', EXIT_BUTTON)).toBeInTheDocument()
+    expect(screen.queryByText(LOADING_TEXT)).not.toBeInTheDocument()
+  })
+
+  it('mantém o mesmo botão de saída e não volta a "carregando" durante o refetch', async () => {
+    const fetchSpy = startPolling()
+    const secondRead = pendingResponse()
+    useSignedInParticipant()
+    server.use(
+      roomReads(
+        () => problemResponse(403, 'FORBIDDEN'),
+        () => secondRead.promise,
+      ),
+    )
+
+    await renderApp('/rooms/room-1')
+    const exitButton = await screen.findByRole('button', EXIT_BUTTON)
+    const readsBeforeInterval = roomReadsIn(fetchSpy)
+    await advancePollingAndNotify()
+
+    expect(roomReadsIn(fetchSpy)).toBe(readsBeforeInterval + 1)
+    expect(screen.queryByText(LOADING_TEXT)).not.toBeInTheDocument()
+    expect(screen.getByRole('alert')).toBeInTheDocument()
+    expect(screen.queryByRole('button', EXIT_BUTTON)).toBe(exitButton)
+
+    secondRead.release(problemResponse(403, 'FORBIDDEN'))
+  })
+
+  it('aceita o clique na saída durante o refetch', async () => {
+    startPolling()
+    const secondRead = pendingResponse()
+    let exits = 0
+    useSignedInParticipant()
+    server.use(
+      roomReads(
+        () => problemResponse(403, 'FORBIDDEN'),
+        () => secondRead.promise,
+      ),
+      http.post(`${API}/rooms/room-1/exit`, () => {
+        exits += 1
+        return new HttpResponse(null, { status: 204 })
+      }),
+    )
+
+    const { user } = await renderApp('/rooms/room-1')
+    await screen.findByRole('button', EXIT_BUTTON)
+    await advancePollingAndNotify()
+    await user.click(screen.getByRole('button', EXIT_BUTTON))
+
+    expect(await screen.findByText('Este encontro foi encerrado.')).toBeInTheDocument()
+    expect(exits).toBe(1)
+
+    secondRead.release(problemResponse(403, 'FORBIDDEN'))
+  })
+
+  it('mantém o aviso de sala não encontrada e não volta a "carregando" durante o refetch', async () => {
+    const fetchSpy = startPolling()
+    const secondRead = pendingResponse()
+    useSignedInParticipant()
+    server.use(
+      roomReads(
+        () => problemResponse(404, 'NOT_FOUND'),
+        () => secondRead.promise,
+      ),
+    )
+
+    await renderApp('/rooms/room-1')
+    const notice = await screen.findByRole('alert')
+    const readsBeforeInterval = roomReadsIn(fetchSpy)
+    await advancePollingAndNotify()
+
+    expect(roomReadsIn(fetchSpy)).toBe(readsBeforeInterval + 1)
+    expect(screen.queryByText(LOADING_TEXT)).not.toBeInTheDocument()
+    expect(screen.queryByRole('alert')).toBe(notice)
+
+    secondRead.release(problemResponse(404, 'NOT_FOUND'))
+  })
+
+  it('tira a saída quando a recusa de 403 vira 404', async () => {
+    startPolling()
+    useSignedInParticipant()
+    server.use(
+      roomReads(
+        () => problemResponse(403, 'FORBIDDEN'),
+        () => problemResponse(404, 'NOT_FOUND'),
+      ),
+    )
+
+    await renderApp('/rooms/room-1')
+    const exitButton = await screen.findByRole('button', EXIT_BUTTON)
+    await advancePollingAndNotify()
+
+    await waitFor(() => {
+      expect(exitButton).not.toBeInTheDocument()
+    })
+    expect(screen.getByRole('alert')).toBeInTheDocument()
+    expect(screen.queryByText(LOADING_TEXT)).not.toBeInTheDocument()
+  })
+
+  it('tira a saída quando a recusa de 403 vira restrição de sessão', async () => {
+    startPolling()
+    useSignedInParticipant()
+    server.use(
+      roomReads(
+        () => problemResponse(403, 'FORBIDDEN'),
+        () => problemResponse(403, 'ACCOUNT_SUSPENDED'),
+      ),
+    )
+
+    await renderApp('/rooms/room-1')
+    const exitButton = await screen.findByRole('button', EXIT_BUTTON)
+    await advancePollingAndNotify()
+
+    await waitFor(() => {
+      expect(exitButton).not.toBeInTheDocument()
+    })
+    expect(screen.getByRole('alert')).toBeInTheDocument()
+  })
+
+  it('mostra a sala e tira o aviso quando a leitura volta a funcionar', async () => {
+    startPolling()
+    useSignedInParticipant()
+    server.use(roomReads(() => problemResponse(403, 'FORBIDDEN'), invitedRoomResponse))
+
+    await renderApp('/rooms/room-1')
+    await screen.findByRole('button', EXIT_BUTTON)
+    await advancePollingAndNotify()
+
+    expect(await screen.findByRole('button', ACCEPT_BUTTON)).toBeInTheDocument()
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', EXIT_BUTTON)).not.toBeInTheDocument()
+  })
+
+  it('revalida a identidade quando a leitura traz restrição de sessão', async () => {
+    let identityReads = 0
+    useAntiforgeryEndpoint()
+    server.use(
+      http.get(`${API}/me`, () => {
+        identityReads += 1
+        return HttpResponse.json(withSessionContext(me))
+      }),
+      roomReads(() => problemResponse(403, 'ACCOUNT_SUSPENDED')),
+    )
+
+    await renderApp('/rooms/room-1')
+
+    await waitFor(() => {
+      expect(identityReads).toBeGreaterThan(1)
+    })
+  })
+})
