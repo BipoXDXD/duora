@@ -12,9 +12,10 @@ mkdir "$stage/images" "$stage/source-manifests"
 python3 "$script_dir/send.py" requested > "$stage/requested.tsv"
 while IFS=$'\t' read -r role reference; do
   crane manifest "$reference" > "$stage/source-manifests/$role.json"
-  # jq -e: 0 and 1 answer the question; any other status is a jq failure.
+  # jq -e: 0 and 1 answer the question; any other status is a jq failure,
+  # which includes anything other than exactly one JSON object.
   index_check=0
-  jq -e 'has("manifests")' "$stage/source-manifests/$role.json" >/dev/null || index_check=$?
+  jq -se 'if length == 1 and (.[0] | type) == "object" then .[0] | has("manifests") else error("expected exactly one JSON object") end' "$stage/source-manifests/$role.json" >/dev/null || index_check=$?
   case $index_check in
     0) digest=$(jq -er '[.manifests[] | select(.platform.os == "linux" and .platform.architecture == "amd64")] | if length == 1 then .[0].digest else error("ambiguous platform") end' "$stage/source-manifests/$role.json") ;;
     1) digest=$(crane digest "$reference") ;;

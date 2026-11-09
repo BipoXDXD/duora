@@ -136,7 +136,10 @@ class SendShellTests(unittest.TestCase):
     def test_manifest_jq_cannot_classify_stops_before_any_transport(self):
         self.use_real_jq()
         unclassifiable = {'invalid JSON': '{not json', 'empty file': '', 'array': '[]',
-                          'string': '"manifests"'}
+                          'string': '"manifests"', 'null': 'null', 'false': 'false',
+                          'index then flat': '{"manifests":[]}{"a":1}',
+                          'flat then index': '{"a":1}{"manifests":[]}',
+                          'two flat objects': '{"a":1}{"b":2}'}
         for name, manifest in unclassifiable.items():
             with self.subTest(name):
                 status, calls = self.send(manifest)
