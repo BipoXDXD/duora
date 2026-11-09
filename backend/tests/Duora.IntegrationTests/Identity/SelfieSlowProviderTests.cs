@@ -35,6 +35,15 @@ public sealed class SelfieSlowProviderTests(PostgresFixture postgres)
     /// <summary>Teto em tempo real para o que roda em outra thread: falha em vez de pendurar a suíte.</summary>
     private static readonly TimeSpan CallCeiling = TimeSpan.FromSeconds(30);
 
+    /// <summary>
+    /// Teto em tempo real do teste inteiro, descarte do host incluído. Fica acima dos tetos internos, que falham antes e
+    /// apontam a causa; o teste mais lento desta classe levou cerca de 10 s na CI.
+    /// </summary>
+    private static readonly TimeSpan WholeTestCeiling = TimeSpan.FromSeconds(90);
+
+    /// <summary>Acima do teto do teste: uma leitura vencida nunca chega antes da falha e não se passa pelo corte do worker.</summary>
+    private static readonly TimeSpan StalledReadCeiling = WholeTestCeiling + CallCeiling;
+
     /// <summary>Maior que a espera de 5 s até a próxima tentativa.</summary>
     private static readonly TimeSpan UntilNextTry = TimeSpan.FromSeconds(6);
 
@@ -57,6 +66,9 @@ public sealed class SelfieSlowProviderTests(PostgresFixture postgres)
     private static CancellationToken Ct => TestContext.Current.CancellationToken;
 
     private readonly FakeTimeProvider _time = new(DateTimeOffset.FromUnixTimeSeconds(DateTimeOffset.UtcNow.ToUnixTimeSeconds()));
+
+    /// <summary>Onde o teste está, para a falha por teto dizer onde parou. Escrito na tarefa do corpo e lido na do teto.</summary>
+    private volatile string _step = "início";
 
     [Fact]
     public async Task AStalledSessionStartThroughTheRealSdkIsCutAndRetriedWithoutReleasingTheAccount()
@@ -231,21 +243,28 @@ public sealed class SelfieSlowProviderTests(PostgresFixture postgres)
     /// fica pendente.
     /// </summary>
     [Fact]
-    public async Task AResponseBodyThatStallsThroughTheRealSdkIsCutAtTheCallTimeout()
+    public Task AResponseBodyThatStallsThroughTheRealSdkIsCutAtTheCallTimeout()
     {
-        var connection = await postgres.CreateMigratedDatabaseAsync(Ct);
-        var transport = new SyntheticAwsTransport(StalledBody);
-        await using var host = RealSdkHost(connection, transport);
-        var scenario = new IdentityScenario(connection, host);
-        var account = await scenario.CreateConfirmedAccountAsync();
-        await SelfieConcurrencyHarness.RequestAsync(host, account.UserId, Ct);
+        var stalledBody = new StalledStream();
+        var transport = new SyntheticAwsTransport(_ => StalledBody(stalledBody));
+        return WithinTheWholeTestCeilingAsync(() => $"chamadas HTTP: {transport.Calls}; {stalledBody.State}", async () =>
+        {
+            _step = "preparando banco, host e conta";
+            var connection = await postgres.CreateMigratedDatabaseAsync(Ct);
+            await using var host = RealSdkHost(connection, transport);
+            var scenario = new IdentityScenario(connection, host);
+            var account = await scenario.CreateConfirmedAccountAsync();
+            await SelfieConcurrencyHarness.RequestAsync(host, account.UserId, Ct);
 
-        await CutDispatchAsync(host, () => transport.Calls == 1);
+            await CutDispatchAsync(host, () => transport.Calls == 1);
 
-        Assert.Equal(1, transport.Calls);
-        Assert.Equal("Pending|no-reference|PROVIDER_UNAVAILABLE|open", await AttemptAsync(scenario));
-        Assert.Equal("Pending|ProviderUnavailable|1", await DeliveryAsync(scenario));
-        await AssertNotReleasedAsync(scenario, host, account.UserId);
+            _step = "conferindo o efeito do corte";
+            Assert.Equal(1, transport.Calls);
+            Assert.Equal("Pending|no-reference|PROVIDER_UNAVAILABLE|open", await AttemptAsync(scenario));
+            Assert.Equal("Pending|ProviderUnavailable|1", await DeliveryAsync(scenario));
+            await AssertNotReleasedAsync(scenario, host, account.UserId);
+            _step = "descartando o host";
+        });
     }
 
     /// <summary>
@@ -910,9 +929,9 @@ public sealed class SelfieSlowProviderTests(PostgresFixture postgres)
     private static Task<HttpResponseMessage> Stall(CancellationToken cancellationToken) =>
         Task.Delay(Timeout.Infinite, cancellationToken).ContinueWith(_ => new HttpResponseMessage(), TaskScheduler.Default);
 
-    private static Task<HttpResponseMessage> StalledBody(CancellationToken cancellationToken)
+    private static Task<HttpResponseMessage> StalledBody(StalledStream body)
     {
-        var response = new HttpResponseMessage(HttpStatusCode.OK) { Content = new StreamContent(new StalledStream()) };
+        var response = new HttpResponseMessage(HttpStatusCode.OK) { Content = new StreamContent(body) };
         response.Content.Headers.ContentType = new MediaTypeHeaderValue("application/x-amz-json-1.1");
         return Task.FromResult(response);
     }
@@ -994,10 +1013,32 @@ public sealed class SelfieSlowProviderTests(PostgresFixture postgres)
     /// </summary>
     private async Task CutDispatchAsync(DuoraWebFactory host, Func<bool> called)
     {
+        _step = "esperando a chamada chegar ao fornecedor";
         var batch = SelfieConcurrencyHarness.DispatchAsync(host, Ct);
         await WaitUntilAsync(called, batch);
+        _step = "avançando o relógio até o corte, com os timers disparando nesta thread";
         _time.Advance(CallTimeout);
+        _step = "esperando o lote encerrar depois do corte";
         await batch.WaitAsync(CallCeiling, Ct);
+    }
+
+    /// <summary>
+    /// Limita o teste inteiro. Os tetos internos só agem sobre tarefas já devolvidas: um bloqueio síncrono no próprio
+    /// caminho do teste, como um timer dentro do <c>Advance</c> ou a parada do host no descarte, só é alcançado rodando o
+    /// corpo em outra tarefa. Ao estourar qualquer teto, a falha traz a etapa e o estado de <paramref name="state"/>.
+    /// </summary>
+    private async Task WithinTheWholeTestCeilingAsync(Func<string> state, Func<Task> body)
+    {
+        var running = Task.Run(body, Ct);
+        try
+        {
+            await running.WaitAsync(WholeTestCeiling, Ct);
+        }
+        catch (Exception exception) when (exception is TimeoutException or OperationCanceledException && !Ct.IsCancellationRequested)
+        {
+            var ceiling = running.IsCompleted ? "um teto interno" : $"o teto de {WholeTestCeiling.TotalSeconds:F0} s do teste";
+            throw new TimeoutException($"Estourou {ceiling} na etapa \"{_step}\" ({state()}).", exception);
+        }
     }
 
     /// <summary>Espera, em tempo real e com teto, o que acontece em outra thread; falha na hora se o lote acabou antes.</summary>
@@ -1084,11 +1125,14 @@ public sealed class SelfieSlowProviderTests(PostgresFixture postgres)
 
     /// <summary>
     /// Corpo de resposta que nunca entrega um byte, como um socket parado: a leitura assíncrona só termina pelo
-    /// cancelamento, e a síncrona só quando o corpo é descartado.
+    /// cancelamento, e a síncrona só quando o corpo é descartado ou, sem descarte, pelo teto que solta a thread.
     /// </summary>
     private sealed class StalledStream : Stream
     {
         private readonly TaskCompletionSource _closed = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        private volatile bool _syncReadStarted;
+
+        public string State => $"leitura síncrona iniciada: {_syncReadStarted}; corpo descartado: {_closed.Task.IsCompleted}";
 
         public override bool CanRead => true;
 
@@ -1106,7 +1150,12 @@ public sealed class SelfieSlowProviderTests(PostgresFixture postgres)
 
         public override int Read(byte[] buffer, int offset, int count)
         {
-            _closed.Task.Wait();
+            _syncReadStarted = true;
+            if (!_closed.Task.Wait(StalledReadCeiling))
+            {
+                throw new TimeoutException("O corpo parado não foi descartado dentro do teto.");
+            }
+
             return 0;
         }
 
