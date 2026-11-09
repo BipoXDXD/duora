@@ -15,12 +15,12 @@ public sealed class InviteAndCheckInDeadlineTests(PostgresFixture postgres)
     private static readonly TimeSpan CheckInWindow = TimeSpan.FromMinutes(10);
 
     [Fact]
-    public async Task AcceptIsRefusedFromTheExactInviteDeadlineAndReleasesBoth()
+    public async Task AcceptFromTheExactInviteDeadlineReleasesBothButStillAnswers204InsteadOf404()
     {
         var ct = TestContext.Current.CancellationToken;
         await using var scene = await SceneAsync(ct);
         var room = await InvitedRoomAsync(scene, ct);
-        var deadline = await ReadInstantAsync(scene, "select invite_expires_at from experiences.game_sessions where id=$1", room, ct);
+        var deadline = await ReadInviteDeadlineAsync(scene, room, ct);
 
         scene.Clock.SetUtcNow(deadline - OneTick);
         using (var inTime = await AcceptAsync(scene.Alice, room))
@@ -33,7 +33,8 @@ public sealed class InviteAndCheckInDeadlineTests(PostgresFixture postgres)
         scene.Clock.SetUtcNow(deadline);
         using (var late = await AcceptAsync(scene.Bob, room))
         {
-            // Fixa o comportamento de hoje: o aceite tardio não aceita nada, mas responde 204; só a repetição recebe 404.
+            // Divergência aberta (item 15 das decisões do dono): o aceite tardio não aceita nada, mas responde 204, e só a
+            // repetição recebe 404. O esperado é 404 já aqui, em PR próprio. O assert existe para essa troca não passar em silêncio.
             Assert.Equal(HttpStatusCode.NoContent, late.StatusCode);
         }
         Assert.Equal(new RoomFacts("Expired", AliceAccepted: true, BobAccepted: false, ActiveReservations: 0, HasGame: false, GameDeadlineJobs: 0),
@@ -47,6 +48,45 @@ public sealed class InviteAndCheckInDeadlineTests(PostgresFixture postgres)
 
         using var repeated = await AcceptAsync(scene.Bob, room);
         Assert.Equal(HttpStatusCode.NotFound, repeated.StatusCode);
+    }
+
+    /// <summary>A leitura decide sozinha, sem aceite nem job que tenham gravado o estado: no banco a sala segue <c>Invited</c>.</summary>
+    [Theory]
+    [InlineData(-1, "Invited")]
+    [InlineData(0, "Expired")]
+    public async Task ReadingAnInvitedRoomShowsItExpiredFromTheExactDeadline(int ticksFromDeadline, string expectedState)
+    {
+        var ct = TestContext.Current.CancellationToken;
+        await using var scene = await SceneAsync(ct);
+        var room = await InvitedRoomAsync(scene, ct);
+        var deadline = await ReadInviteDeadlineAsync(scene, room, ct);
+
+        scene.Clock.SetUtcNow(deadline + TimeSpan.FromTicks(ticksFromDeadline));
+        using var read = await scene.Bob.GetAsync($"/api/v1/rooms/{room}");
+
+        Assert.Equal(HttpStatusCode.OK, read.StatusCode);
+        using var body = JsonDocument.Parse(await read.Content.ReadAsStringAsync(ct));
+        Assert.Equal(expectedState, body.RootElement.GetProperty("state").GetString());
+        Assert.Equal(new RoomFacts("Invited", AliceAccepted: false, BobAccepted: false, ActiveReservations: 2, HasGame: false, GameDeadlineJobs: 0),
+            await ReadRoomFactsAsync(scene, room, ct));
+    }
+
+    [Theory]
+    [InlineData(-1, "Invited", 2)]
+    [InlineData(0, "Expired", 0)]
+    public async Task TheExpireInviteJobExpiresTheRoomFromTheExactDeadline(int ticksFromDeadline, string expectedState, long expectedReservations)
+    {
+        var ct = TestContext.Current.CancellationToken;
+        await using var scene = await SceneAsync(ct);
+        var room = await InvitedRoomAsync(scene, ct);
+        var deadline = await ReadInviteDeadlineAsync(scene, room, ct);
+
+        scene.Clock.SetUtcNow(deadline + TimeSpan.FromTicks(ticksFromDeadline));
+        var job = await ClaimTheExpireInviteJobNowAsync(scene, room, ct);
+
+        Assert.True(await scene.Service.CompleteJobAsync(job, ct));
+        Assert.Equal(new RoomFacts(expectedState, AliceAccepted: false, BobAccepted: false, expectedReservations, HasGame: false, GameDeadlineJobs: 0),
+            await ReadRoomFactsAsync(scene, room, ct));
     }
 
     [Fact]
@@ -108,6 +148,29 @@ public sealed class InviteAndCheckInDeadlineTests(PostgresFixture postgres)
         await scene.Service.BuildRoundPairingsAsync(scene.Seed.Rounds[0], ct);
         return (await scene.Service.StatusAsync(eventId, scene.Seed.Alice, ct))!.RoomId!.Value;
     }
+
+    /// <summary>
+    /// Antecipa o job para o relógio atual e isola os demais: o claim sozinho não entrega o job antes do prazo, e sem isso a
+    /// guarda de prazo da conclusão não teria como ser exercitada no off point.
+    /// </summary>
+    private static async Task<ParticipationJob> ClaimTheExpireInviteJobNowAsync(Scene scene, Guid room, CancellationToken ct)
+    {
+        await using (var connection = await scene.Source.OpenConnectionAsync(ct))
+        {
+            await Execute(connection, """
+                update ops.jobs set available_at=case when kind='expire-invite' and aggregate_id=$1 then $2 else $2+interval '10 years' end
+                where status='Pending'
+                """, ct, room, scene.Clock.GetUtcNow());
+        }
+
+        var job = await scene.Service.ClaimJobAsync(ct);
+        Assert.NotNull(job);
+        Assert.Equal("expire-invite", job.Kind);
+        return job;
+    }
+
+    private static Task<DateTimeOffset> ReadInviteDeadlineAsync(Scene scene, Guid room, CancellationToken ct) =>
+        ReadInstantAsync(scene, "select invite_expires_at from experiences.game_sessions where id=$1", room, ct);
 
     private static async Task<DateTimeOffset> ReadInstantAsync(Scene scene, string sql, Guid id, CancellationToken ct)
     {
