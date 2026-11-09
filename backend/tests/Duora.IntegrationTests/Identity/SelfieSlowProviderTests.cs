@@ -165,6 +165,73 @@ public sealed class SelfieSlowProviderTests(PostgresFixture postgres)
     }
 
     /// <summary>
+    /// A resposta que volta já concluída depois do prazo não decide: o <c>WaitAsync</c> devolve uma tarefa pronta mesmo com
+    /// prazo zero. Em 10 000 ms ela é tratada como o corte: volta para a fila, não conta contra a pessoa e não mexe na conta.
+    /// </summary>
+    [Theory]
+    [InlineData(9_999, SelfieState.Passed, "Passed|has-reference|no-feedback|closed", "Delivered|-|2", true, 0)]
+    [InlineData(9_999, SelfieState.RecaptureRequired, "RecaptureRequired|has-reference|CAPTURE_QUALITY|closed", "Delivered|-|2", false, 1)]
+    [InlineData(10_000, SelfieState.Passed, "Capturing|has-reference|PROVIDER_UNAVAILABLE|open", "Pending|ProviderUnavailable|2", false, 0)]
+    [InlineData(10_000, SelfieState.RecaptureRequired, "Capturing|has-reference|PROVIDER_UNAVAILABLE|open", "Pending|ProviderUnavailable|2", false, 0)]
+    public async Task ASynchronousAnswerDecidesOnlyBeforeTheDeadline(int answerAfterMilliseconds, SelfieState answer,
+        string expectedAttempt, string expectedDelivery, bool released, int expectedFailures)
+    {
+        var provider = new FaultySelfieProvider(_time) { Answer = answer };
+        var connection = await postgres.CreateMigratedDatabaseAsync(Ct);
+        await using var host = SelfieConcurrencyHarness.Host(connection, _time, provider);
+        var scenario = new IdentityScenario(connection, host);
+        var account = await scenario.CreateConfirmedAccountAsync();
+        await SelfieConcurrencyHarness.RequestAsync(host, account.UserId, Ct);
+        await SelfieConcurrencyHarness.DispatchAsync(host, Ct);
+        _time.Advance(UntilNextTry);
+        provider.ReadFault = _ =>
+        {
+            _time.Advance(TimeSpan.FromMilliseconds(answerAfterMilliseconds));
+            return Task.CompletedTask;
+        };
+
+        await SelfieConcurrencyHarness.DispatchAsync(host, Ct);
+
+        Assert.Equal(expectedAttempt, await AttemptAsync(scenario));
+        Assert.Equal(expectedDelivery, await DeliveryAsync(scenario));
+        Assert.Equal(released, await SelfieConcurrencyHarness.EligibleAsync(host, account.UserId, Ct));
+        Assert.Equal(released ? "Active" : "PendingEligibility", await scenario.ScalarTextAsync(
+            "select status from identity.users where id = $1", account.UserId));
+        Assert.Equal(expectedFailures, await scenario.ScalarAsync(
+            "select count(*) from identity.selfie_failures where user_id = $1", account.UserId));
+    }
+
+    /// <summary>
+    /// A abertura de sessão segue a mesma regra da leitura: em 10 000 ms a sessão que volta já concluída é tratada como o
+    /// corte e não chega a ser gravada, então a tentativa continua sem referência e só ganha o sinal.
+    /// </summary>
+    [Theory]
+    [InlineData(9_999, "Capturing|has-reference|no-feedback|open", "Pending|AwaitingCapture|1")]
+    [InlineData(10_000, "Pending|no-reference|PROVIDER_UNAVAILABLE|open", "Pending|ProviderUnavailable|1")]
+    public async Task ASynchronouslyStartedSessionIsAppliedOnlyBeforeTheDeadline(int answerAfterMilliseconds, string expectedAttempt,
+        string expectedDelivery)
+    {
+        var provider = new FaultySelfieProvider(_time);
+        var connection = await postgres.CreateMigratedDatabaseAsync(Ct);
+        await using var host = SelfieConcurrencyHarness.Host(connection, _time, provider);
+        var scenario = new IdentityScenario(connection, host);
+        var account = await scenario.CreateConfirmedAccountAsync();
+        await SelfieConcurrencyHarness.RequestAsync(host, account.UserId, Ct);
+        provider.StartFault = _ =>
+        {
+            _time.Advance(TimeSpan.FromMilliseconds(answerAfterMilliseconds));
+            return Task.CompletedTask;
+        };
+
+        await SelfieConcurrencyHarness.DispatchAsync(host, Ct);
+
+        Assert.Equal(1, provider.StartCalls);
+        Assert.Equal(expectedAttempt, await AttemptAsync(scenario));
+        Assert.Equal(expectedDelivery, await DeliveryAsync(scenario));
+        await AssertNotReleasedAsync(scenario, host, account.UserId);
+    }
+
+    /// <summary>
     /// Uma chamada por vez ao fornecedor: a chamada cortada que ignora o cancelamento segura a vaga até terminar de fato.
     /// Enquanto ela roda, nenhum lote deste worker chama o fornecedor nem toma entrega, e o aviso sai uma vez só. Quando
     /// ela termina, o lote seguinte volta a chamar.
