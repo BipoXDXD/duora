@@ -44,6 +44,22 @@ describe('saída da sala quando a leitura é recusada', () => {
       expect(exits).toBe(1)
     })
     expect(screen.queryByRole('button', { name: 'Sair da sala' })).not.toBeInTheDocument()
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument()
+  })
+
+  it('não oferece a saída a conta privilegiada, que a rota recusa', async () => {
+    server.use(
+      http.get(`${API}/me`, () =>
+        HttpResponse.json(withSessionContext({ ...me, mfaEnabled: true, roles: ['moderator'] })),
+      ),
+      forbiddenRead('FORBIDDEN'),
+    )
+    useAntiforgeryEndpoint()
+
+    await renderApp('/rooms/room-1')
+
+    expect(await screen.findByRole('alert')).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'Sair da sala' })).not.toBeInTheDocument()
   })
 
   it('não oferece a saída à conta suspensa, que o portão continua recusando', async () => {
