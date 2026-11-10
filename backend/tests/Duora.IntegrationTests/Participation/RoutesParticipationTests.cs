@@ -285,6 +285,46 @@ public sealed class RoutesParticipationTests(PostgresFixture postgres)
         Assert.Equal(afterTheAction, await StateAndVersionAsync(connection, room, ct));
     }
 
+    /// <summary>
+    /// Resíduo aceito pela coordenação em 10/11, como em API-R03: até o job, uma ação aplicada um tick antes do prazo e
+    /// reenviada no prazo responde <c>204</c> sem gravar de novo, e o mesmo <c>actionId</c> com outro corpo responde
+    /// <c>400</c>.
+    /// </summary>
+    [Fact]
+    public async Task AnActionAppliedInTimeIsReplayedAtTheDeadlineUntilTheJobRuns()
+    {
+        var (source, clock, service, seed, room, connectionString) = await Active();
+        await using var owned = source;
+        var ct = TestContext.Current.CancellationToken;
+        await using var factory = new DuoraWebFactory(connectionString) { Time = clock };
+        using var alice = await new IdentityScenario(connectionString, factory)
+            .SignedInBrowserAsync(new(seed.Alice, "alice@example.com", IdentityScenario.ValidPassword));
+        var before = (await service.RoomAsync(room, seed.Alice, ct))!;
+        await using var connection = await source.OpenConnectionAsync(ct);
+        var deadline = await DeadlineAsync(connection, room, ct);
+        var endpoint = $"/api/v1/rooms/{room}/routes-actions";
+        var acknowledged = AcknowledgeIntroduction(before.Version);
+        clock.SetUtcNow(deadline.AddTicks(-1));
+        using (var applied = await alice.PostJsonAsync(endpoint, acknowledged))
+        {
+            Assert.Equal(HttpStatusCode.NoContent, applied.StatusCode);
+        }
+
+        var afterTheAction = await StateAndVersionAsync(connection, room, ct);
+        clock.SetUtcNow(deadline);
+
+        using (var replay = await alice.PostJsonAsync(endpoint, acknowledged))
+        using (var reused = await alice.PostJsonAsync(endpoint, acknowledged with { Stage = "Clues" }))
+        {
+            Assert.Equal(HttpStatusCode.NoContent, replay.StatusCode);
+            Assert.Equal(HttpStatusCode.BadRequest, reused.StatusCode);
+            Assert.Equal("VALIDATION_FAILED", (await ProblemWithoutTraceAsync(reused, ct)).GetProperty("code").GetString());
+        }
+
+        Assert.Equal(("Active", before.Version + 1), afterTheAction);
+        Assert.Equal(afterTheAction, await StateAndVersionAsync(connection, room, ct));
+    }
+
     [Theory]
     [InlineData(false)]
     [InlineData(true)]
