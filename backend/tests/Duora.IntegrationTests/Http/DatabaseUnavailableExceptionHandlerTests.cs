@@ -52,27 +52,37 @@ public sealed class DatabaseUnavailableExceptionHandlerTests
         Assert.DoesNotContain(_canary, warning.Text, StringComparison.Ordinal);
     }
 
-    // O embrulhado imita o 503 que a main já dava a ele, o mesmo da indisponibilidade crua do servidor.
+    // O embrulhado, uma ou duas vezes, imita o 503 que a main já dava a ele, o mesmo da indisponibilidade crua do
+    // servidor: a resposta inteira é igual, fora o traceId do corpo e o Date. A mensagem dos embrulhos e do erro do
+    // servidor não vai para o Warning.
     [Theory]
-    [InlineData("40001")]
-    [InlineData("40P01")]
-    [InlineData("55P03")]
-    public async Task ARetryableServerErrorWrappedByNpgsqlAnswersLikeARawUnavailableServer(string sqlState)
+    [InlineData("40001", 1)]
+    [InlineData("40P01", 1)]
+    [InlineData("55P03", 1)]
+    [InlineData("40001", 2)]
+    [InlineData("40P01", 2)]
+    [InlineData("55P03", 2)]
+    public async Task ARetryableServerErrorWrappedByNpgsqlAnswersLikeARawUnavailableServer(string sqlState, int wrappings)
     {
         var raw = new PostgresException("indisponível", "FATAL", "FATAL", PostgresErrorCodes.TooManyConnections);
-        var wrapped = new NpgsqlException("driver", new PostgresException("erro comum", "ERROR", "ERROR", sqlState));
+        NpgsqlException wrapped = new PostgresException(_canary, "ERROR", "ERROR", sqlState);
+        for (var i = 0; i < wrappings; i++)
+        {
+            wrapped = new NpgsqlException(_canary, wrapped);
+        }
 
         var (rawResponse, _) = await HandleWithResponseAsync(raw, "/api/v1/auth/login");
         var (wrappedResponse, warning) = await HandleWithResponseAsync(wrapped, "/api/v1/auth/login");
 
         Assert.Equal(rawResponse, wrappedResponse);
         Assert.Contains($"({sqlState}, {nameof(PostgresException)})", warning.Text, StringComparison.Ordinal);
+        Assert.DoesNotContain(_canary, warning.Text, StringComparison.Ordinal);
     }
 
     private static async Task<CapturedLog> HandleAsync(Exception exception, string path) =>
         (await HandleWithResponseAsync(exception, path)).Warning;
 
-    private static async Task<(ProblemResponse Response, CapturedLog Warning)> HandleWithResponseAsync(
+    private static async Task<(WholeProblemResponse Response, CapturedLog Warning)> HandleWithResponseAsync(
         Exception exception, string path)
     {
         using var logs = new CapturingLoggerProvider();
@@ -92,11 +102,20 @@ public sealed class DatabaseUnavailableExceptionHandlerTests
         Assert.Equal(StatusCodes.Status503ServiceUnavailable, context.Response.StatusCode);
         var warning = Assert.Single(logs.Entries);
         Assert.Equal(LogLevel.Warning, warning.Level);
-        var problem = JsonNode.Parse(body.ToArray());
-        var response = new ProblemResponse(
-            context.Response.StatusCode, (string?)problem?["code"], context.Response.Headers.RetryAfter.ToString());
-        return (response, warning);
+        return (WholeResponse(context, body), warning);
     }
 
-    private sealed record ProblemResponse(int Status, string? Code, string RetryAfter);
+    /// <summary>Status, todos os headers menos <c>Date</c> e o corpo sem <c>traceId</c>, que muda a cada requisição.</summary>
+    private static WholeProblemResponse WholeResponse(HttpContext context, MemoryStream body)
+    {
+        var headers = context.Response.Headers
+            .Where(header => !string.Equals(header.Key, "Date", StringComparison.OrdinalIgnoreCase))
+            .OrderBy(header => header.Key, StringComparer.OrdinalIgnoreCase)
+            .Select(header => $"{header.Key}: {header.Value}");
+        var problem = JsonNode.Parse(body.ToArray())?.AsObject() ?? throw new InvalidOperationException("Sem corpo.");
+        problem.Remove("traceId");
+        return new WholeProblemResponse(context.Response.StatusCode, string.Join("\n", headers), problem.ToJsonString());
+    }
+
+    private sealed record WholeProblemResponse(int Status, string Headers, string Body);
 }
