@@ -132,6 +132,8 @@ export const en = {
   'participation.noEvents': 'No events are available.',
   'participation.waiting': 'Waiting for a compatible match. Waiting will not broaden your preferences.',
   'participation.joinInstructions': 'Register and check in when check-in opens.',
+  'participation.roundCancelled':
+    'The round was cancelled. Your registration still stands and there is nothing you need to do.',
   'participation.register': 'Register',
   'participation.checkIn': 'Check in',
   'participation.openRoom': 'Open invitation or room',
