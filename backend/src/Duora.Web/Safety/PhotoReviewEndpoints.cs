@@ -65,9 +65,9 @@ internal static class PhotoReviewEndpoints
             {
                 return Unavailable(http);
             }
+            // Contenção (40001, 40P01, 55P03) segue para o handler global, que decide o Retry-After (#465).
             catch (PostgresException error) when (!http.RequestAborted.IsCancellationRequested
-                && (error.SqlState is PostgresErrorCodes.LockNotAvailable or PostgresErrorCodes.DeadlockDetected
-                    or PostgresErrorCodes.SerializationFailure or PostgresErrorCodes.QueryCanceled))
+                && error.SqlState is PostgresErrorCodes.QueryCanceled)
             {
                 ApiProblems.SetRetryAfter(http, TimeSpan.FromSeconds(2));
                 return ApiProblems.Problem(503, ApiProblems.TemporarilyUnavailable);

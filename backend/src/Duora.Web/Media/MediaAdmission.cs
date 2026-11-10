@@ -6,8 +6,8 @@ namespace Duora.Web.Media;
 
 /// <summary>
 /// Gate comum de API-M03/M04: sem <c>Media:Review</c> as rotas respondem 503 <c>MEDIA_UPLOADS_DISABLED</c>, como o
-/// upload (ADR-0025); registrar a rota não admite política nova. Espera de lock e cancelamento do banco viram 503 com
-/// Retry-After, nunca 500 nem texto do erro.
+/// upload (ADR-0025); registrar a rota não admite política nova. Cancelamento do banco (57014) e falha de I/O viram 503
+/// com Retry-After, nunca 500 nem texto do erro; a contenção fica com o handler global.
 /// </summary>
 internal static class MediaAdmission
 {
@@ -37,8 +37,8 @@ internal static class MediaAdmission
             }
         });
 
-    private static bool IsTransient(PostgresException error) => error.SqlState is PostgresErrorCodes.LockNotAvailable
-        or PostgresErrorCodes.DeadlockDetected or PostgresErrorCodes.SerializationFailure or PostgresErrorCodes.QueryCanceled;
+    // Contenção (40001, 40P01, 55P03) segue para o handler global, que decide o Retry-After (#465).
+    private static bool IsTransient(PostgresException error) => error.SqlState is PostgresErrorCodes.QueryCanceled;
 
     private static Microsoft.AspNetCore.Http.HttpResults.ProblemHttpResult Unavailable(HttpContext http)
     {

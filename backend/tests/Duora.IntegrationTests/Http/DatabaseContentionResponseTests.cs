@@ -2,7 +2,6 @@ using System.Text.Json.Nodes;
 using Duora.Infrastructure.Media;
 using Duora.Web.Http;
 using Duora.Web.Media;
-using Duora.Web.Participation;
 using Duora.Web.Safety;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Http;
@@ -29,11 +28,13 @@ public sealed class DatabaseContentionResponseTests(EnabledPhotoUploads media)
     private readonly string _canary = $"CANARY-{Guid.NewGuid():N}";
 
     // Cada família é a convenção de erro real que a rota recebe na app; "sem filtro" cai direto no handler global.
+    // Participation e Catalog tinham filtro próprio de contenção e deixaram de ter (#465): hoje são como "sem filtro",
+    // e as linhas ficam para provar que nenhum filtro volta a responder diferente.
     private static readonly Dictionary<string, Func<RouteHandlerBuilder, RouteHandlerBuilder>> Routes = new()
     {
         ["sem-filtro"] = route => route,
-        ["participation"] = route => route.AddEndpointFilter(ParticipationEndpoints.AnswerLockContentionAsUnavailableAsync),
-        ["catalog"] = route => route.HandleCatalogContention(),
+        ["participation"] = route => route,
+        ["catalog"] = route => route,
         ["photo-review"] = PhotoReviewEndpoints.Read,
         ["media"] = route => route.RequireMediaAdmission(),
     };

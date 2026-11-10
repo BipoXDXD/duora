@@ -6,8 +6,10 @@ namespace Duora.Web.Http;
 
 /// <summary>
 /// Banco temporariamente fora do alcance: conexão recusada ou caída, pool esgotado (o <c>Timeout</c> do pool venceu)
-/// ou servidor sem conexões livres (53300) ou desligando (57P01 a 57P03, classe 08). O EF costuma embrulhar a causa
-/// numa <see cref="InvalidOperationException"/> ("transient failure"), então a cadeia inteira é examinada.
+/// ou servidor sem conexões livres (53300) ou desligando (57P01 a 57P03, classe 08). Também a contenção, que passa
+/// sozinha: serialização (40001), deadlock (40P01) e <c>lock_timeout</c> (55P03), crua ou embrulhada pelo Npgsql (#465).
+/// O EF costuma embrulhar a causa numa <see cref="InvalidOperationException"/> ("transient failure"), então a cadeia
+/// inteira é examinada.
 /// </summary>
 internal static class DatabaseUnavailability
 {
@@ -20,15 +22,15 @@ internal static class DatabaseUnavailability
         {
             switch (current)
             {
-                case PostgresException server when IsUnavailableState(server.SqlState):
+                case PostgresException server when IsUnavailableState(server.SqlState) || IsContention(server):
                     return server;
                 case PostgresException:
-                    // Erro de SQL comum (constraint, sintaxe, serialização): não é indisponibilidade.
+                    // Erro de SQL comum (constraint, sintaxe): não é indisponibilidade.
                     return null;
                 case NpgsqlException client when client.IsTransient:
                     // Falha de rede, conexão recusada ou pool esgotado: o servidor nem respondeu. Ou um erro do servidor
-                    // que o Npgsql embrulhou e considera passageiro (serialização, deadlock, lock_timeout): 503, como
-                    // na main, com o erro do servidor como causa para o Warning levar o SqlState dele.
+                    // que o Npgsql embrulhou e considera passageiro: o erro do servidor é a causa, para o Warning levar
+                    // o SqlState dele e a contenção embrulhada responder igual à crua.
                     return ServerErrorWrappedBy(client) ?? client;
             }
         }
@@ -51,6 +53,15 @@ internal static class DatabaseUnavailability
         return inner as PostgresException;
     }
 
+    /// <summary>Contenção entre transações: a mesma operação costuma passar logo em seguida.</summary>
+    public static bool IsContention(NpgsqlException cause) =>
+        cause is PostgresException
+        {
+            SqlState: PostgresErrorCodes.SerializationFailure
+                or PostgresErrorCodes.DeadlockDetected
+                or PostgresErrorCodes.LockNotAvailable,
+        };
+
     private static bool IsUnavailableState(string sqlState) =>
         sqlState is PostgresErrorCodes.TooManyConnections
             or PostgresErrorCodes.AdminShutdown
@@ -61,7 +72,8 @@ internal static class DatabaseUnavailability
 
 /// <summary>
 /// Banco indisponível vira 503 <c>TEMPORARILY_UNAVAILABLE</c> com <c>Retry-After</c>, sem detalhe (spec 11; auth.md,
-/// "Banco indisponível"). As outras falhas inesperadas continuam 500. O Warning leva só o que identifica a falha e a
+/// "Banco indisponível"), em qualquer rota: nenhum filtro de endpoint trata contenção por conta própria (#465). As outras
+/// falhas inesperadas continuam 500. O Warning leva só o que identifica a falha e a
 /// requisição: a mensagem do Npgsql pode trazer host, porta e usuário, então nem ela nem a exceção vão para o log.
 /// </summary>
 internal sealed partial class DatabaseUnavailableExceptionHandler(ILogger<DatabaseUnavailableExceptionHandler> logger)
@@ -72,7 +84,12 @@ internal sealed partial class DatabaseUnavailableExceptionHandler(ILogger<Databa
     // Sem endpoint, o path é texto do cliente e sem limite de tamanho: não vai para o log.
     private const string NoEndpoint = "(no endpoint)";
 
-    private static readonly TimeSpan RetryAfter = TimeSpan.FromSeconds(5);
+    // Contenção: os lock_timeout curtos do projeto ficam em 2 s e os 503 de contenção já respondiam 2, então outra
+    // tentativa nesse prazo costuma passar.
+    private static readonly TimeSpan ContentionRetryAfter = TimeSpan.FromSeconds(2);
+
+    // Banco fora do alcance (rede, pool, servidor cheio ou desligando): recuperar leva mais tempo.
+    private static readonly TimeSpan UnreachableRetryAfter = TimeSpan.FromSeconds(5);
 
     public async ValueTask<bool> TryHandleAsync(HttpContext httpContext, Exception exception, CancellationToken cancellationToken)
     {
@@ -87,13 +104,16 @@ internal sealed partial class DatabaseUnavailableExceptionHandler(ILogger<Databa
             cause.GetType().Name,
             RouteOf(httpContext),
             Activity.Current?.Id ?? httpContext.TraceIdentifier);
-        ApiProblems.SetRetryAfter(httpContext, RetryAfter);
+        ApiProblems.SetRetryAfter(httpContext, RetryAfterFor(cause));
         await ApiProblems.Problem(
                 StatusCodes.Status503ServiceUnavailable,
                 ApiProblems.TemporarilyUnavailable)
             .ExecuteAsync(httpContext);
         return true;
     }
+
+    private static TimeSpan RetryAfterFor(NpgsqlException cause) =>
+        DatabaseUnavailability.IsContention(cause) ? ContentionRetryAfter : UnreachableRetryAfter;
 
     /// <summary>O padrão da rota (sem ids); o middleware de exceção já limpou o endpoint do contexto.</summary>
     private static string RouteOf(HttpContext httpContext)
