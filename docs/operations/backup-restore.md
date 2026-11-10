@@ -242,7 +242,7 @@ ou de outros.
 
 ## Retenção: janela recuperável de 14 dias
 
-Agenda (timers do host, UTC, com até 15 min de jitter): **full aos domingos 03:00**, **diferencial de segunda a
+Agenda (timers do host, UTC, em horário fixo, sem jitter): **full aos domingos 03:00**, **diferencial de segunda a
 sábado 03:00**, WAL contínuo (`archive_timeout=60`). Retenção no `pgbackrest-repo.conf`:
 
 - `repo1-retention-full-type=time` + `repo1-retention-full=14`: depois de cada backup o `expire` só remove um full
@@ -296,7 +296,7 @@ novo não alerta: o full que a resolve já existe, e o `expire` a remove com o t
 
 - diário (`verify-repo`): a listagem do archive (requisições `LIST`, sem baixar) e o `verify --set` só do backup
   mais novo e do WAL dele. Leitura de um full ou de um diferencial por dia;
-- semanal (`verify-repo-full`, quarta 06:00 UTC, longe do full de domingo e depois do reinício automático das 04:30):
+- semanal (`verify-repo-full`, quarta 04:05 UTC, longe do full de domingo):
   o repositório inteiro, o que no pior momento chega a **3 fulls + 18 diferenciais + 21 dias de WAL** (no exemplo de
   dimensionamento acima, ~29 GB por semana). No B2 essa leitura é download (~165 GB por mês somando o diário e um
   ensaio de restore), gratuito até 3× o armazenamento médio do mês e cobrado por GB acima disso
@@ -311,8 +311,8 @@ novo não alerta: o full que a resolve já existe, e o `expire` a remove com o t
 | `stanza-create` | operador, uma vez | Cria a stanza `duora` no repositório |
 | `full` / `diff` | timers `duora-backup-full.timer` / `duora-backup-diff.timer` | Backup; espera um deploy em curso terminar (mesmo lock, até 30 min) |
 | `verify` | `duora-backup-verify.timer` (15 min) e `duora-deploy` | filtro de saída aplicado no iptables, `pgbackrest check` (troca o segmento e espera ele chegar ao repositório), `info` sem erro, último WAL confirmado há ≤ 300 s (RPO), arquivamento não falhando, último backup há ≤ 48 h. **Falha fechado** (abaixo) |
-| `verify-repo` | `duora-backup-verify-repo.timer` (diário, 05:00) | Leve: `pgbackrest verify --set` do backup mais novo (checksum e tamanho dos arquivos dele e do WAL dele), stanza `ok`, backup `valid`, WAL do backup presente e **nenhuma lacuna de WAL** desde o início dele pela listagem do archive (`RepositoryVerifyTests`). Espera o deploy terminar (mesmo lock) |
-| `verify-repo-full` | `duora-backup-verify-repo-full.timer` (quarta, 06:00) | O mesmo, com o `pgbackrest verify` de **todo** o repositório (todos os backups e todo o WAL) |
+| `verify-repo` | `duora-backup-verify-repo.timer` (diário, 03:45) | Leve: `pgbackrest verify --set` do backup mais novo (checksum e tamanho dos arquivos dele e do WAL dele), stanza `ok`, backup `valid`, WAL do backup presente e **nenhuma lacuna de WAL** desde o início dele pela listagem do archive (`RepositoryVerifyTests`). Espera o deploy terminar (mesmo lock) |
+| `verify-repo-full` | `duora-backup-verify-repo-full.timer` (quarta, 04:05) | O mesmo, com o `pgbackrest verify` de **todo** o repositório (todos os backups e todo o WAL) |
 | `info` | operador | `pgbackrest info` |
 
 Ninguém além do root chama o `duora-backup`: o executor de deploy não tem sudo para ele, e nenhum container tem o
@@ -499,9 +499,9 @@ com `restic`, para o prefixo `media/` do mesmo bucket B2 com File Lock. A quaren
 | Destino | `s3:https://<endpoint>/<bucket>/media`, cifrado no cliente com a senha do repositório |
 | Chave | `duora-media-backup`, presa a `media/`, sem `deleteFiles` ([backblaze-setup.md](backblaze-setup.md#3-chaves)) |
 | Retenção | 14 dias de snapshots (`forget --keep-within 14d --prune`) + 21 dias de lock + 30 dias do lifecycle: uma foto apagada some da VPS na hora e da cópia externa em até ~65 dias |
-| Diário 02:30 UTC | `media-backup`: `restic backup` dos derivados e `forget --prune` |
-| Diário 05:30 UTC | `media-verify`: bucket e chave provados como no verify do banco (prefixo `media/`), snapshot mais novo com no máximo 26 h e `restic check` da estrutura |
-| Semanal (quinta 06:30 UTC) | `media-check`: `restic check --read-data`, baixa e confere todos os pacotes |
+| Diário 03:10 UTC | `media-backup`: `restic backup` dos derivados e `forget --prune` |
+| Diário 03:55 UTC | `media-verify`: bucket e chave provados como no verify do banco (prefixo `media/`), snapshot mais novo com no máximo 26 h e `restic check` da estrutura |
+| Semanal (quinta 04:05 UTC) | `media-check`: `restic check --read-data`, baixa e confere todos os pacotes |
 
 Segredos, gravados pelo `duora-secrets write-media-backup-repo` (root, 0400, em `/etc/duora/secrets`):
 `restic_media_repository` (destino), `restic_media_password` (senha do repositório, gerada **fora** da VPS com

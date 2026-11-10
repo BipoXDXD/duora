@@ -130,7 +130,7 @@ uvx --from ansible-core==2.21.5 ansible-playbook -i inventory/example.yml site.y
   `no-new-privileges` e logs limitados. Ninguém entra no grupo `docker` (equivale a root).
 - `backup`: segredos do backup (`duora-secrets init-backup`), `/usr/local/sbin/duora-backup`, timers
   systemd (full domingo 03:00 UTC, diferencial seg–sáb 03:00 UTC, `verify` a cada 15 min, `verify-repo` leve diário às
-  05:00 UTC e `verify-repo-full` completo às quartas 06:00 UTC) e o filtro de saída `duora-backup-egress` (chain `DOCKER-USER` para `172.30.20.0/24`, aplicada antes do
+  03:45 UTC e `verify-repo-full` completo às quartas 04:05 UTC) e o filtro de saída `duora-backup-egress` (chain `DOCKER-USER` para `172.30.20.0/24`, aplicada antes do
   Docker e falhando fechado: DNS só para `duora_backup_dns_resolvers` ou os upstream do systemd-resolved, HTTPS
   restrito a `duora_backup_s3_cidrs` quando o provedor existir).
 - `app_dirs`: `/opt/duora`, `/etc/duora` (0750), `/etc/duora/secrets` (0700), `/var/lib/duora` (0700),

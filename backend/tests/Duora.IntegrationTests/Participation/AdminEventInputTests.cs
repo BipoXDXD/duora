@@ -46,6 +46,7 @@ public sealed class AdminEventInputTests(PostgresFixture postgres)
     [InlineData("2026-12-01T20:00:00+00:00", "2026-12-01T20:00:00Z")]
     [InlineData("2026-12-01T20:00:00-03:00", "2026-12-01T23:00:00Z")]
     [InlineData("2026-12-01T20:00:00+05:30", "2026-12-01T14:30:00Z")]
+    [InlineData("2026-12-01T20:00:00+03:00", "2026-12-01T17:00:00Z")]
     public async Task AStartInAnyOffsetIsStoredAsTheSameUtcInstant(string startsAt, string expectedUtc)
     {
         await using var admin = await AdminScenario.CreateAsync(postgres);
