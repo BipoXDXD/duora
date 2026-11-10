@@ -16,14 +16,12 @@ public sealed class KeyRingCertificateTests : IDisposable
 
     // Ids de LoggerMessage do Data Protection (LoggingExtensions.cs, ASP.NET Core v10.0.14).
     private const string KeyResolverCategory = "Microsoft.AspNetCore.DataProtection.KeyManagement.DefaultKeyResolver";
-    private const int KeyIneligibleAfterRetries = 12;
+    private const int KeyIneligibleBecauseMethodFailed = 12;
     private const int RetryingKeyAfterFailure = 73;
 
-    // Na primeira resolução (DefaultKeyResolver.cs:173-206, v10.0.14) a chave preferida que não decifra é avaliada como
-    // candidata e de novo na busca de fallback: o filtro !ReferenceEquals(key, preferredDefaultKey) (l.199) só vale
-    // para as chaves antigas, e o ramo das recentes (CreationDate > now - KeyPropagationWindow, 2 dias, l.203-206)
-    // a inclui. A chave do teste acabou de nascer; com mais de 2 dias seria avaliada uma vez só. A resolução seguinte,
-    // depois de criar a chave nova, prefere a nova e nem avalia a retirada.
+    // Na primeira resolução, a chave preferida que não decifra e ainda está na KeyPropagationWindow (2 dias)
+    // é avaliada duas vezes: como candidata e de novo na busca de fallback. A do teste acabou de nascer; com mais
+    // de 2 dias seria avaliada uma vez só. A resolução seguinte já prefere a chave nova e nem avalia a retirada.
     private const int EvaluationsOfARecentPreferredKey = 2;
 
     private static readonly TimeSpan DefaultKeyLifetime = TimeSpan.FromDays(90);
@@ -170,7 +168,7 @@ public sealed class KeyRingCertificateTests : IDisposable
 
         var resolver = logs.Entries.Where(entry => entry.Category == KeyResolverCategory).ToList();
         Assert.DoesNotContain(resolver, entry => entry.EventId.Id == RetryingKeyAfterFailure);
-        var ineligible = resolver.Where(entry => entry.EventId.Id == KeyIneligibleAfterRetries).ToList();
+        var ineligible = resolver.Where(entry => entry.EventId.Id == KeyIneligibleBecauseMethodFailed).ToList();
         Assert.Equal(EvaluationsOfARecentPreferredKey, ineligible.Count);
         Assert.All(ineligible, entry => Assert.Contains(retiredKeyId, entry.Text, StringComparison.Ordinal));
     }
