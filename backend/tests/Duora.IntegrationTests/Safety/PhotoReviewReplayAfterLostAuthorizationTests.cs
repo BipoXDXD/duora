@@ -40,10 +40,12 @@ public sealed partial class PhotoReviewApprovalTests
 
     [Theory]
     [Trait("Acceptance", "T-27")]
-    [InlineData(false, HttpStatusCode.Forbidden, "PHOTO_REVIEW_FORBIDDEN")]
-    [InlineData(true, HttpStatusCode.Unauthorized, "REAUTHENTICATION_REQUIRED")]
+    [InlineData("approve", "meets_policy", false, HttpStatusCode.Forbidden, "PHOTO_REVIEW_FORBIDDEN")]
+    [InlineData("approve", "meets_policy", true, HttpStatusCode.Unauthorized, "REAUTHENTICATION_REQUIRED")]
+    [InlineData("reject", "does_not_meet_policy", false, HttpStatusCode.Forbidden, "PHOTO_REVIEW_FORBIDDEN")]
+    [InlineData("reject", "does_not_meet_policy", true, HttpStatusCode.Unauthorized, "REAUTHENTICATION_REQUIRED")]
     public async Task TheSameDecisionKeyAfterLosingAuthorizationIsRefusedWithoutTheStoredDecision(
-        bool totpNoLongerRecent, HttpStatusCode expectedStatus, string expectedCode)
+        string verdict, string reasonCode, bool totpNoLongerRecent, HttpStatusCode expectedStatus, string expectedCode)
     {
         await using var web = ReviewWeb();
         var (moderator, browser, item) = await ReviewerWithCaseAsync(web);
@@ -56,10 +58,13 @@ public sealed partial class PhotoReviewApprovalTests
         using var image = await browser.GetAsync(path + "/evidence/full");
         Assert.Equal(HttpStatusCode.OK, image.StatusCode);
         var headers = KeyedReviewCommand(assigned, Guid.NewGuid().ToString("N"));
-        var decision = new { decision = "approve", reasonCode = "meets_policy" };
+        var decision = new { decision = verdict, reasonCode };
         using var first = await browser.PostJsonAsync(path + "/decisions", decision, headers);
         Assert.Equal(HttpStatusCode.OK, first.StatusCode);
-        var asset = Guid.Parse(JsonNode.Parse(await first.Content.ReadAsStringAsync(Ct))!["assetId"]!.GetValue<string>());
+        var stored = JsonNode.Parse(await first.Content.ReadAsStringAsync(Ct))!;
+        Guid[] leaked = stored["assetId"] is { } asset
+            ? [item.CaseId, item.UploadId, Guid.Parse(asset.GetValue<string>())]
+            : [item.CaseId, item.UploadId];
         if (totpNoLongerRecent)
         {
             await StepUpClock.ExpireRecentAuthenticationAsync(browser, _time);
@@ -72,10 +77,11 @@ public sealed partial class PhotoReviewApprovalTests
         using var replay = await browser.PostJsonAsync(path + "/decisions", decision, headers);
 
         var body = (await ProblemAssert.IsProblemAsync(replay, expectedStatus, expectedCode)).ToJsonString();
-        AssertWithout(body, item.CaseId, item.UploadId, asset);
+        ReplayLeakAssert.ContainsNone(replay, body, leaked);
         Assert.Null(replay.Headers.ETag);
         Assert.Equal(1, await ScalarAsync("select count(*) from safety.photo_review_decisions where case_id=$1", item.CaseId));
-        Assert.Equal(1, await ScalarAsync("select count(*) from media.media_assets where upload_id=$1", item.UploadId));
+        Assert.Equal(verdict == "approve" ? 1L : 0L,
+            await ScalarAsync("select count(*) from media.media_assets where upload_id=$1", item.UploadId));
     }
 
     private async Task<(TestAccount Moderator, Browser Browser, CaseData Item)> ReviewerWithCaseAsync(DuoraWebFactory web)
