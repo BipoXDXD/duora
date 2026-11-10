@@ -79,7 +79,27 @@ runs:
         pathlib.Path(sys.argv[1]).write_text(json.dumps(config))
         PY
         sudo install -m 0644 "$RUNNER_TEMP/component-daemon.json" /etc/docker/daemon.json
-        sudo systemctl restart docker
+        # O postinst do upgrade já reinicia docker e containerd; às vezes o restart logo em seguida falha
+        # (runs 42739401041 e 42746167683). Na falha, registra o diagnóstico e tenta uma única vez mais,
+        # depois de limpar o estado de falha e com o containerd ativo. Se a segunda falhar, o job falha.
+        restart_docker() {
+          sudo systemctl restart docker && return 0
+          echo "::group::docker.service não reiniciou: diagnóstico"
+          sudo systemctl status docker docker.socket containerd --no-pager --lines=50 || true
+          sudo journalctl -u docker -u docker.socket -u containerd --no-pager --since '5 min ago' | tail -n 200 || true
+          echo "::endgroup::"
+          return 1
+        }
+        if ! restart_docker; then
+          sudo systemctl reset-failed docker.service docker.socket
+          containerd_deadline=$((SECONDS + 60))
+          until systemctl is-active --quiet containerd && sudo test -S /run/containerd/containerd.sock; do
+            if [ "$SECONDS" -ge "$containerd_deadline" ]; then echo "containerd não ficou ativo em 60 s"; exit 1; fi
+            sleep 2
+          done
+          echo "Segunda e última tentativa de reiniciar o docker"
+          restart_docker
+        fi
         test "$(readlink -f "$(command -v docker)")" = /usr/bin/docker
         docker version --format '{{json .}}' > "$RUNNER_TEMP/postgres-component/docker-runtime-after.json"
         after_status=$(curl --silent --show-error --unix-socket /var/run/docker.sock \
