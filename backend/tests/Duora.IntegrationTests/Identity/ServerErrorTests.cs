@@ -121,6 +121,18 @@ public sealed class ServerErrorTests(PostgresFixture postgres)
         Assert.Same(error, DatabaseUnavailability.TemporaryCause(wrappedByTheDriver));
     }
 
+    // O Npgsql herda IsTransient só da interna imediata: aqui ela é o timeout do cliente, não o erro do servidor,
+    // então o 57014 mais fundo não pode transformar a falha em 500.
+    [Fact]
+    public void AClientTimeoutIsUnavailabilityEvenWithAServerErrorDeeperInTheChain()
+    {
+        var canceled = new PostgresException("cancelado", "ERROR", "ERROR", PostgresErrorCodes.QueryCanceled);
+        var timeout = new NpgsqlException("driver", new TimeoutException("timeout", canceled));
+
+        Assert.True(DatabaseUnavailability.IsTemporary(timeout));
+        Assert.Same(timeout, DatabaseUnavailability.TemporaryCause(timeout));
+    }
+
     [Theory]
     [InlineData("23505")]
     [InlineData("42P01")]
