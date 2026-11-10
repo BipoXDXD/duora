@@ -133,7 +133,8 @@ export const en = {
   'participation.waiting': 'Waiting for a compatible match. Waiting will not broaden your preferences.',
   'participation.joinInstructions': 'Register and check in when check-in opens.',
   'participation.roundCancelled':
-    'The round was cancelled. Your registration still stands and there is nothing you need to do.',
+    "This round was cancelled. You're still checked in. If there's another round, your invitation will appear here.",
+  'participation.loadingStatus': 'Loading your status for this event…',
   'participation.register': 'Register',
   'participation.checkIn': 'Check in',
   'participation.withdraw': 'Cancel registration',

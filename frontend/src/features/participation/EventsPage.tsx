@@ -96,6 +96,9 @@ function EventEntry({ event, userId }: { readonly event: Event; readonly userId:
   })
   const state = participation.data?.state.toLowerCase()
   const withdrawn = state === 'withdrawn'
+  const roundCancelled = participation.data?.roundCancelled === true
+  // Com check-in feito, inscrição e presença já não têm o que fazer: o aviso de status diz o que vem a seguir.
+  const awaitingRound = state === 'waiting' || state === 'checkedin' || roundCancelled
   // O instante da última leitura do estado: puro na renderização e renovado pelo polling de 3 s.
   const canWithdraw = canWithdrawRegistration(state, event.startsAt, participation.dataUpdatedAt)
   if (confirmingWithdrawal && !canWithdraw) {
@@ -133,30 +136,38 @@ function EventEntry({ event, userId }: { readonly event: Event; readonly userId:
       </p>
       {participation.isError ? <RequestFailureAlert failure={classifyRequestFailure(participation.error)} /> : null}
       {command.isError ? <RequestFailureAlert failure={classifyRequestFailure(command.error)} /> : null}
-      {participation.data?.roomId === null || participation.data?.roomId === undefined ? (
+      {participation.data === undefined ? (
+        participation.isError ? null : (
+          <p role="status">{t('participation.loadingStatus')}</p>
+        )
+      ) : participation.data.roomId === null ? (
         withdrawn ? (
           <p ref={outcome} role="status" tabIndex={-1}>
             {t('participation.withdrawn')}
           </p>
         ) : (
           <>
-            <p role="status">{t(statusMessage(state, participation.data?.roundCancelled === true))}</p>
-            <Button
-              disabled={command.isPending}
-              onClick={() => {
-                command.mutate('register')
-              }}
-            >
-              {t('participation.register')}
-            </Button>
-            <Button
-              disabled={command.isPending}
-              onClick={() => {
-                command.mutate('checkIn')
-              }}
-            >
-              {t('participation.checkIn')}
-            </Button>
+            <p role="status">{t(statusMessage(state, roundCancelled))}</p>
+            {awaitingRound ? null : (
+              <>
+                <Button
+                  disabled={command.isPending}
+                  onClick={() => {
+                    command.mutate('register')
+                  }}
+                >
+                  {t('participation.register')}
+                </Button>
+                <Button
+                  disabled={command.isPending}
+                  onClick={() => {
+                    command.mutate('checkIn')
+                  }}
+                >
+                  {t('participation.checkIn')}
+                </Button>
+              </>
+            )}
             {canWithdraw && !confirmingWithdrawal ? (
               <Button
                 ref={withdrawButton}
