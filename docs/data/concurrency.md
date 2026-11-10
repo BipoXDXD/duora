@@ -181,6 +181,16 @@ API-E03, API-E04 e promoção da lista de espera (M2). Teste T-28.
 4. Retirada ou no-show: mesmo lock do evento; liberar a vaga e promover a inscrição `Waitlisted` de menor
    posição (determinístico), na mesma transação, com outbox para a pessoa promovida.
 
+**Retirada voluntária (API-E04, ADR-0053).** Mesma ordem da inscrição: plano preliminar (a pessoa e toda a espera),
+guardas e contas em ordem de UUID, `events.events FOR UPDATE`, plano relido (pessoa ou evento novo → reinício
+integral, até três tentativas, depois `503`) e só então o relógio. Sem revalidar elegibilidade: sair não exige ser
+elegível. Grava `withdrawn_at`, `withdrawn_from_state` e a posição antiga, sem suspensão, com escrita condicional
+ao estado ativo; decrementa só quem ocupava vaga e promove a menor posição elegível com `agora < starts_at`. Linha
+já `Withdrawn`, por qualquer origem, é sucesso sem escrita. Evento `Running` ou já iniciado recusa sem efeito: a
+retirada que libera reserva e sala fica para outra entrega. O lock do evento é a única barreira contra o build da
+rodada, que só guarda quem fez check-in; `VoluntaryWithdrawalConcurrencyTests` cobre esse caso, a última vaga com
+retirada concorrente ao check-in, check-in × retirada nas duas ordens, retiradas simultâneas e retirada × suspensão.
+
 O `CHECK (confirmed_count BETWEEN 0 AND capacity)` e os `UNIQUE` de inscrição e de posição garantem que um bug
 no protocolo vire erro, não lotação estourada.
 

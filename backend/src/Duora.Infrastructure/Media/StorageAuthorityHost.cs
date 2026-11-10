@@ -105,7 +105,7 @@ public static class StorageAuthorityHost
             var peer = PrivateGenerationLinux.Peer(socket);
             var request = await PrivateGenerationWire.ReadAsync<PrivateGenerationRequest>(stream, budget);
             return await engine.HandleAsync(peer, request, stream, budget);
-        }, cancellationToken);
+        }, TimeProvider.System, cancellationToken);
     }
 
     [SupportedOSPlatform("linux")]

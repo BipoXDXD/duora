@@ -46,24 +46,84 @@ public sealed class GameDeadlineTests(PostgresFixture postgres)
 
     /// <summary>
     /// A fila não entrega antes do prazo; aqui o job é adiantado à mão para exercitar a segunda barreira, a do próprio motor.
-    /// Lacuna registrada na T-18: se a fila entregar cedo, o job é consumido (<c>Done</c>) sem expirar a sala, não é
-    /// reagendado, e só o <c>close-round</c> encerra a sala depois. O assert do job fixa esse comportamento atual.
+    /// Entregue cedo, o job volta à fila para o próprio prazo sem ser consumido nem gastar tentativa, e expira a sala quando o
+    /// relógio chega lá.
     /// </summary>
     [Fact]
-    public async Task AGameDeadlineJobForcedOneTickBeforeTheDeadlineLeavesTheRoomActive()
+    public async Task AGameDeadlineJobDeliveredOneTickEarlyReturnsToTheQueueAndExpiresTheRoomAtTheDeadline()
     {
         await using var scene = await ActiveRoomAsync();
         var active = await scene.RoomFactsAsync();
         scene.Clock.SetUtcNow(scene.Deadline - OneTick);
         await scene.AnticipateGameDeadlineJobAsync();
 
-        var job = await scene.Service.ClaimJobAsync(Ct);
+        var early = await scene.Service.ClaimJobAsync(Ct);
 
-        Assert.NotNull(job);
-        Assert.Equal(("game-deadline", scene.Room), (job.Kind, job.AggregateId));
-        Assert.True(await scene.Service.CompleteJobAsync(job, Ct));
+        Assert.NotNull(early);
+        Assert.Equal(("game-deadline", scene.Room), (early.Kind, early.AggregateId));
+        Assert.False(await scene.Service.CompleteJobAsync(early, Ct));
         Assert.Equal(active, await scene.RoomFactsAsync());
+        Assert.Equal(new GameDeadlineJob("Pending", 0, scene.Deadline), await scene.GameDeadlineJobRowAsync());
+        Assert.Null(await scene.Service.ClaimJobAsync(Ct));
+
+        scene.Clock.SetUtcNow(scene.Deadline);
+        var onTime = await scene.Service.ClaimJobAsync(Ct);
+
+        Assert.NotNull(onTime);
+        Assert.Equal(early.Id, onTime.Id);
+        Assert.True(await scene.Service.CompleteJobAsync(onTime, Ct));
+        Assert.Equal(new RoomFacts("Expired", active.Version + 1, ActiveReservations: 0, Actions: 0), await scene.RoomFactsAsync());
         Assert.Equal("Done|1", await scene.GameDeadlineJobAsync());
+    }
+
+    /// <summary>
+    /// Duas conclusões simultâneas do mesmo job entregue cedo (o mesmo worker repetindo, ou outra instância com o mesmo token)
+    /// devolvem o job à fila uma vez só: a tentativa não é devolvida duas vezes e o prazo fica o do job.
+    /// </summary>
+    [Fact]
+    public async Task ConcurrentCompletionsOfAnEarlyGameDeadlineJobRequeueItOnce()
+    {
+        await using var scene = await ActiveRoomAsync();
+        var active = await scene.RoomFactsAsync();
+        scene.Clock.SetUtcNow(scene.Deadline - OneTick);
+        await scene.AnticipateGameDeadlineJobAsync();
+        var early = await scene.Service.ClaimJobAsync(Ct);
+        Assert.NotNull(early);
+
+        var results = await Task.WhenAll(
+            Task.Run(() => scene.Service.CompleteJobAsync(early, Ct), Ct),
+            Task.Run(() => scene.Service.CompleteJobAsync(early, Ct), Ct));
+
+        Assert.All(results, completed => Assert.False(completed));
+        Assert.Equal(active, await scene.RoomFactsAsync());
+        Assert.Equal(new GameDeadlineJob("Pending", 0, scene.Deadline), await scene.GameDeadlineJobRowAsync());
+    }
+
+    /// <summary>
+    /// O reagendamento obedece ao fencing: A faz o claim cedo e perde o lease; B faz o claim de novo, ainda antes do prazo, e
+    /// fica com o token seguinte. A conclusão atrasada de A não toca a linha de B; só a de B devolve o job à fila.
+    /// </summary>
+    [Fact]
+    public async Task AStaleCompletionOfAnEarlyGameDeadlineJobDoesNotRequeueTheNewClaim()
+    {
+        await using var scene = await ActiveRoomAsync();
+        var active = await scene.RoomFactsAsync();
+        scene.Clock.SetUtcNow(scene.Deadline - TimeSpan.FromMinutes(2));
+        await scene.AnticipateGameDeadlineJobAsync();
+        var first = await scene.Service.ClaimJobAsync(Ct);
+        Assert.NotNull(first);
+
+        scene.Clock.Advance(TimeSpan.FromSeconds(61));
+        var second = await scene.Service.ClaimJobAsync(Ct);
+
+        Assert.NotNull(second);
+        Assert.Equal((first.Id, first.Token + 1), (second.Id, second.Token));
+        Assert.False(await scene.Service.CompleteJobAsync(first, Ct));
+        Assert.Equal("InFlight|2", await scene.GameDeadlineJobAsync());
+
+        Assert.False(await scene.Service.CompleteJobAsync(second, Ct));
+        Assert.Equal(new GameDeadlineJob("Pending", 1, scene.Deadline), await scene.GameDeadlineJobRowAsync());
+        Assert.Equal(active, await scene.RoomFactsAsync());
     }
 
     /// <summary>
@@ -316,6 +376,8 @@ public sealed class GameDeadlineTests(PostgresFixture postgres)
 
     private sealed record RoomFacts(string State, long Version, long ActiveReservations, long Actions);
 
+    private sealed record GameDeadlineJob(string Status, int Attempts, DateTimeOffset AvailableAt);
+
     private sealed class Scene(DuoraWebFactory factory, string connectionString, NpgsqlDataSource source, FakeTimeProvider clock,
         ParticipationService service, ParticipationSeed seed, Guid room) : IAsyncDisposable
     {
@@ -364,6 +426,15 @@ public sealed class GameDeadlineTests(PostgresFixture postgres)
             await using var connection = await source.OpenConnectionAsync(Ct);
             await using var query = Command(connection, "select status||'|'||attempts from ops.jobs where kind='game-deadline' and aggregate_id=$1", room);
             return (string)(await query.ExecuteScalarAsync(Ct))!;
+        }
+
+        public async Task<GameDeadlineJob> GameDeadlineJobRowAsync()
+        {
+            await using var connection = await source.OpenConnectionAsync(Ct);
+            await using var query = Command(connection, "select status,attempts,available_at from ops.jobs where kind='game-deadline' and aggregate_id=$1", room);
+            await using var reader = await query.ExecuteReaderAsync(Ct);
+            Assert.True(await reader.ReadAsync(Ct));
+            return new(reader.GetString(0), reader.GetInt32(1), reader.GetFieldValue<DateTimeOffset>(2));
         }
 
         public async Task<RoomFacts> RoomFactsAsync()
