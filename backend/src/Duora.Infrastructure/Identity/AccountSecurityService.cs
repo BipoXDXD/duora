@@ -11,7 +11,7 @@ using Npgsql;
 namespace Duora.Infrastructure.Identity;
 
 /// <summary>Tetos da espera pela conta (seção <c>Identity</c>): a fila em memória e o lock no PostgreSQL.</summary>
-internal sealed class AccountLockOptions
+public sealed class AccountLockOptions
 {
     public const string Section = "Identity";
 
@@ -25,6 +25,13 @@ internal sealed class AccountLockOptions
 
     /// <summary>Teto da espera em memória, sem conexão (30 s, hipótese sujeita a medição).</summary>
     public TimeSpan AccountQueueTimeout { get; set; } = TimeSpan.FromSeconds(30);
+
+    /// <summary>
+    /// <c>Retry-After</c> de todo <see cref="AccountBusyException"/> da conta: o teto da fila, que a fila em memória já
+    /// usa. O lock no PostgreSQL só é disputado por conta existente; com o próprio teto no header, um e-mail
+    /// inexistente nunca receberia esse valor, e o 503 diria que a conta existe (TM-06, issue #468).
+    /// </summary>
+    public TimeSpan BusyRetryAfter => AccountQueueTimeout;
 
     public bool IsValid() => AccountLockTimeout >= Minimum && AccountLockTimeout <= Maximum
         && AccountQueueTimeout >= Minimum && AccountQueueTimeout <= Maximum;
@@ -56,7 +63,9 @@ internal sealed class IdentityShortWaitOptions
 /// (<see cref="AccountLockOptions.AccountQueueTimeout"/>), o lock no PostgreSQL
 /// (<see cref="AccountLockOptions.AccountLockTimeout"/>, <c>lock_timeout</c>, 55P03) ou o prazo total do login
 /// (<c>Identity:LoginTimeout</c>). A verificação que não entrou não gravou nada; o cliente pode tentar de novo depois
-/// de <see cref="RetryAfter"/>, que é o teto que estourou.
+/// de <see cref="RetryAfter"/>. Na fila, no lock e no prazo do login, ele é sempre
+/// <see cref="AccountLockOptions.BusyRetryAfter"/>, qualquer que seja o teto que estourou, para o header não revelar
+/// se a conta existe; outras esperas de conta autenticada usam o próprio valor curto.
 /// </summary>
 public sealed class AccountBusyException : Exception
 {
@@ -772,7 +781,7 @@ public sealed class AccountSecurityService
         }
         catch (Exception error) when (LockTimeoutIn(error) is { } timeout)
         {
-            throw new AccountBusyException(lockTimeout, timeout);
+            throw new AccountBusyException(_lock.BusyRetryAfter, timeout);
         }
 
         await SetLockTimeoutAsync(NoLockTimeout, cancellationToken);
@@ -783,14 +792,22 @@ public sealed class AccountSecurityService
         _db.Database.ExecuteSqlAsync($"select set_config('lock_timeout', {lockTimeout}, true)", cancellationToken);
 
     /// <summary>
-    /// O 55P03 chega cru de um comando e embrulhado pelo EF (falha transitória) de uma query; os dois são a espera
-    /// que passou do teto.
+    /// O 55P03 chega cru de um comando, embrulhado pelo EF (falha transitória) de uma query ou com uma
+    /// <see cref="NpgsqlException"/> no meio; em qualquer profundidade é a espera que passou do teto. Não reconhecido,
+    /// cairia no handler global com outro <c>Retry-After</c>, e o header voltaria a revelar a conta (issue #468).
     /// </summary>
-    private static PostgresException? LockTimeoutIn(Exception error) =>
-        (error as PostgresException ?? error.InnerException as PostgresException) is
-        { SqlState: PostgresErrorCodes.LockNotAvailable } timeout
-            ? timeout
-            : null;
+    internal static PostgresException? LockTimeoutIn(Exception error)
+    {
+        for (Exception? current = error; current is not null; current = current.InnerException)
+        {
+            if (current is PostgresException { SqlState: PostgresErrorCodes.LockNotAvailable } timeout)
+            {
+                return timeout;
+            }
+        }
+
+        return null;
+    }
 
     /// <summary>
     /// Registra o início do bloqueio quando a falha recém-contada levou ao teto uma conta que não estava bloqueada.
