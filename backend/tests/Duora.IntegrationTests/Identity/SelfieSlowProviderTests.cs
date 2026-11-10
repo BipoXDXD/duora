@@ -42,10 +42,18 @@ public sealed class SelfieSlowProviderTests(PostgresFixture postgres)
     private static readonly TimeSpan WholeTestCeiling = TimeSpan.FromSeconds(90);
 
     /// <summary>
-    /// Abaixo do teto do teste, para a leitura presa soltar a thread antes dele. A leitura solta vira erro do SDK, que o
-    /// worker trata como o corte; por isso ela deixa de contar como presa e o teste nunca a toma pelo corpo parado.
+    /// Acima dos 30 s que o harness e o <c>CutDispatchAsync</c> dão ao lote, e abaixo do teto do teste. A leitura solta
+    /// vira erro do SDK, que o worker trata como o corte: se ela soltasse junto com o lote, um corte que não veio poderia
+    /// passar por corte, conforme quem vencesse a corrida. Assim, sem o corte, o teto do lote falha primeiro e o estado
+    /// mostra a leitura ainda presa; ela só solta depois, para liberar a thread antes do teto do teste.
     /// </summary>
-    private static readonly TimeSpan StalledReadCeiling = CallCeiling;
+    private static readonly TimeSpan StalledReadCeiling = CallCeiling + CallCeiling;
+
+    /// <summary>
+    /// Abaixo do <see cref="CallCeiling"/> de quem espera o lote: sem o corte, o lote bloqueado falha primeiro, com a
+    /// mensagem que diz que o corte não veio, e não pelo teto genérico de fora.
+    /// </summary>
+    private static readonly TimeSpan BlockedCallerCeiling = TimeSpan.FromSeconds(15);
 
     /// <summary>Maior que a espera de 5 s até a próxima tentativa.</summary>
     private static readonly TimeSpan UntilNextTry = TimeSpan.FromSeconds(6);
@@ -358,7 +366,7 @@ public sealed class SelfieSlowProviderTests(PostgresFixture postgres)
         {
             using var cut = new CancellationTokenSource(CallTimeout, _time);
             Volatile.Write(ref blocked, true);
-            return cut.Token.WaitHandle.WaitOne(CallCeiling)
+            return cut.Token.WaitHandle.WaitOne(BlockedCallerCeiling)
                 ? Task.CompletedTask
                 : throw new TimeoutException("O relógio do teste não chegou ao corte enquanto o lote bloqueava quem o chamou.");
         }, () => Volatile.Read(ref blocked)).WaitAsync(CallCeiling, Ct);
@@ -368,7 +376,8 @@ public sealed class SelfieSlowProviderTests(PostgresFixture postgres)
     [Fact]
     public void AStalledSyncReadReleasedByItsCeilingNoLongerCountsAsStalled()
     {
-        using var body = new StalledStream(TimeSpan.FromMilliseconds(50));
+        const int ReadCeilingMilliseconds = 50;
+        using var body = new StalledStream(TimeSpan.FromMilliseconds(ReadCeilingMilliseconds));
 
         Assert.Throws<TimeoutException>(() => body.Read(new byte[1], 0, 1));
 
@@ -1170,7 +1179,9 @@ public sealed class SelfieSlowProviderTests(PostgresFixture postgres)
     /// Lote cuja chamada fica presa: espera a chamada chegar ao fornecedor, leva o relógio do teste até o corte e devolve
     /// o lote encerrado. Falha em vez de pendurar a suíte se o corte não vier. O lote começa em outra thread porque o SDK
     /// lê o corpo de forma síncrona antes de devolver a tarefa: quando todo await anterior termina na hora, a leitura
-    /// prenderia a thread do teste, a única que avança o relógio até o corte que a solta.
+    /// prenderia a thread do teste, a única que avança o relógio até o corte que a solta. O <c>Task.Run</c> resolve só
+    /// esse bloqueio da thread do teste. Não cobre a corrida em que o timer do <c>WaitAsync</c> da produção é armado
+    /// depois da chamada, com o prazo já consumido; essa corrida fica para outro PR.
     /// </summary>
     private Task CutDispatchAsync(DuoraWebFactory host, Func<bool> called) =>
         CutDispatchAsync(() => SelfieConcurrencyHarness.DispatchAsync(host, Ct), called);
