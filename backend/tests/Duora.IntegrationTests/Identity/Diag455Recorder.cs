@@ -17,6 +17,7 @@ internal sealed class Diag455Recorder : IDisposable
     private const int SamplePeriodMs = 250;
     private const int ProbePeriodMs = 1000;
     private const int ProbeTimeoutSeconds = 15;
+    private const int StallThresholdMs = 500;
 
     private readonly long _start = Stopwatch.GetTimestamp();
     private readonly string _test;
@@ -128,15 +129,48 @@ internal sealed class Diag455Recorder : IDisposable
 
     private void SampleLoop()
     {
+        var lastCompleted = ThreadPool.CompletedWorkItemCount;
+        var lastAdvance = Stopwatch.GetTimestamp();
+        var captured = false;
         while (!_stop.Token.WaitHandle.WaitOne(SamplePeriodMs))
         {
             var pending = ThreadPool.PendingWorkItemCount;
+            var completed = ThreadPool.CompletedWorkItemCount;
             var probe = PoolProbe();
             lock (_gate)
             {
                 _maxPending = Math.Max(_maxPending, pending);
             }
             Write("sampler", string.Create(CultureInfo.InvariantCulture, $"{probe} loadavg={LoadAverage()}"));
+
+            if (completed != lastCompleted)
+            {
+                lastCompleted = completed;
+                lastAdvance = Stopwatch.GetTimestamp();
+            }
+
+            var stalledMs = Stopwatch.GetElapsedTime(lastAdvance).TotalMilliseconds;
+            var stalled = pending > 0 && stalledMs >= StallThresholdMs;
+            if (!captured && (stalled || Diag455StackCapture.Forced))
+            {
+                captured = true;
+                CaptureStacks(string.Create(CultureInfo.InvariantCulture,
+                    $"completedStuckMs={stalledMs:F0} pending={pending} completed={completed} " +
+                    $"threads={ThreadPool.ThreadCount} forced={!stalled}"));
+            }
+        }
+    }
+
+    /// <summary>
+    /// Pilhas de todas as threads no meio da parada (#455): mostram onde as threads do pool estão presas. A captura
+    /// suspende o processo enquanto o dump é gravado, então só roda na primeira parada de cada teste.
+    /// </summary>
+    private void CaptureStacks(string reason)
+    {
+        Write("stacks", "capturing " + reason);
+        foreach (var line in Diag455StackCapture.TryCapture(reason))
+        {
+            Write("stacks", line);
         }
     }
 
