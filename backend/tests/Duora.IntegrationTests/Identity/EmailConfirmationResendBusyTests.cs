@@ -61,6 +61,62 @@ public sealed partial class EmailConfirmationResendBusyTests(PostgresFixture pos
         Assert.Equal(emailsBefore, await scenario.CountOutboxEventsAsync(pending.Email));
     }
 
+    /// <summary>
+    /// A desistência não gasta nada da conta: nem o orçamento persistente de emissões (3 por hora, já com 1 do
+    /// cadastro), nem o stamp, nem o código. Duas desistências seguidas e, solta a linha, o reenvio ainda emite.
+    /// </summary>
+    [Fact]
+    public async Task AResendThatGaveUpOnALockedAccountSpendsNothingFromTheNextOne()
+    {
+        await using var factory = ShortLockFactory();
+        var scenario = new IdentityScenario(postgres, factory);
+        var pending = await RegisterPendingAsync(factory);
+        await using (await RowHolder.HoldAsync(postgres.ConnectionString, pending.UserId))
+        {
+            for (var attempt = 0; attempt < 2; attempt++)
+            {
+                using var gaveUp = await ResendAsync(factory, pending.Email);
+            }
+        }
+        var emailsBefore = await scenario.CountOutboxEventsAsync(pending.Email);
+
+        using var released = await ResendAsync(factory, pending.Email);
+
+        Assert.Equal(System.Net.HttpStatusCode.Accepted, released.StatusCode);
+        Assert.Equal(emailsBefore + 1, await scenario.CountOutboxEventsAsync(pending.Email));
+    }
+
+    /// <summary>
+    /// Os outros desfechos do reenvio também saem idênticos ao e-mail inexistente: pendente que recebe código,
+    /// conta já confirmada e pendente com o orçamento de emissões esgotado.
+    /// </summary>
+    [Theory]
+    [InlineData("pending")]
+    [InlineData("confirmed")]
+    [InlineData("budget-exhausted")]
+    public async Task EveryResendOutcomeAnswersLikeAMissingEmail(string kind)
+    {
+        var ct = TestContext.Current.CancellationToken;
+        await using var factory = ShortLockFactory();
+        var email = kind == "confirmed"
+            ? (await new IdentityScenario(postgres, factory).CreateConfirmedAccountAsync()).Email
+            : (await RegisterPendingAsync(factory)).Email;
+        if (kind == "budget-exhausted")
+        {
+            // O cadastro gastou 1 das 3 emissões por hora; mais 2 reenvios esgotam o orçamento.
+            for (var resend = 0; resend < 2; resend++)
+            {
+                using var spent = await ResendAsync(factory, email);
+            }
+        }
+
+        using var outcome = await ResendAsync(factory, email);
+        var account = await DescribeAsync(outcome, ct);
+        using var missing = await ResendAsync(factory, IdentityScenario.NewEmail());
+
+        Assert.Equal(await DescribeAsync(missing, ct), account);
+    }
+
     /// <summary>O motivo fica só no log, em Warning, sem o e-mail: o cliente recebe o 202 de sempre.</summary>
     [Fact]
     public async Task ALockedPendingAccountLeavesAWarningWithoutTheEmail()
@@ -86,7 +142,13 @@ public sealed partial class EmailConfirmationResendBusyTests(PostgresFixture pos
         {
             // O reenvio espera só Identity:ShortWait. O teto do login fica curto para que, se o reenvio voltar a
             // usá-lo, estes testes continuem rápidos; quem pega a volta ao teto longo é EmailConfirmationResendTimingTests.
-            Settings = new Dictionary<string, string?> { ["Identity:AccountLockTimeout"] = "00:00:00.300" },
+            Settings = new Dictionary<string, string?>
+            {
+                ["Identity:AccountLockTimeout"] = "00:00:00.300",
+                // Os limites em memória responderiam 429 antes do caminho testado nos reenvios repetidos.
+                ["RateLimiting:RegisterPerIp:PermitLimit"] = "1000",
+                ["RateLimiting:RegisterPerAccount:PermitLimit"] = "1000",
+            },
         };
 
     /// <summary>Cadastro pendente com a senha certa: sem a trava, o reenvio emitiria um código novo.</summary>

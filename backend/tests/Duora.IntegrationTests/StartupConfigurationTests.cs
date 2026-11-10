@@ -1,4 +1,5 @@
 using Duora.Core.Media;
+using Duora.Infrastructure.Identity;
 using Duora.Infrastructure.Media;
 using Duora.Web;
 using Duora.Web.Identity;
@@ -198,6 +199,33 @@ public sealed class StartupConfigurationTests
             () => app.StartAsync(TestContext.Current.CancellationToken));
 
         Assert.Contains("Media:Storage:Provider", exception.Message, StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// A conta ocupada no reenvio (#470) espera a fila e depois o <c>lock_timeout</c>, cada um até
+    /// <c>Identity:ShortWait:LockTimeout</c>: 2 × 125 ms ainda cabem na metade do piso de 500 ms.
+    /// </summary>
+    [Fact]
+    public async Task WebAcceptsTheLongestIdentityShortWaitThatFitsTheResendFloor()
+    {
+        await using var app = BuildWeb("--Identity:ShortWait:LockTimeout=00:00:00.125");
+
+        var options = app.Services.GetRequiredService<IOptions<IdentityShortWaitOptions>>().Value;
+
+        Assert.Equal(TimeSpan.FromMilliseconds(125), options.LockTimeout);
+    }
+
+    [Theory]
+    [InlineData("00:00:00")]
+    [InlineData("00:00:00.126")]
+    public async Task WebDoesNotStartWithAnIdentityShortWaitOutsideTheResendFloor(string lockTimeout)
+    {
+        await using var app = BuildWeb($"--Identity:ShortWait:LockTimeout={lockTimeout}");
+
+        var exception = await Assert.ThrowsAsync<OptionsValidationException>(
+            () => app.StartAsync(TestContext.Current.CancellationToken));
+
+        Assert.Contains("Identity:ShortWait:LockTimeout", exception.Message, StringComparison.Ordinal);
     }
 
     private static readonly string[] CompleteS3Storage =
