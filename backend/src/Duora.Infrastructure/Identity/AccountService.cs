@@ -131,6 +131,9 @@ public sealed partial class AccountService
         {
             // Outra operação segura a conta além do teto do login. Desistir sem gravar nada, como o cadastro
             // limitado abaixo: quem chama recebe a mesma resposta de qualquer cadastro (TM-06), e só o log distingue.
+            // O teto vale para qualquer lock que o upsert espere, não só a linha de uma conta existente: um cadastro
+            // simultâneo do mesmo e-mail novo (o índice único faz este esperar o outro terminar) ou um DDL na tabela
+            // também caem aqui, e o e-mail inexistente recebe o 202 sem nada gravado. Quem cadastrou tenta de novo.
             LogRegistrationGaveUpOnAccountLock(_logger);
             return;
         }

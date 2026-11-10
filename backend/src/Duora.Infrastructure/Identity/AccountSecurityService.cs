@@ -720,6 +720,9 @@ public sealed class AccountSecurityService
     /// cadastro desiste sem gravar e responde como sempre). O teto vale só
     /// para essa espera: o <c>set_config(..., true)</c> duraria a transação inteira, e um comando seguinte que esperasse
     /// outra linha (as sessões, no reset) estouraria no meio da operação, como 500. Depois do lock, volta ao padrão.
+    /// Pré-condição: <paramref name="takeLock"/> roda no mesmo <see cref="DuoraDbContext"/> (o do escopo) e dentro de uma
+    /// transação já aberta por quem chama. Fora dela, o <c>set_config(..., true)</c> morre com o próprio comando e o lock
+    /// fica sem teto; em outro contexto, o teto vale para a conexão errada.
     /// </summary>
     internal async Task<T> WithLockCeilingAsync<T>(Func<Task<T>> takeLock, CancellationToken cancellationToken)
     {
