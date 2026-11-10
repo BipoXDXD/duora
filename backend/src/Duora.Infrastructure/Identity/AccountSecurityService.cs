@@ -40,18 +40,20 @@ public sealed class AccountLockOptions
 /// <summary>
 /// Espera curta pela conta (seção <c>Identity:ShortWait</c>) para as rotas públicas que respondem igual exista a conta
 /// ou não. O e-mail inexistente nem chega à trava e responde no piso de tempo; a conta ocupada tem de desistir dentro
-/// dele, ou a demora diria que ela existe (TM-06, #470). Vale para a fila em memória e para o <c>lock_timeout</c>.
+/// dele, ou a demora diria que ela existe (TM-06, #470). A fila em memória e o <c>lock_timeout</c> esperam, cada um, o
+/// teto inteiro, um depois do outro.
 /// </summary>
 internal sealed class IdentityShortWaitOptions
 {
     public const string Section = "Identity:ShortWait";
 
     private static readonly TimeSpan Minimum = TimeSpan.FromMilliseconds(1);
-    private static readonly TimeSpan Maximum = TimeSpan.FromMilliseconds(250);
+    private static readonly TimeSpan Maximum = TimeSpan.FromMilliseconds(125);
 
     /// <summary>
-    /// Teto da espera (100 ms). O máximo de 250 ms deixa metade do piso de 500 ms para o resto do pedido; um teto
-    /// maior voltaria a aparecer no tempo de resposta.
+    /// Teto de cada espera (100 ms). A conta ocupada pode esperar a fila e depois o lock, então o pior caso é o dobro:
+    /// com o máximo de 125 ms, 250 ms, metade do piso de 500 ms, e a outra metade fica para o resto do pedido. Um
+    /// teto maior voltaria a aparecer no tempo de resposta.
     /// </summary>
     public TimeSpan LockTimeout { get; set; } = TimeSpan.FromMilliseconds(100);
 

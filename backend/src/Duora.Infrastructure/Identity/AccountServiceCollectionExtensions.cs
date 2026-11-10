@@ -52,7 +52,7 @@ public static class AccountServiceCollectionExtensions
             .ValidateOnStart();
         services.AddOptions<IdentityShortWaitOptions>()
             .BindConfiguration(IdentityShortWaitOptions.Section)
-            .Validate(o => o.IsValid(), "Identity:ShortWait:LockTimeout precisa ficar entre 1 ms e 250 ms.")
+            .Validate(o => o.IsValid(), "Identity:ShortWait:LockTimeout precisa ficar entre 1 ms e 125 ms.")
             .ValidateOnStart();
         services.AddSingleton(provider => new AccountCheckGate(provider.GetRequiredService<IOptions<AccountLockOptions>>().Value));
         services.AddScoped(provider => new AccountSecurityService(
