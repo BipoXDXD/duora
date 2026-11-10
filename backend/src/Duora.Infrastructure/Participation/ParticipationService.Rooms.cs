@@ -220,7 +220,8 @@ public sealed partial class ParticipationService
         }
 
         // Ação nova depois do prazo recebe a mesma 404 da sala expirada, antes e depois do job. Replay e actionId reutilizado
-        // são decididos acima pelo motor, como antes do prazo, até o job rodar.
+        // são decididos acima pelo motor, como antes do prazo: na sala Active, até o job expirá-la; na sala Completed, para
+        // sempre, porque o job não muda a sala.
         if (IsAtOrAfterTheDeadline(result, session.Schedule))
         {
             return ParticipationOutcome.Unavailable;
