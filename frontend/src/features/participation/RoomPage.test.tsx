@@ -104,6 +104,36 @@ describe('localized room', () => {
     await user.click(screen.getByRole('button', { name: 'Recusar convite' }))
     await screen.findByText('Este encontro não está disponível.')
   })
+  // O 404 do aceite vencido não pode deixar o convite na tela até a próxima leitura periódica.
+  it('rereads the room right after a late acceptance fails', async () => {
+    let expired = false
+    server.use(
+      http.get(`${API}/me`, () => HttpResponse.json(withSessionContext(me))),
+      http.get(`${API}/rooms/room-late`, () =>
+        HttpResponse.json({
+          roomId: 'room-late',
+          state: expired ? 'Expired' : 'Invited',
+          version: '1',
+          communicationLanguage: 'pt',
+          communicationPolicyVersion: 1,
+          displayLocale: 'pt-BR',
+          invitationExpiresAt: '2026-10-19T18:00:00Z',
+          game: null,
+        }),
+      ),
+      http.post(`${API}/rooms/room-late/accept`, () => {
+        expired = true
+        return notFound('00-late')
+      }),
+    )
+    useAntiforgeryEndpoint()
+    const { user } = await renderApp('/rooms/room-late')
+    await user.click(await screen.findByRole('button', { name: 'Aceitar convite' }))
+    expect(await screen.findByText('Este encontro foi encerrado.')).toHaveAttribute('role', 'status')
+    expect(screen.queryByRole('button', { name: 'Aceitar convite' })).not.toBeInTheDocument()
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument()
+    expect(screen.getByText('Este encontro não está disponível.')).toHaveAttribute('role', 'status')
+  })
   // Saída, suspensão e bloqueio chegam como a mesma resposta; só o traceId difere entre elas.
   it.each(['00-saida', '00-suspensao', '00-bloqueio'])(
     'shows the same neutral notice for an unavailable room (%s)',

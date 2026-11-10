@@ -97,6 +97,7 @@ function RoomBody({
   const command = usePrivateMutation({
     mutationFn: (operation, action: 'accept' | 'reject' | 'exit') => roomCommand(operation, room.roomId, action),
     onSuccess: refresh,
+    onError: refresh,
   })
   const action = usePrivateMutation({
     mutationFn: (operation, choice: { type: 'choose-option' | 'skip-card'; cardId: string; optionId?: string }) =>
@@ -128,7 +129,7 @@ function RoomBody({
       </Alert>
       <p>{t('preferences.noTranslation')}</p>
       <p>{t('preferences.voiceOptional')}</p>
-      {command.isError ? <RequestFailureAlert failure={classifyRequestFailure(command.error)} /> : null}
+      {command.isError ? <RoomFailure failure={classifyRequestFailure(command.error)} /> : null}
       {action.isError ? <RequestFailureAlert failure={classifyRequestFailure(action.error)} /> : null}
       {routesAction.isError ? <RequestFailureAlert failure={classifyRequestFailure(routesAction.error)} /> : null}
       {invited ? (
