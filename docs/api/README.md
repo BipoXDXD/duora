@@ -109,9 +109,12 @@ versão não duplica o efeito; outro corpo é inválido. Conflito de versão ret
 Autorização, elegibilidade, saída e bloqueios são revalidados antes de reconhecer um reenvio. A rota de
 ações de uma experiência não pode operar a outra.
 
-Prazo de jogo, em `actions` e `routes-actions`: uma ação nova no prazo ou depois dele recebe `404 NOT_FOUND`,
-igual ao da sala `Expired`, antes e depois do job `game-deadline`, mesmo com `expectedVersion` desatualizado. Até
-o job rodar, o reenvio com o mesmo `actionId` segue a regra de replay acima (`204` ou `400`); depois, `404`.
+Prazo de jogo, em `actions` e `routes-actions`: uma ação nova **bem formada** no prazo ou depois dele recebe
+`404 NOT_FOUND`, igual ao da sala `Expired` e ao de uma sala inexistente, antes e depois do job `game-deadline`,
+mesmo com `expectedVersion` desatualizado. Bem formada quer dizer JSON válido, `actionId` não vazio,
+`expectedVersion` inteiro positivo e `type` conhecido com os campos que ele exige; payload malformado continua
+`400 VALIDATION_FAILED` no prazo ou depois dele, porque é recusado antes de a sala ser lida. Até o job rodar, o
+reenvio com o mesmo `actionId` segue a regra de replay acima (`204` ou `400`); depois, `404`.
 
 ## Idioma do documento aceito (issue #103)
 
