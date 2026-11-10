@@ -1,5 +1,5 @@
 import { withSessionContext } from '@/test/private-context'
-import { screen } from '@testing-library/react'
+import { screen, waitFor } from '@testing-library/react'
 import { http, HttpResponse } from 'msw'
 import { describe, expect, it } from 'vitest'
 import { API, server, useAntiforgeryEndpoint } from '@/test/msw'
@@ -94,6 +94,7 @@ function useLateActionRoom(kind: 'constellation' | 'routes', reply: () => Respon
 }
 
 const actionButton = { constellation: 'Parque', routes: 'Entendi' } as const
+const actionButtonInEnglish = { constellation: 'Parque', routes: 'Got it' } as const
 
 describe.each(['constellation', 'routes'] as const)('late %s action', (kind) => {
   // O 404 vale para sala Expired por qualquer motivo: o aviso diz só o que aconteceu com a escolha.
@@ -106,28 +107,57 @@ describe.each(['constellation', 'routes'] as const)('late %s action', (kind) => 
     expect(screen.getByText('O prazo terminou. Veja abaixo o progresso realizado.')).toBeInTheDocument()
     expect(screen.queryByRole('alert')).not.toBeInTheDocument()
   })
-})
 
-describe('late action notice', () => {
+  // Os controles do jogo somem com a sala Expired; o foco não pode cair no body (WCAG 2.4.3).
+  it('moves focus to the notice when the game controls go away', async () => {
+    useLateActionRoom(kind)
+    const { user } = await renderApp('/rooms/late')
+    await user.click(await screen.findByRole('button', { name: actionButton[kind] }))
+
+    const notice = await screen.findByText(NOT_SAVED['pt-BR'])
+    await waitFor(() => {
+      expect(notice).toHaveFocus()
+    })
+  })
+
   it('is translated to English', async () => {
-    useLateActionRoom('constellation')
+    useLateActionRoom(kind)
     const { user } = await renderApp('/rooms/late', undefined, 'en-US')
-    await user.click(await screen.findByRole('button', { name: 'Parque' }))
+    await user.click(await screen.findByRole('button', { name: actionButtonInEnglish[kind] }))
 
     expect(await screen.findByText(NOT_SAVED['en-US'])).toHaveAttribute('role', 'status')
     expect(screen.queryByRole('alert')).not.toBeInTheDocument()
   })
+})
 
+describe('late action notice', () => {
   it('goes away when the room state changes again', async () => {
     const snapshot = useLateActionRoom('constellation')
     const { user, queryClient } = await renderApp('/rooms/late')
     await user.click(await screen.findByRole('button', { name: 'Parque' }))
-    await screen.findByText(NOT_SAVED['pt-BR'])
+    expect(await screen.findByText(NOT_SAVED['pt-BR'])).toBeInTheDocument()
 
     snapshot.state = 'Completed'
     await queryClient.refetchQueries()
 
     expect(await screen.findByText('Experiência concluída.')).toBeInTheDocument()
+    expect(screen.queryByText(NOT_SAVED['pt-BR'])).not.toBeInTheDocument()
+  })
+
+  // A falha perde a validade na primeira mudança de estado depois de aparecer, mesmo que a sala volte ao estado dela.
+  it('stays away when the room returns to the state of the failure', async () => {
+    const snapshot = useLateActionRoom('constellation')
+    const { user, queryClient } = await renderApp('/rooms/late')
+    await user.click(await screen.findByRole('button', { name: 'Parque' }))
+    expect(await screen.findByText(NOT_SAVED['pt-BR'])).toBeInTheDocument()
+
+    snapshot.state = 'Completed'
+    await queryClient.refetchQueries()
+    await screen.findByText('Experiência concluída.')
+    snapshot.state = 'Expired'
+    await queryClient.refetchQueries()
+
+    expect(await screen.findByText('O prazo terminou. Veja abaixo o progresso realizado.')).toBeInTheDocument()
     expect(screen.queryByText(NOT_SAVED['pt-BR'])).not.toBeInTheDocument()
   })
 
@@ -143,5 +173,23 @@ describe('late action notice', () => {
 
     expect(await screen.findByRole('alert')).toBeInTheDocument()
     expect(screen.queryByText(NOT_SAVED['pt-BR'])).not.toBeInTheDocument()
+  })
+
+  it('drops the error alert when the room state changes', async () => {
+    const snapshot = useLateActionRoom('constellation', () =>
+      HttpResponse.json(
+        { type: 'urn:duora:problem:internal', title: 'Internal', status: 500, traceId: '00-boom' },
+        { status: 500, headers: { 'Content-Type': 'application/problem+json' } },
+      ),
+    )
+    const { user, queryClient } = await renderApp('/rooms/late')
+    await user.click(await screen.findByRole('button', { name: 'Parque' }))
+    expect(await screen.findByRole('alert')).toBeInTheDocument()
+
+    snapshot.state = 'Expired'
+    await queryClient.refetchQueries()
+
+    expect(await screen.findByText('O prazo terminou. Veja abaixo o progresso realizado.')).toBeInTheDocument()
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument()
   })
 })
