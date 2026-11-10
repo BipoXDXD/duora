@@ -109,10 +109,10 @@ versão não duplica o efeito; outro corpo é inválido. Conflito de versão ret
 Autorização, elegibilidade, saída e bloqueios são revalidados antes de reconhecer um reenvio. A rota de
 ações de uma experiência não pode operar a outra.
 
-Prazo de jogo, em `actions` e `routes-actions`: numa sala ainda `Active`, uma ação nova **bem formada** no prazo ou
-depois dele recebe `404 NOT_FOUND`, igual ao da sala `Expired` e ao de uma sala inexistente, antes e depois do job
-`game-deadline`, mesmo com `expectedVersion` desatualizado. A sala `Completed` fica fora dessa regra: ação nova nela
-recebe `400 VALIDATION_FAILED`, antes e depois do prazo (lacuna conhecida, ADR-0054). Payload malformado é recusado antes de a sala ser lida, no prazo ou
+Prazo de jogo, em `actions` e `routes-actions`: numa sala ainda `Active` ou já `Completed`, uma ação nova **bem
+formada** no prazo ou depois dele recebe `404 NOT_FOUND`, igual ao da sala `Expired` e ao de uma sala inexistente,
+antes e depois do job `game-deadline`, mesmo com `expectedVersion` desatualizado. Antes do prazo, a ação nova numa sala
+`Completed` segue `400 VALIDATION_FAILED` (ADR-0054, emenda da issue #463). Payload malformado é recusado antes de a sala ser lida, no prazo ou
 depois dele, com a mesma resposta de uma sala inexistente. JSON inválido ou campo de tipo errado (como `actionId`
 que não é GUID) falha no model binding e recebe `400 INVALID_REQUEST` (`"actionId":""` e `"actionId":null` não são
 GUID e também recebem `INVALID_REQUEST`). Os demais casos recebem `400 VALIDATION_FAILED`: `actionId` ausente ou
