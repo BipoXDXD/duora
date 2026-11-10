@@ -37,23 +37,24 @@ public sealed class SelfieSlowProviderTests(PostgresFixture postgres)
 
     /// <summary>
     /// Teto em tempo real do teste inteiro, descarte do host incluído. Fica acima dos tetos internos, que falham antes e
-    /// apontam a causa; o teste mais lento desta classe levou cerca de 10 s na CI.
+    /// apontam a causa; o teste mais lento desta classe levou cerca de 10 s na CI. Derivado do <see cref="CallCeiling"/>
+    /// para continuar acima dele se ele mudar.
     /// </summary>
-    private static readonly TimeSpan WholeTestCeiling = TimeSpan.FromSeconds(90);
+    private static readonly TimeSpan WholeTestCeiling = CallCeiling * 3;
 
     /// <summary>
-    /// Acima dos 30 s que o harness e o <c>CutDispatchAsync</c> dão ao lote, e abaixo do teto do teste. A leitura solta
-    /// vira erro do SDK, que o worker trata como o corte: se ela soltasse junto com o lote, um corte que não veio poderia
-    /// passar por corte, conforme quem vencesse a corrida. Assim, sem o corte, o teto do lote falha primeiro e o estado
-    /// mostra a leitura ainda presa; ela só solta depois, para liberar a thread antes do teto do teste.
+    /// Só solta a thread que a leitura síncrona do corpo parado prende, para ela não ficar retida para sempre quando o
+    /// corpo nunca é descartado. Solta depois do teto do lote, nunca antes: a leitura solta vira erro do SDK, que o worker
+    /// trata como o corte, e um corte que não veio passaria por corte. O dobro do <see cref="CallCeiling"/> cobre a
+    /// leitura começar antes de o teste passar a esperar o lote, e a derivação mantém essa ordem se o teto do lote mudar.
     /// </summary>
-    private static readonly TimeSpan StalledReadCeiling = CallCeiling + CallCeiling;
+    private static readonly TimeSpan StalledReadCeiling = CallCeiling * 2;
 
     /// <summary>
     /// Abaixo do <see cref="CallCeiling"/> de quem espera o lote: sem o corte, o lote bloqueado falha primeiro, com a
     /// mensagem que diz que o corte não veio, e não pelo teto genérico de fora.
     /// </summary>
-    private static readonly TimeSpan BlockedCallerCeiling = TimeSpan.FromSeconds(15);
+    private static readonly TimeSpan BlockedCallerCeiling = CallCeiling / 2;
 
     /// <summary>Maior que a espera de 5 s até a próxima tentativa.</summary>
     private static readonly TimeSpan UntilNextTry = TimeSpan.FromSeconds(6);
@@ -1180,8 +1181,9 @@ public sealed class SelfieSlowProviderTests(PostgresFixture postgres)
     /// o lote encerrado. Falha em vez de pendurar a suíte se o corte não vier. O lote começa em outra thread porque o SDK
     /// lê o corpo de forma síncrona antes de devolver a tarefa: quando todo await anterior termina na hora, a leitura
     /// prenderia a thread do teste, a única que avança o relógio até o corte que a solta. O <c>Task.Run</c> resolve só
-    /// esse bloqueio da thread do teste. Não cobre a corrida em que o timer do <c>WaitAsync</c> da produção é armado
-    /// depois da chamada, com o prazo já consumido; essa corrida fica para outro PR.
+    /// esse bloqueio da thread do teste. Não cobre a corrida em que o timer do <c>WaitAsync</c> da produção só é armado
+    /// depois que a chamada devolve a tarefa, com o prazo já consumido: o instante em que esse timer nasce é decidido
+    /// pela produção, e este helper não o controla.
     /// </summary>
     private Task CutDispatchAsync(DuoraWebFactory host, Func<bool> called) =>
         CutDispatchAsync(() => SelfieConcurrencyHarness.DispatchAsync(host, Ct), called);
