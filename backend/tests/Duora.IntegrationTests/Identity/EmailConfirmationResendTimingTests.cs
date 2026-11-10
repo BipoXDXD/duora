@@ -5,9 +5,13 @@ using Npgsql;
 
 namespace Duora.IntegrationTests.Identity;
 
-/// <summary>A medida de tempo do reenvio roda sem outras classes em paralelo, para o ruído da suíte não entrar nela.</summary>
-[CollectionDefinition(nameof(ResendTimingMeasurement), DisableParallelization = true)]
-public sealed class ResendTimingMeasurement;
+/// <summary>
+/// Os testes de trava do reenvio rodam sem outras classes em paralelo: a medida de tempo não pode levar o ruído da
+/// suíte, e as esperas deles pela linha de <c>identity.users</c> entrariam na contagem de conexões esperando de
+/// <c>AccountLockTimeoutTests</c>, que lê o banco compartilhado inteiro.
+/// </summary>
+[CollectionDefinition(nameof(ResendLockSerial), DisableParallelization = true)]
+public sealed class ResendLockSerial;
 
 /// <summary>
 /// Issue #470: além do status, o tempo do reenvio (API-A03) não pode dizer que a conta existe e está travada. O e-mail
@@ -20,7 +24,7 @@ public sealed class ResendTimingMeasurement;
 /// O teto do login fica em 1,5 s, acima do piso com folga (o padrão de 5 s só deixaria o teste lento): se o reenvio
 /// voltasse a esperá-lo, cada amostra da conta travada passaria de 1,5 s. A espera curta do reenvio fica no padrão.
 /// </remarks>
-[Collection(nameof(ResendTimingMeasurement))]
+[Collection(nameof(ResendLockSerial))]
 public sealed class EmailConfirmationResendTimingTests : IAsyncDisposable
 {
     private const string Requests = "/api/v1/auth/email-confirmation-requests";

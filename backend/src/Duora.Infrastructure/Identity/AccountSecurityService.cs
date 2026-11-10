@@ -31,6 +31,27 @@ internal sealed class AccountLockOptions
 }
 
 /// <summary>
+/// Espera curta pela conta (seção <c>Identity:ShortWait</c>) para as rotas públicas que respondem igual exista a conta
+/// ou não. O e-mail inexistente nem chega à trava e responde no piso de tempo; a conta ocupada tem de desistir dentro
+/// dele, ou a demora diria que ela existe (TM-06, #470). Vale para a fila em memória e para o <c>lock_timeout</c>.
+/// </summary>
+internal sealed class IdentityShortWaitOptions
+{
+    public const string Section = "Identity:ShortWait";
+
+    private static readonly TimeSpan Minimum = TimeSpan.FromMilliseconds(1);
+    private static readonly TimeSpan Maximum = TimeSpan.FromMilliseconds(250);
+
+    /// <summary>
+    /// Teto da espera (100 ms). O máximo de 250 ms deixa metade do piso de 500 ms para o resto do pedido; um teto
+    /// maior voltaria a aparecer no tempo de resposta.
+    /// </summary>
+    public TimeSpan LockTimeout { get; set; } = TimeSpan.FromMilliseconds(100);
+
+    public bool IsValid() => LockTimeout >= Minimum && LockTimeout <= Maximum;
+}
+
+/// <summary>
 /// A conta está ocupada por outra verificação além de um teto: a fila em memória
 /// (<see cref="AccountLockOptions.AccountQueueTimeout"/>), o lock no PostgreSQL
 /// (<see cref="AccountLockOptions.AccountLockTimeout"/>, <c>lock_timeout</c>, 55P03) ou o prazo total do login
@@ -237,6 +258,7 @@ public sealed class AccountSecurityService
     private readonly AuditTrail _audit;
     private readonly TimeProvider _time;
     private readonly AccountLockOptions _lock;
+    private readonly IdentityShortWaitOptions _shortWait;
     private readonly AccountCheckGate _gate;
 
     internal AccountSecurityService(
@@ -244,9 +266,11 @@ public sealed class AccountSecurityService
         UserManager<DuoraUser> users,
         TimeProvider time,
         AccountLockOptions accountLock,
+        IdentityShortWaitOptions shortWait,
         AccountCheckGate gate)
     {
         _gate = gate;
+        _shortWait = shortWait;
         _db = db;
         _users = users;
         _audit = new AuditTrail(db, time);
@@ -280,12 +304,25 @@ public sealed class AccountSecurityService
     {
         ArgumentNullException.ThrowIfNull(user);
         var enteringTurn = _gate.EnterAsync(user.Id, _lock.AccountQueueTimeout, cancellationToken);
-        return OpenCheckAsync(user, enteringTurn, cancellationToken);
+        return OpenCheckAsync(user, enteringTurn, _lock.AccountLockTimeout, cancellationToken);
+    }
+
+    /// <summary>
+    /// Como <see cref="LockAccountAsync"/>, mas a fila e o lock esperam só <see cref="IdentityShortWaitOptions.LockTimeout"/>:
+    /// para a rota pública que desiste em silêncio da conta ocupada e precisa responder dentro do piso de tempo.
+    /// </summary>
+    /// <exception cref="AccountBusyException">A espera curta estourou; a transação não gravou nada.</exception>
+    public Task<AccountCheck> LockAccountBrieflyAsync(DuoraUser user, CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(user);
+        var enteringTurn = _gate.EnterAsync(user.Id, _shortWait.LockTimeout, cancellationToken);
+        return OpenCheckAsync(user, enteringTurn, _shortWait.LockTimeout, cancellationToken);
     }
 
     private async Task<AccountCheck> OpenCheckAsync(
         DuoraUser user,
         Task<IAsyncDisposable> enteringTurn,
+        TimeSpan lockTimeout,
         CancellationToken cancellationToken)
     {
         var turn = await enteringTurn;
@@ -294,7 +331,7 @@ public sealed class AccountSecurityService
             var transaction = await _db.Database.BeginTransactionAsync(cancellationToken);
             try
             {
-                await LockAndReloadAsync(user, cancellationToken);
+                await LockAndReloadAsync(user, lockTimeout, cancellationToken);
             }
             catch
             {
@@ -693,7 +730,7 @@ public sealed class AccountSecurityService
     {
         var user = await _users.FindByIdAsync(userId.ToString("D"))
             ?? throw new InvalidOperationException("Conta da sessão não existe mais.");
-        await LockAndReloadAsync(user, cancellationToken);
+        await LockAndReloadAsync(user, _lock.AccountLockTimeout, cancellationToken);
         return user;
     }
 
@@ -704,12 +741,13 @@ public sealed class AccountSecurityService
     /// de verificações da mesma conta seguraria conexões do pool até o timeout do comando.
     /// </summary>
     /// <exception cref="AccountBusyException">A espera passou do teto; a transação não gravou nada.</exception>
-    private async Task LockAndReloadAsync(DuoraUser user, CancellationToken cancellationToken)
+    private async Task LockAndReloadAsync(DuoraUser user, TimeSpan lockTimeout, CancellationToken cancellationToken)
     {
         await WithLockCeilingAsync(
             () => _db.Database.ExecuteSqlAsync(
                 $"select 1 from identity.users where id = {user.Id} for no key update",
                 cancellationToken),
+            lockTimeout,
             cancellationToken);
         await _db.Entry(user).ReloadAsync(cancellationToken);
     }
@@ -720,9 +758,13 @@ public sealed class AccountSecurityService
     /// para essa espera: o <c>set_config(..., true)</c> duraria a transação inteira, e um comando seguinte que esperasse
     /// outra linha (as sessões, no reset) estouraria no meio da operação, como 500. Depois do lock, volta ao padrão.
     /// </summary>
-    private async Task<T> WithLockCeilingAsync<T>(Func<Task<T>> takeLock, CancellationToken cancellationToken)
+    private Task<T> WithLockCeilingAsync<T>(Func<Task<T>> takeLock, CancellationToken cancellationToken) =>
+        WithLockCeilingAsync(takeLock, _lock.AccountLockTimeout, cancellationToken);
+
+    private async Task<T> WithLockCeilingAsync<T>(
+        Func<Task<T>> takeLock, TimeSpan lockTimeout, CancellationToken cancellationToken)
     {
-        await SetLockTimeoutAsync($"{(long)_lock.AccountLockTimeout.TotalMilliseconds}ms", cancellationToken);
+        await SetLockTimeoutAsync($"{(long)lockTimeout.TotalMilliseconds}ms", cancellationToken);
         T locked;
         try
         {
@@ -730,7 +772,7 @@ public sealed class AccountSecurityService
         }
         catch (Exception error) when (LockTimeoutIn(error) is { } timeout)
         {
-            throw new AccountBusyException(_lock.AccountLockTimeout, timeout);
+            throw new AccountBusyException(lockTimeout, timeout);
         }
 
         await SetLockTimeoutAsync(NoLockTimeout, cancellationToken);

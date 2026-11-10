@@ -175,7 +175,8 @@ public sealed class AccountService
             return;
         }
 
-        await using var check = await _security.LockAccountAsync(user, cancellationToken);
+        // Espera curta: a conta ocupada desiste dentro do piso de tempo da rota, como o e-mail inexistente (#470).
+        await using var check = await _security.LockAccountBrieflyAsync(user, cancellationToken);
         var passwordMatches = false;
         if (user.PasswordHash is { } passwordHash)
         {

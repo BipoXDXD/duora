@@ -21,9 +21,13 @@ e o e-mail inexistente sai antes, então um 503 ali diria que a conta existe (TM
 código, stamp, orçamento nem outbox, e o motivo fica só num Warning sem e-mail nem id. Quem precisar do código
 repete o pedido. `EmailConfirmationResendBusyTests` compara status, corpo sem `traceId` e headers (menos `Date` e
 `Set-Cookie`) da conta pendente travada com os de um e-mail inexistente, e confere a outbox e o Warning.
-O tempo não é igualado: a conta travada só responde depois do teto que estourou (`AccountLockTimeout`, 5 s no
-padrão, ou `AccountQueueTimeout`), acima do piso de 500 ms do e-mail inexistente. Esse canal exige provocar a
-trava, o que o atacante não faz sozinho, e fica fora da #470.
+O tempo também não distingue: o reenvio não espera o teto do login (`Identity:AccountLockTimeout`, 5 s), que
+passaria do piso e diria pela demora que a conta existe; o jitter de 100 ms não esconde segundos numa amostra só.
+A fila por conta e o `lock_timeout` esperam só `Identity:ShortWait:LockTimeout` (100 ms; validado entre 1 ms e
+250 ms no boot), e a desistência cai dentro do piso. `EmailConfirmationResendTimingTests` compara a mediana de 11
+amostras dos dois casos, com limite de 100 ms (medido: +10,8 ms; voltando ao teto longo, +975,8 ms com o teto do
+login em 1,5 s). Pedido cujo trabalho passa do piso (hash lento sob carga) ainda pode diferir; o piso só iguala o
+que fica abaixo dele.
 
 Somente PendingEmail admissível e com senha correta pode usar o orçamento persistente de emissão3/h,
 compartilhado com o cadastro e preservado após restart. Reenvio não renova CreatedAt/limite72h. A mesma trava

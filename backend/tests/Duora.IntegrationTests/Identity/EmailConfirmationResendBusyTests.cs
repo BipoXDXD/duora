@@ -9,6 +9,7 @@ namespace Duora.IntegrationTests.Identity;
 /// conta ocupada respondesse 503, o status viraria oráculo de existência (TM-06).
 /// </summary>
 [Trait("Threat", "TM-06")]
+[Collection(nameof(ResendLockSerial))]
 public sealed partial class EmailConfirmationResendBusyTests(PostgresFixture postgres)
 {
     private const string Requests = "/api/v1/auth/email-confirmation-requests";
@@ -83,7 +84,8 @@ public sealed partial class EmailConfirmationResendBusyTests(PostgresFixture pos
     private DuoraWebFactory ShortLockFactory(CapturingLoggerProvider? logs = null) =>
         new(postgres.ConnectionString, logs)
         {
-            // Teto curto para o 55P03 chegar logo; o padrão (5 s) só deixaria o teste mais lento.
+            // O reenvio espera só Identity:ShortWait. O teto do login fica curto para que, se o reenvio voltar a
+            // usá-lo, estes testes continuem rápidos; quem pega a volta ao teto longo é EmailConfirmationResendTimingTests.
             Settings = new Dictionary<string, string?> { ["Identity:AccountLockTimeout"] = "00:00:00.300" },
         };
 
