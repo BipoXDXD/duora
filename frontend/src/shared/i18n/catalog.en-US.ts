@@ -156,6 +156,7 @@ export const en = {
   'participation.completed': 'Experience completed.',
   'participation.closed': 'This encounter has ended.',
   'participation.unavailable': 'This encounter is not available.',
+  'participation.invitationUnavailable': 'This invitation is no longer available.',
   'participation.awaitingPartner': 'Waiting for the other person. Your choice stays private.',
   'participation.choiceNotSaved': "Your last choice wasn't saved.",
   'participation.skip': 'Skip card',

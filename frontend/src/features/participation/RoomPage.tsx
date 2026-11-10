@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { PrivateAudioPlayer } from './PrivateAudioPlayer'
 import { usePrivateOperation } from '@/features/session/private-operation'
 import { usePrivateMutation } from '@/features/session/private-mutation'
@@ -87,6 +87,34 @@ function RoomFailure({ failure }: { readonly failure: RequestFailure }): React.J
 }
 
 /**
+ * Aceite ou recusa recusados com 404: o convite expirou ou a sala acabou, por qualquer motivo. Uma só mensagem, sem
+ * motivo, no lugar dos botões que sumiram; outras falhas seguem como alerta.
+ */
+function InvitationFailure({ error }: { readonly error: Error | null }): React.JSX.Element {
+  const { t } = useI18n()
+  const failure = classifyRequestFailure(error)
+  if (failure.kind === 'problem' && failure.status === NOT_FOUND) {
+    return <FocusWhenLostStatus>{t('participation.invitationUnavailable')}</FocusWhenLostStatus>
+  }
+  return <RequestFailureAlert failure={failure} />
+}
+
+/** Aviso que substitui o controle focado: recebe o foco só se ele caiu no body, sem tirar quem lê em outro lugar. */
+function FocusWhenLostStatus({ children }: { readonly children: React.ReactNode }): React.JSX.Element {
+  const ref = useRef<HTMLParagraphElement>(null)
+  useEffect(() => {
+    if (document.activeElement === null || document.activeElement === document.body) {
+      ref.current?.focus()
+    }
+  }, [])
+  return (
+    <p ref={ref} role="status" tabIndex={-1}>
+      {children}
+    </p>
+  )
+}
+
+/**
  * Ação de jogo recusada com 404: a sala já não aceita escolhas (`Expired` por qualquer motivo). O aviso diz só o que
  * aconteceu com a escolha, sem afirmar o motivo; a releitura mostra o estado da sala.
  */
@@ -144,14 +172,20 @@ function RoomBody({
     onSuccess: refresh,
     onError: refresh,
   })
-  const failedNow = useFailuresOfCurrentState(room.state, [action, routesAction])
+  const failedNow = useFailuresOfCurrentState(room.state, [command, action, routesAction])
   const state = room.state.toLowerCase()
   const invited = state === 'invited' || state === 'ready'
   const active = state === 'active'
   const gamePanel = useGameFocus(active)
   const completed = state === 'completed'
   const expiredGame = state === 'expired' && (room.game !== null || room.routesGame !== null)
-  const closed = !invited && !active && !completed && !expiredGame
+  const answeringInvitation = command.variables === 'accept' || command.variables === 'reject'
+  // A resposta ao convite só vale enquanto a sala não começou nem terminou com jogo: depois disso a tela já explica.
+  const invitationFailed = answeringInvitation && failedNow(command) && !active && !completed && !expiredGame
+  const exitFailed = command.variables === 'exit' && failedNow(command)
+  // Uma só mensagem: enquanto a resposta ao convite está em curso ou falhou, ela ocupa o lugar de "encerrada".
+  const answerExplainsRoom = answeringInvitation && (command.isPending || invitationFailed)
+  const closed = !invited && !active && !completed && !expiredGame && !answerExplainsRoom
   const deadline = room.game?.deadline ?? room.routesGame?.deadline
   const busy = command.isPending || action.isPending || routesAction.isPending
   const card = room.game?.currentCard
@@ -164,7 +198,8 @@ function RoomBody({
       </Alert>
       <p>{t('preferences.noTranslation')}</p>
       <p>{t('preferences.voiceOptional')}</p>
-      {command.isError ? <RoomFailure failure={classifyRequestFailure(command.error)} /> : null}
+      {invitationFailed ? <InvitationFailure error={command.error} /> : null}
+      {exitFailed ? <RoomFailure failure={classifyRequestFailure(command.error)} /> : null}
       {failedNow(action) ? <ChoiceFailure error={action.error} /> : null}
       {failedNow(routesAction) ? <ChoiceFailure error={routesAction.error} /> : null}
       {invited ? (
