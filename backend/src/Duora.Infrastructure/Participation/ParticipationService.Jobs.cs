@@ -142,10 +142,14 @@ public sealed partial class ParticipationService
 
     /// <summary>
     /// Nenhum job de participação (<c>build-round</c>, <c>close-round</c>, <c>expire-invite</c>, <c>game-deadline</c>)
-    /// entregue antes do <c>due_at</c> pode ser consumido: a conclusão veria o prazo ainda aberto e nada o reagendaria. Como o claim e a conclusão usam o mesmo relógio, isso
-    /// só acontece com <c>available_at</c> mexido à mão ou com o relógio do processo recuando entre o claim e a conclusão.
-    /// Volta a <c>Pending</c> no próprio <c>due_at</c>, devolvendo a tentativa do claim. Um só comando com o fencing do
-    /// claim: só o dono do token o devolve, uma vez.
+    /// entregue antes do <c>due_at</c> pode ser consumido: a conclusão veria o prazo ainda aberto e nada o reagendaria.
+    /// Como o claim e a conclusão usam o mesmo relógio, isso só acontece com <c>available_at</c> mexido à mão ou com o
+    /// relógio do processo recuando entre o claim e a conclusão. Volta a <c>Pending</c> no próprio <c>due_at</c>,
+    /// devolvendo a tentativa do claim. Um só comando com o fencing do claim: só o dono do token o devolve, uma vez.
+    /// A decisão de reagendar e este UPDATE usam o mesmo <c>now</c>, mas a conclusão normal relê o relógio (no UPDATE
+    /// de <c>Done</c>, nos fechamentos e em <c>BuildRoundAsync</c>). Lacuna conhecida: se o relógio recuar para antes do
+    /// <c>due_at</c> entre a decisão e essas leituras, o job ainda pode virar <c>Done</c> sem efeito. Fecha passando
+    /// <c>now</c> adiante, num follow-up.
     /// </summary>
     private static Task<int> RequeueEarlyJobAsync(NpgsqlConnection connection, ParticipationJob job, DateTimeOffset now, CancellationToken ct) =>
         Execute(connection, """
