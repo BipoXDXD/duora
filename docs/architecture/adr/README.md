@@ -61,6 +61,7 @@ da spec. A partir do 0016, os ADRs resolvem lacunas encontradas na spec.
 | [0050](0050-foto-de-perfil-para-outra-pessoa-api-p04.md) | Foto de perfil vista por outra pessoa (API-P04): momento, contexto, faixa etária e escopo | Proposed; escolhas D1 a D5 registradas em 06/11/2026; contrato, migração, risco R e política de privacidade com o dono | Decisão do dono, Connections integrado ou issue própria do P04 |
 | [0051](0051-papel-postgres-na-sonda-da-selfie.md) | Papel `postgres` na sonda do fornecedor da selfie, como exceção à spec 10 | Proposed | Troca da imagem do PostgreSQL ou mudança do `pg_hba` |
 | [0052](0052-saida-da-sala-sem-elegibilidade.md) | Saída da sala (API-R04) sem exigir elegibilidade (INV-01); não muda a API-R10 do ADR-0028 | Proposed | Novo estado de conta com sala aberta, novo efeito da saída ou implementação da voz |
+| [0053](0053-retirada-voluntaria-da-inscricao.md) | Retirada voluntária da inscrição (API-E04) com histórico, ampliando `ck_registrations_withdrawal` | Proposed | Retirada com evento em andamento, nova origem de retirada ou aviso de promoção (#320) |
 
 ## Regras
 
