@@ -163,6 +163,25 @@ public sealed partial class AccountBusyLogTests(PostgresFixture postgres)
         Assert.Equal("login_deadline", tag.Value);
     }
 
+    public static TheoryData<AccountBusyReason> NamedReasons =>
+        [.. Enum.GetValues<AccountBusyReason>().Where(reason => reason != AccountBusyReason.Other)];
+
+    /// <summary>Motivo novo no enum precisa de rótulo próprio; sem ele, cairia em <c>other</c> em silêncio.</summary>
+    [Theory]
+    [MemberData(nameof(NamedReasons))]
+    public void EveryNamedReasonHasItsOwnTag(AccountBusyReason reason)
+    {
+        using var services = new ServiceCollection().AddMetrics().BuildServiceProvider();
+        var meters = services.GetRequiredService<IMeterFactory>();
+        using var counter = new AccountBusyCounter(meters);
+        var metrics = new AccountBusyMetrics(meters);
+
+        metrics.Record(reason);
+
+        var tag = Assert.Single(Assert.Single(counter.Measurements).Tags);
+        Assert.NotEqual("other", tag.Value);
+    }
+
     /// <summary>
     /// Um motivo fora do enum (versão nova lançando, conversão errada) não pode estourar dentro do handler: o 503
     /// viraria 500. Conta como <c>other</c>.

@@ -181,7 +181,9 @@ public sealed class AccountLockTimeoutTests : IAsyncDisposable
 
         var responses = await Task.WhenAll(logins);
         Assert.All(responses, response => Assert.Equal(HttpStatusCode.ServiceUnavailable, response.StatusCode));
-        Assert.InRange(mostWaiting, 0, 1);
+        // Exatamente 1: o primeiro da fila em memória espera o lock; os outros esperam na fila, sem conexão. 0 seria a
+        // consulta quebrada (ou ninguém chegou ao banco), e o teste não provaria nada.
+        Assert.Equal(1, mostWaiting);
         foreach (var response in responses)
         {
             response.Dispose();
