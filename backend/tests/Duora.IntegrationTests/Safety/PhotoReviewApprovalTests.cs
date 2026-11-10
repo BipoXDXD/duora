@@ -1138,29 +1138,42 @@ public sealed partial class PhotoReviewApprovalTests(PostgresFixture postgres) :
     private async Task<PhotoReviewActor> ActorAsync(string role, Guid? userId = null)
     {
         var user = userId ?? Guid.NewGuid();
-        var session = Guid.NewGuid();
-        var now = _time.GetUtcNow();
-        var hash = SHA256.HashData(session.ToByteArray());
-        var ticket = new byte[] { 1 };
         var policy = role == AccountRoles.Participant ? "Normal" : "Administrative";
         await using var db = Context();
         await using var transaction = await db.Database.BeginTransactionAsync(Ct);
         await db.Database.ExecuteSqlAsync($"""
             insert into identity.users(id,status,created_at,email_confirmed,phone_number_confirmed,
               two_factor_enabled,lockout_enabled,access_failed_count,security_stamp)
-            values({user},'Active',{now},true,false,true,true,0,'synthetic-approval-stamp')
+            values({user},'Active',{_time.GetUtcNow()},true,false,true,true,0,'synthetic-approval-stamp')
             """, Ct);
         await db.Database.ExecuteSqlAsync($"""
             insert into identity.user_roles(user_id,role_id) select {user},id from identity.roles where name={role}
             """, Ct);
+        var session = await InsertSessionAsync(db, user, policy);
+        await transaction.CommitAsync(Ct);
+        return new PhotoReviewActor(user, session);
+    }
+
+    /// <summary>Mais uma sessão para um usuário que já existe, como o dono que lê a própria foto.</summary>
+    private async Task<PhotoReviewActor> SessionAsync(Guid user, string policy)
+    {
+        await using var db = Context();
+        return new PhotoReviewActor(user, await InsertSessionAsync(db, user, policy));
+    }
+
+    private async Task<Guid> InsertSessionAsync(DuoraDbContext db, Guid user, string policy)
+    {
+        var session = Guid.NewGuid();
+        var now = _time.GetUtcNow();
+        var hash = SHA256.HashData(session.ToByteArray());
+        var ticket = new byte[] { 1 };
         await db.Database.ExecuteSqlAsync($"""
             insert into identity.login_sessions(id,user_id,key_hash,ticket,security_stamp,description,policy,
               created_at,last_seen_at,idle_expires_at,absolute_expires_at,reauthenticated_at,mfa_verified_at,totp_verified_at)
             values({session},{user},{hash},{ticket},'synthetic-approval-stamp','synthetic',{policy},
               {now.AddMinutes(-1)},{now},{now.AddMinutes(10)},{now.AddHours(1)},{now},{now},{now})
             """, Ct);
-        await transaction.CommitAsync(Ct);
-        return new PhotoReviewActor(user, session);
+        return session;
     }
 
     private async Task GrantAsync(Guid userId, PhotoReviewCapability capability, bool enabled)

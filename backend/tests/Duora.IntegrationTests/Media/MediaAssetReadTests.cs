@@ -156,6 +156,48 @@ public sealed class MediaAssetReadTests : IAsyncDisposable
         Assert.DoesNotContain(_logs.Entries, entry => entry.Text.Contains(key.Value, StringComparison.Ordinal));
     }
 
+    /// <summary>
+    /// Derivados legados (<c>derivatives/&lt;token&gt;-&lt;kind&gt;</c>) nunca tiveram digest persistido. Recusá-los
+    /// tiraria do ar as fotos que já existem, então seguem entregues, com um registro que permite contar quantos ainda
+    /// passam sem conferência. Os promovidos são conferidos em <c>OwnerMediaReadDigestTests</c>.
+    /// </summary>
+    [Fact]
+    public async Task ALegacyDerivativeWithoutADigestIsStillServedAndCounted()
+    {
+        var (_, browser, asset) = await ApprovedAsync();
+        using var lifetime = browser;
+
+        using var response = await browser.GetAsync($"/api/v1/media/{asset.AssetId}?variant=card");
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        Assert.Equal(asset.Variants[PhotoVariant.Card].Bytes, await response.Content.ReadAsByteArrayAsync(Ct));
+        var entry = Assert.Single(_logs.Entries, entry => entry.Category == "Duora.Infrastructure.Media.OwnerMediaReads"
+            && entry.Text.Contains(asset.AssetId.ToString(), StringComparison.Ordinal));
+        Assert.Equal(Microsoft.Extensions.Logging.LogLevel.Information, entry.Level);
+        Assert.Contains("sem digest", entry.Text, StringComparison.Ordinal);
+        Assert.DoesNotContain(asset.Variants[PhotoVariant.Card].Key.Value, entry.Text, StringComparison.Ordinal);
+    }
+
+    /// <summary>Uma chave no formato promovido não vira legado só porque o asset não tem promoção ligada.</summary>
+    [Fact]
+    public async Task APromotedFormatKeyOnAnAssetWithoutAPromotionIs404()
+    {
+        var (_, browser, asset) = await ApprovedAsync();
+        using var lifetime = browser;
+        var key = ObjectKey.ForPromotedDerivative(Guid.NewGuid(), PhotoVariant.Full);
+        var bytes = asset.Variants[PhotoVariant.Full].Bytes;
+        await _media.Store.PutAsync(key, new MemoryStream(bytes), bytes.Length, "image/webp", Ct);
+        await _media.ExecuteAsync("update media.media_variants set object_key = $2 where media_asset_id = $1 and kind = 'full'",
+            asset.AssetId, key.Value);
+
+        using var response = await browser.GetAsync($"/api/v1/media/{asset.AssetId}");
+
+        await ProblemAssert.IsProblemAsync(response, HttpStatusCode.NotFound, "NOT_FOUND");
+        var entry = Assert.Single(_logs.Entries, entry => entry.Category == "Duora.Infrastructure.Media.OwnerMediaReads");
+        Assert.Equal(Microsoft.Extensions.Logging.LogLevel.Error, entry.Level);
+        Assert.DoesNotContain(key.Value, entry.Text, StringComparison.Ordinal);
+    }
+
     [Fact]
     public async Task WithoutASessionTheAnswerIs401()
     {
