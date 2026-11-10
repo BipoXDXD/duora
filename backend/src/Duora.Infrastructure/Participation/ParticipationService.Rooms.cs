@@ -101,7 +101,8 @@ public sealed partial class ParticipationService
         await using var connection = await source.OpenConnectionAsync(ct);
         await using var tx = await connection.BeginTransactionAsync(System.Data.IsolationLevel.RepeatableRead, ct);
         var row = await LoadRoomAsync(connection, room, user, false, ct);
-        if (row is null)
+        // Sala abortada responde como inexistente, seja qual for o motivo: bloqueio não pode ter resposta própria (TM-24).
+        if (row is null || row.State == "Aborted")
         {
             return null;
         }

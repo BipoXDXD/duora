@@ -79,7 +79,7 @@ public sealed class WorkerLoopResilienceTests(PostgresFixture postgres)
         Task stopped = Task.CompletedTask;
         clock.OnRead = () =>
         {
-            stopped = loop.StopAsync(CancellationToken.None);
+            stopped = StopFromInsideTheLoop(loop);
             throw new OperationCanceledException();
         };
 
@@ -163,7 +163,7 @@ public sealed class WorkerLoopResilienceTests(PostgresFixture postgres)
         {
             if (++reads == RetryRead)
             {
-                stopped = loop.StopAsync(CancellationToken.None);
+                stopped = StopFromInsideTheLoop(loop);
                 throw new OperationCanceledException();
             }
         };
@@ -187,7 +187,7 @@ public sealed class WorkerLoopResilienceTests(PostgresFixture postgres)
         Task stopped = Task.CompletedTask;
         clock.OnRead = () =>
         {
-            stopped = loop.StopAsync(CancellationToken.None);
+            stopped = StopFromInsideTheLoop(loop);
             throw new NpgsqlException(MessageCanary);
         };
 
@@ -200,6 +200,13 @@ public sealed class WorkerLoopResilienceTests(PostgresFixture postgres)
         var entry = Assert.Single(logs.Entries, entry => entry.Category == typeof(ParticipationJobService).FullName && entry.Level >= LogLevel.Warning);
         Assert.Equal(LogLevel.Warning, entry.Level);
         Assert.DoesNotContain(MessageCanary, entry.Text, StringComparison.Ordinal);
+    }
+
+    // O loop pode ler o relógio antes de StartAsync publicar ExecuteTask, e StopAsync sem ExecuteTask volta sem cancelar.
+    private static Task StopFromInsideTheLoop(BackgroundService loop)
+    {
+        SpinWait.SpinUntil(() => loop.ExecuteTask is not null, Ceiling);
+        return loop.StopAsync(CancellationToken.None);
     }
 
     private static void AssertLocatesTheDefectWithoutItsContent(CapturedLog entry)

@@ -58,7 +58,12 @@ public sealed class ParticipationTests(PostgresFixture postgres)
         await using var owned = source;
         var ct = TestContext.Current.CancellationToken;
         Assert.Equal(ParticipationOutcome.Done, await service.RespondAsync(room, second ? seed.Bob : seed.Alice, false, ct));
-        Assert.Equal("Aborted", (await service.RoomAsync(room, seed.Alice, ct))!.State);
+        Assert.Null(await service.RoomAsync(room, seed.Alice, ct));
+        await using (var connection = await source.OpenConnectionAsync(ct))
+        await using (var state = Command(connection, "select state from experiences.game_sessions where id=$1", room))
+        {
+            Assert.Equal("Aborted", await state.ExecuteScalarAsync(ct));
+        }
         Assert.Equal(0, await ActiveReservations(source, seed.Alice, seed.Bob, ct));
         Assert.Equal(ParticipationOutcome.Unavailable, await service.RespondAsync(room, seed.Bob, true, ct));
     }
