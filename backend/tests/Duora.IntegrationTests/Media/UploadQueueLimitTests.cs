@@ -11,6 +11,7 @@ namespace Duora.IntegrationTests.Media;
 /// Banco próprio, porque a contagem é de todos os donos.
 /// </summary>
 [Trait("Acceptance", "T-16")]
+[Collection(nameof(UploadQueueLimitRunsAlone))]
 public sealed class UploadQueueLimitTests(PostgresFixture postgres) : IAsyncLifetime
 {
     private const int QueueCap = 3;
@@ -70,12 +71,16 @@ public sealed class UploadQueueLimitTests(PostgresFixture postgres) : IAsyncLife
             browsers.Add(await NewBrowserAsync());
         }
 
-        using var barrier = new Barrier(Attempts);
-        var responses = await Task.WhenAll(browsers.Select((browser, i) => Task.Run(async () =>
+        // Largada única: todos os envios esperam o mesmo sinal sem prender thread do pool, e as continuações
+        // assíncronas fazem os envios partirem juntos quando o sinal sai.
+        var start = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var uploads = browsers.Select(async (browser, i) =>
         {
-            barrier.SignalAndWait(TestContext.Current.CancellationToken);
+            await start.Task;
             return await MediaScenario.UploadAsync(browser, MediaScenario.JpegLike(fill: (byte)i));
-        })));
+        }).ToList();
+        start.SetResult();
+        var responses = await Task.WhenAll(uploads);
 
         try
         {
@@ -121,3 +126,10 @@ public sealed class UploadQueueLimitTests(PostgresFixture postgres) : IAsyncLife
         return (long)(await command.ExecuteScalarAsync(TestContext.Current.CancellationToken))!;
     }
 }
+
+/// <summary>
+/// Os envios simultâneos deste teste disputam o thread pool e o banco com o resto da suíte; rodar a classe sozinha
+/// isola o pico sem tirar a concorrência entre os envios dentro do teste.
+/// </summary>
+[CollectionDefinition(nameof(UploadQueueLimitRunsAlone), DisableParallelization = true)]
+public sealed class UploadQueueLimitRunsAlone;
