@@ -75,7 +75,7 @@ public sealed partial class AccountBusyLogTests(PostgresFixture postgres)
     [Fact]
     public async Task AQueueTimeoutCarriesTheQueueReason()
     {
-        var gate = new AccountCheckGate();
+        var gate = new AccountCheckGate(new AccountLockOptions());
         var key = Guid.NewGuid();
         var timeout = TimeSpan.FromMilliseconds(100);
         await using var holder = await gate.EnterAsync(key, timeout, TestContext.Current.CancellationToken);
