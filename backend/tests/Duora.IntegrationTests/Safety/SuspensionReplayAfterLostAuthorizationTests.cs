@@ -56,9 +56,19 @@ public sealed class SuspensionReplayAfterLostAuthorizationTests : IAsyncDisposab
             AccountSuspensionScenario.SuspendBody(Reason), AccountSuspensionScenario.WithKey(key));
 
         var body = (await ProblemAssert.IsProblemAsync(replay, expectedStatus, expectedCode)).ToJsonString();
-        Assert.DoesNotContain(suspensionId, body, StringComparison.OrdinalIgnoreCase);
-        Assert.DoesNotContain(participant.UserId.ToString(), body, StringComparison.OrdinalIgnoreCase);
-        Assert.False(replay.Headers.Contains("Location"));
+        Assert.Null(replay.Headers.ETag);
+        Assert.Null(replay.Headers.Location);
+        var headers = string.Join('\n', replay.Headers.Concat(replay.Content.Headers)
+            .Select(header => $"{header.Key}: {string.Join(',', header.Value)}"));
+        foreach (var id in new[] { Guid.Parse(suspensionId), participant.UserId })
+        {
+            foreach (var text in new[] { id.ToString("D"), id.ToString("N") })
+            {
+                Assert.DoesNotContain(text, body, StringComparison.OrdinalIgnoreCase);
+                Assert.DoesNotContain(text, headers, StringComparison.OrdinalIgnoreCase);
+            }
+        }
+
         Assert.Equal(1, await _scenario.CountAsync(
             "select count(*) from safety.moderation_actions where subject_user_id = $1", participant.UserId));
         Assert.Equal(1, await _scenario.CountAsync(
