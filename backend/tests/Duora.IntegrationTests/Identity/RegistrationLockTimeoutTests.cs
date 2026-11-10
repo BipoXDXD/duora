@@ -56,10 +56,11 @@ public sealed class RegistrationLockTimeoutTests : IAsyncDisposable
         using var heldBrowser = new Browser(_factory);
         await heldBrowser.FetchCsrfTokenAsync();
 
-        var (held, waited) = await RegisterWhileHeldAsync(account, heldBrowser);
+        var (held, waited, answeredWhileHeld) = await RegisterWhileHeldAsync(account, heldBrowser);
 
         using (held)
         {
+            Assert.True(answeredWhileHeld, $"O cadastro da conta travada não respondeu em {ResponseLimit.TotalSeconds} s.");
             TestContext.Current.TestOutputHelper?.WriteLine(
                 $"#461 cadastro da conta travada: {(int)held.StatusCode} em {waited.TotalMilliseconds:F0} ms; " +
                 $"headers={string.Join("; ", Headers(held).Select(h => $"{h.Key}={h.Value}"))}");
@@ -76,19 +77,27 @@ public sealed class RegistrationLockTimeoutTests : IAsyncDisposable
         Assert.Single(_logs.Entries, entry => entry.Text.Contains(GaveUpLogMessage, StringComparison.Ordinal));
     }
 
-    [Fact]
-    public async Task ASignupThatGivesUpOnTheAccountLockWritesNothingAndSendsNoEmail()
+    /// <summary>
+    /// Na conta confirmada o upsert regrava os mesmos valores, então só os tokens e a outbox denunciariam uma escrita;
+    /// na pendente (TM-66) ele trocaria senha, stamps e aceites, e o rastro pega também essa troca.
+    /// </summary>
+    [Theory]
+    [InlineData(HeldAccountState.Confirmed)]
+    [InlineData(HeldAccountState.Pending)]
+    public async Task ASignupThatGivesUpOnTheAccountLockWritesNothingAndSendsNoEmail(HeldAccountState state)
     {
-        var account = await Scenario.CreateConfirmedAccountAsync();
+        var account = await CreateAccountAsync(state);
         using var browser = new Browser(_factory);
         await browser.FetchCsrfTokenAsync();
         var before = await AccountFootprintAsync(account);
 
-        var (response, _) = await RegisterWhileHeldAsync(account, browser);
+        var (response, _, answeredWhileHeld) = await RegisterWhileHeldAsync(account, browser);
         response.Dispose();
 
-        Assert.Single(_logs.Entries, entry => entry.Text.Contains(GaveUpLogMessage, StringComparison.Ordinal));
+        // O rastro vem antes do prazo: uma escrita feita depois que a trava saiu também tem de aparecer aqui.
         Assert.Equal(before, await AccountFootprintAsync(account));
+        Assert.True(answeredWhileHeld, $"O cadastro da conta travada não respondeu em {ResponseLimit.TotalSeconds} s.");
+        Assert.Single(_logs.Entries, entry => entry.Text.Contains(GaveUpLogMessage, StringComparison.Ordinal));
     }
 
     [Fact]
@@ -98,32 +107,62 @@ public sealed class RegistrationLockTimeoutTests : IAsyncDisposable
         using var browser = new Browser(_factory);
         await browser.FetchCsrfTokenAsync();
 
-        var (response, _) = await RegisterWhileHeldAsync(account, browser);
+        var (response, _, answeredWhileHeld) = await RegisterWhileHeldAsync(account, browser);
         response.Dispose();
 
+        Assert.True(answeredWhileHeld, $"O cadastro da conta travada não respondeu em {ResponseLimit.TotalSeconds} s.");
         var gaveUp = Assert.Single(_logs.Entries, entry => entry.Text.Contains(GaveUpLogMessage, StringComparison.Ordinal));
         Assert.Equal(LogLevel.Warning, gaveUp.Level);
         Assert.DoesNotContain(account.Email, gaveUp.Text, StringComparison.OrdinalIgnoreCase);
         Assert.DoesNotContain(account.UserId.ToString("D"), gaveUp.Text, StringComparison.OrdinalIgnoreCase);
     }
 
-    /// <summary>Cadastra o e-mail de <paramref name="account"/> com a linha da conta travada por outra transação.</summary>
-    private async Task<(HttpResponseMessage Response, TimeSpan Waited)> RegisterWhileHeldAsync(TestAccount account, Browser browser)
+    public enum HeldAccountState
     {
-        var waited = Stopwatch.StartNew();
-        await using (await HoldAccountAsync(account.UserId))
+        Confirmed,
+        Pending,
+    }
+
+    private async Task<TestAccount> CreateAccountAsync(HeldAccountState state)
+    {
+        if (state == HeldAccountState.Confirmed)
         {
-            var signup = browser.PostJsonAsync("/api/v1/auth/register", IdentityScenario.RegistrationBody(account.Email));
-            var finished = await Task.WhenAny(signup, Task.Delay(ResponseLimit, TestContext.Current.CancellationToken));
-            waited.Stop();
-            Assert.True(finished == signup, $"O cadastro da conta travada não respondeu em {ResponseLimit.TotalSeconds} s.");
-            return (await signup, waited.Elapsed);
+            return await Scenario.CreateConfirmedAccountAsync();
         }
+
+        using var browser = new Browser(_factory);
+        var email = IdentityScenario.NewEmail();
+        using var registered = await IdentityScenario.RegisterAsync(browser, email);
+        Assert.Equal(HttpStatusCode.Accepted, registered.StatusCode);
+        var link = await Scenario.ReadLatestLinkAsync(email, "EmailConfirmation");
+        return new TestAccount(link.UserId, email, IdentityScenario.ValidPassword);
     }
 
     /// <summary>
-    /// Tudo o que um cadastro grava sobre a conta: senha e stamps da linha, os tokens (orçamento de emissão e código de
-    /// confirmação) e os e-mails da outbox endereçados a ela.
+    /// Cadastra o e-mail de <paramref name="account"/> com a linha da conta travada por outra transação. A trava sai
+    /// quando o cadastro responde ou no prazo, o que vier antes; quem chama decide o que afirmar sobre o prazo.
+    /// </summary>
+    private async Task<(HttpResponseMessage Response, TimeSpan Waited, bool AnsweredWhileHeld)> RegisterWhileHeldAsync(
+        TestAccount account, Browser browser)
+    {
+        var waited = Stopwatch.StartNew();
+        Task<HttpResponseMessage> signup;
+        bool answeredWhileHeld;
+        await using (await HoldAccountAsync(account.UserId))
+        {
+            signup = browser.PostJsonAsync("/api/v1/auth/register", IdentityScenario.RegistrationBody(account.Email));
+            var finished = await Task.WhenAny(signup, Task.Delay(ResponseLimit, TestContext.Current.CancellationToken));
+            waited.Stop();
+            answeredWhileHeld = finished == signup;
+        }
+
+        return (await signup, waited.Elapsed, answeredWhileHeld);
+    }
+
+    /// <summary>
+    /// Tudo o que um cadastro grava sobre a conta: senha e stamps da linha, os aceites, os tokens (orçamento de emissão
+    /// e código de confirmação) e os eventos da outbox da conta. A outbox é filtrada por <c>resource_id</c>, não pelo
+    /// payload, que a entrega esvazia: um worker no mesmo banco não faz um evento antigo sumir entre as leituras.
     /// </summary>
     private async Task<string> AccountFootprintAsync(TestAccount account)
     {
@@ -136,8 +175,8 @@ public sealed class RegistrationLockTimeoutTests : IAsyncDisposable
                 (select string_agg(t.login_provider || '/' || t.name || '=' || t.value, ', '
                         order by t.login_provider, t.name)
                  from identity.user_tokens t where t.user_id = u.id),
-                (select string_agg(o.id::text, ', ' order by o.id) from ops.outbox_events o
-                 where o.payload->>'userId' = u.id::text or lower(o.payload->>'to') = lower(u.email)))
+                (select string_agg(c.id::text, ', ' order by c.id) from identity.consent_records c where c.user_id = u.id),
+                (select string_agg(o.id::text, ', ' order by o.id) from ops.outbox_events o where o.resource_id = u.id))
             from identity.users u where u.id = $1
             """,
             connection);
