@@ -1,6 +1,7 @@
 using System.Globalization;
 using System.Net;
 using System.Text.Json;
+using System.Text.Json.Nodes;
 using Duora.Contracts.Participation;
 using Duora.Infrastructure.Participation;
 using Duora.IntegrationTests.Identity;
@@ -128,9 +129,9 @@ public sealed class GameDeadlineTests(PostgresFixture postgres)
 
     /// <summary>
     /// Entre o prazo e o job a sala segue <c>Active</c> no banco. Quem decide é o relógio do servidor (spec 10.4, "Timeout
-    /// vs ação"; T-18): a ação é recusada sem gravar nada e o job, quando roda, ainda expira a sala. Os status são o
-    /// comportamento atual; o status está pendente de decisão (400 antes do job, 404 depois). Os asserts de status ficam
-    /// para qualquer mudança aparecer, não porque a spec os exija.
+    /// vs ação"; T-18): a ação é recusada sem gravar nada e o job, quando roda, ainda expira a sala. A resposta é a mesma
+    /// <c>404</c> para uma ação nova antes e depois do job, em status, <c>code</c> e corpo. A leitura da sala continua
+    /// mostrando o estado do job (<c>Active</c> antes, <c>Expired</c> depois).
     /// </summary>
     [Theory]
     [InlineData(0)]
@@ -144,8 +145,9 @@ public sealed class GameDeadlineTests(PostgresFixture postgres)
 
         using var late = await ChooseOptionAsync(alice, scene.Room, active.Version);
 
-        Assert.Equal(HttpStatusCode.BadRequest, late.StatusCode);
-        Assert.Equal("VALIDATION_FAILED", await ProblemCodeAsync(late));
+        Assert.Equal(HttpStatusCode.NotFound, late.StatusCode);
+        var lateProblem = await ProblemWithoutTraceAsync(late);
+        Assert.Equal("NOT_FOUND", lateProblem.GetProperty("code").GetString());
         Assert.Equal(active, await scene.RoomFactsAsync());
         Assert.Equal("Pending|0", await scene.GameDeadlineJobAsync());
 
@@ -157,7 +159,124 @@ public sealed class GameDeadlineTests(PostgresFixture postgres)
 
         using var afterTheJob = await ChooseOptionAsync(alice, scene.Room, active.Version);
         Assert.Equal(HttpStatusCode.NotFound, afterTheJob.StatusCode);
+        Assert.Equal(lateProblem.ToString(), (await ProblemWithoutTraceAsync(afterTheJob)).ToString());
+        Assert.Equal(late.Content.Headers.ContentType, afterTheJob.Content.Headers.ContentType);
         Assert.Equal(expired, await scene.RoomFactsAsync());
+    }
+
+    /// <summary>
+    /// Uma ação nova com <c>expectedVersion</c> desatualizado, no prazo e antes do job, recebe a mesma <c>404</c> da ação
+    /// atrasada, não o <c>409</c> de conflito: o prazo é checado antes da versão. Nada é gravado.
+    /// </summary>
+    [Fact]
+    public async Task ANewActionWithAStaleVersionAtTheDeadlineGetsTheSame404()
+    {
+        await using var scene = await ActiveRoomAsync();
+        using var alice = await scene.SignInAliceAsync();
+        var active = await scene.RoomFactsAsync();
+        scene.Clock.SetUtcNow(scene.Deadline - OneTick);
+        using (var applied = await PostActionAsync(alice, scene.Room, ChooseOption(active.Version)))
+        {
+            Assert.Equal(HttpStatusCode.NoContent, applied.StatusCode);
+        }
+
+        var afterTheAction = await scene.RoomFactsAsync();
+        scene.Clock.SetUtcNow(scene.Deadline);
+
+        using var stale = await PostActionAsync(alice, scene.Room, ChooseOption(active.Version));
+
+        Assert.Equal(HttpStatusCode.NotFound, stale.StatusCode);
+        Assert.Equal("NOT_FOUND", await ProblemCodeAsync(stale));
+        Assert.Equal(afterTheAction, await scene.RoomFactsAsync());
+        Assert.Equal("Pending|0", await scene.GameDeadlineJobAsync());
+    }
+
+    /// <summary>Reutilizar um <c>actionId</c> já aplicado com outro corpo, antes do prazo, continua <c>400 VALIDATION_FAILED</c>.</summary>
+    [Fact]
+    public async Task AReusedActionIdBeforeTheDeadlineIsStillAValidationFailure()
+    {
+        await using var scene = await ActiveRoomAsync();
+        using var alice = await scene.SignInAliceAsync();
+        var active = await scene.RoomFactsAsync();
+        scene.Clock.SetUtcNow(scene.Deadline - OneTick);
+        var chosen = ChooseOption(active.Version);
+        using (var applied = await PostActionAsync(alice, scene.Room, chosen))
+        {
+            Assert.Equal(HttpStatusCode.NoContent, applied.StatusCode);
+        }
+
+        var afterTheAction = await scene.RoomFactsAsync();
+
+        using var reused = await PostActionAsync(alice, scene.Room, SkipCardWithTheSameId(chosen));
+
+        Assert.Equal(HttpStatusCode.BadRequest, reused.StatusCode);
+        Assert.Equal("VALIDATION_FAILED", await ProblemCodeAsync(reused));
+        Assert.Equal(afterTheAction, await scene.RoomFactsAsync());
+    }
+
+    /// <summary>
+    /// A regra de replay vale até o job rodar: a ação aplicada um tick antes do prazo, reenviada depois do prazo e antes do
+    /// job, responde <c>204</c> sem gravar de novo, e o mesmo <c>actionId</c> com outro corpo continua <c>400</c>. Depois do
+    /// job, os dois recebem <c>404</c>.
+    /// </summary>
+    [Fact]
+    public async Task AnActionAppliedInTimeIsReplayedAfterTheDeadlineUntilTheJobRuns()
+    {
+        await using var scene = await ActiveRoomAsync();
+        using var alice = await scene.SignInAliceAsync();
+        var active = await scene.RoomFactsAsync();
+        scene.Clock.SetUtcNow(scene.Deadline - OneTick);
+        var chosen = ChooseOption(active.Version);
+        using (var applied = await PostActionAsync(alice, scene.Room, chosen))
+        {
+            Assert.Equal(HttpStatusCode.NoContent, applied.StatusCode);
+        }
+
+        var afterTheAction = new RoomFacts("Active", active.Version + 1, ActiveReservations: 2, Actions: 1);
+        Assert.Equal(afterTheAction, await scene.RoomFactsAsync());
+        scene.Clock.SetUtcNow(scene.Deadline);
+
+        using (var replay = await PostActionAsync(alice, scene.Room, chosen))
+        using (var reused = await PostActionAsync(alice, scene.Room, SkipCardWithTheSameId(chosen)))
+        {
+            Assert.Equal(HttpStatusCode.NoContent, replay.StatusCode);
+            Assert.Equal(HttpStatusCode.BadRequest, reused.StatusCode);
+            Assert.Equal("VALIDATION_FAILED", await ProblemCodeAsync(reused));
+        }
+
+        Assert.Equal(afterTheAction, await scene.RoomFactsAsync());
+
+        var job = await scene.Service.ClaimJobAsync(Ct);
+        Assert.NotNull(job);
+        Assert.True(await scene.Service.CompleteJobAsync(job, Ct));
+        var expired = await scene.RoomFactsAsync();
+        Assert.Equal("Expired", expired.State);
+
+        using (var replay = await PostActionAsync(alice, scene.Room, chosen))
+        using (var reused = await PostActionAsync(alice, scene.Room, SkipCardWithTheSameId(chosen)))
+        {
+            Assert.Equal(HttpStatusCode.NotFound, replay.StatusCode);
+            Assert.Equal(HttpStatusCode.NotFound, reused.StatusCode);
+        }
+
+        Assert.Equal(expired, await scene.RoomFactsAsync());
+    }
+
+    /// <summary>Só o prazo virou <c>404</c>: uma ação inválida antes do prazo continua <c>400 VALIDATION_FAILED</c>, sem gravar.</summary>
+    [Fact]
+    public async Task AnInvalidActionBeforeTheDeadlineIsStillAValidationFailure()
+    {
+        await using var scene = await ActiveRoomAsync();
+        using var alice = await scene.SignInAliceAsync();
+        var active = await scene.RoomFactsAsync();
+        scene.Clock.SetUtcNow(scene.Deadline - OneTick);
+
+        using var invalid = await alice.PostJsonAsync($"/api/v1/rooms/{scene.Room}/actions",
+            new RoomActionRequest(Guid.NewGuid(), active.Version.ToString(CultureInfo.InvariantCulture), "choose-option", "morning", "no-such-option"));
+
+        Assert.Equal(HttpStatusCode.BadRequest, invalid.StatusCode);
+        Assert.Equal("VALIDATION_FAILED", await ProblemCodeAsync(invalid));
+        Assert.Equal(active, await scene.RoomFactsAsync());
     }
 
     [Fact]
@@ -174,11 +293,28 @@ public sealed class GameDeadlineTests(PostgresFixture postgres)
         Assert.Equal(new RoomFacts("Active", active.Version + 1, ActiveReservations: 2, Actions: 1), await scene.RoomFactsAsync());
     }
 
+    /// <summary>O corpo do problema sem <c>traceId</c>, o único campo que muda de uma requisição para outra.</summary>
+    private static async Task<JsonElement> ProblemWithoutTraceAsync(HttpResponseMessage response)
+    {
+        var body = Assert.IsType<JsonObject>(JsonNode.Parse(await response.Content.ReadAsStringAsync(Ct)));
+        Assert.True(body.Remove("traceId"));
+        return JsonSerializer.SerializeToElement(body);
+    }
+
     private static async Task<string?> ProblemCodeAsync(HttpResponseMessage response)
     {
         using var body = JsonDocument.Parse(await response.Content.ReadAsStringAsync(Ct));
         return body.RootElement.GetProperty("code").GetString();
     }
+
+    private static RoomActionRequest ChooseOption(long version) =>
+        new(Guid.NewGuid(), version.ToString(CultureInfo.InvariantCulture), "choose-option", "morning", "tea");
+
+    private static RoomActionRequest SkipCardWithTheSameId(RoomActionRequest action) =>
+        action with { Type = "skip-card", OptionId = null };
+
+    private static Task<HttpResponseMessage> PostActionAsync(Browser browser, Guid room, RoomActionRequest action) =>
+        browser.PostJsonAsync($"/api/v1/rooms/{room}/actions", action);
 
     private static Task<HttpResponseMessage> ChooseOptionAsync(Browser browser, Guid room, long version) =>
         browser.PostJsonAsync($"/api/v1/rooms/{room}/actions",

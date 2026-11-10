@@ -109,6 +109,10 @@ versão não duplica o efeito; outro corpo é inválido. Conflito de versão ret
 Autorização, elegibilidade, saída e bloqueios são revalidados antes de reconhecer um reenvio. A rota de
 ações de uma experiência não pode operar a outra.
 
+Prazo de jogo, em `actions` e `routes-actions`: uma ação nova no prazo ou depois dele recebe `404 NOT_FOUND`,
+igual ao da sala `Expired`, antes e depois do job `game-deadline`, mesmo com `expectedVersion` desatualizado. Até
+o job rodar, o reenvio com o mesmo `actionId` segue a regra de replay acima (`204` ou `400`); depois, `404`.
+
 ## Idioma do documento aceito (issue #103)
 
 API-A02 (`POST /api/v1/auth/register`) aceita `acceptedTermsLocale` e `acceptedPrivacyLocale`,

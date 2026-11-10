@@ -21,7 +21,7 @@ public sealed partial class RoomNeutralityTests(PostgresFixture postgres)
     private const string Routes = "routes";
     private const string Invited = "Invited";
     private const string Active = "Active";
-    private const string WaitingWithoutRoom = """{"state":"Waiting","roomId":null}""";
+    private const string WaitingWithoutRoom = """{"state":"Waiting","roomId":null,"roundCancelled":false}""";
     private static readonly string[] NotFoundRoutes = ["read", "audio", "accept", "reject", "actions", "routes-actions"];
 
     [Theory]

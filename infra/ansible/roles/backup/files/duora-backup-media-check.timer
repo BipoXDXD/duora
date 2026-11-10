@@ -1,5 +1,6 @@
 # Gerenciado pelo Ansible (infra/ansible/roles/backup). Leitura semanal de todos os dados do repositório das fotos
 # (restic check --read-data): baixa e confere cada pacote. Quinta, longe do verify completo do pgBackRest de quarta.
+# Tem até as 05:40, o reinício automático (duora_unattended_reboot_time), para terminar.
 [Unit]
 Description=Duora: verificação semanal completa do backup das fotos
 

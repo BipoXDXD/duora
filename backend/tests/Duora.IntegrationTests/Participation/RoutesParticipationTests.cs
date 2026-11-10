@@ -1,5 +1,7 @@
 using System.Globalization;
 using System.Net;
+using System.Text.Json;
+using System.Text.Json.Nodes;
 using Duora.Contracts.Participation;
 using Duora.Core.Experiences.UnlikelyRoutes;
 using Duora.Infrastructure.Participation;
@@ -202,6 +204,127 @@ public sealed class RoutesParticipationTests(PostgresFixture postgres)
         Assert.Equal("Expired", await query.ExecuteScalarAsync(ct));
     }
 
+    /// <summary>
+    /// Como em API-R03: entre o prazo e o job a sala segue <c>Active</c> no banco, mas a ação recebe a mesma <c>404</c> da
+    /// sala já expirada, em status, <c>code</c> e corpo, sem gravar nada.
+    /// </summary>
+    [Fact]
+    public async Task AnActionAtTheDeadlineGetsTheSame404BeforeAndAfterTheDeadlineJob()
+    {
+        var (source, clock, service, seed, room, connectionString) = await Active();
+        await using var owned = source;
+        var ct = TestContext.Current.CancellationToken;
+        await using var factory = new DuoraWebFactory(connectionString) { Time = clock };
+        using var alice = await new IdentityScenario(connectionString, factory)
+            .SignedInBrowserAsync(new(seed.Alice, "alice@example.com", IdentityScenario.ValidPassword));
+        var before = (await service.RoomAsync(room, seed.Alice, ct))!;
+        await using var connection = await source.OpenConnectionAsync(ct);
+        await using (var query = Command(connection, "select active_deadline_at from experiences.game_sessions where id=$1", room))
+        await using (var deadline = await query.ExecuteReaderAsync(ct))
+        {
+            Assert.True(await deadline.ReadAsync(ct));
+            clock.SetUtcNow(deadline.GetFieldValue<DateTimeOffset>(0));
+        }
+        var endpoint = $"/api/v1/rooms/{room}/routes-actions";
+        RoutesActionRequest Acknowledge() =>
+            new(Guid.NewGuid(), before.Version.ToString(CultureInfo.InvariantCulture), "acknowledge", "Introduction", null, null);
+
+        using var late = await alice.PostJsonAsync(endpoint, Acknowledge());
+
+        Assert.Equal(HttpStatusCode.NotFound, late.StatusCode);
+        var lateProblem = await ProblemWithoutTraceAsync(late, ct);
+        Assert.Equal("NOT_FOUND", lateProblem.GetProperty("code").GetString());
+        Assert.Equal(("Active", before.Version), await StateAndVersionAsync(connection, room, ct));
+
+        for (var job = await service.ClaimJobAsync(ct); job is not null; job = await service.ClaimJobAsync(ct))
+        {
+            await service.CompleteJobAsync(job, ct);
+        }
+        var expired = await StateAndVersionAsync(connection, room, ct);
+        Assert.Equal("Expired", expired.State);
+
+        using var afterTheJob = await alice.PostJsonAsync(endpoint, Acknowledge());
+        Assert.Equal(HttpStatusCode.NotFound, afterTheJob.StatusCode);
+        Assert.Equal(lateProblem.ToString(), (await ProblemWithoutTraceAsync(afterTheJob, ct)).ToString());
+        Assert.Equal(late.Content.Headers.ContentType, afterTheJob.Content.Headers.ContentType);
+        Assert.Equal(expired, await StateAndVersionAsync(connection, room, ct));
+    }
+
+    /// <summary>
+    /// Uma ação nova com <c>expectedVersion</c> desatualizado, no prazo e antes do job, recebe a mesma <c>404</c> da ação
+    /// atrasada, não o <c>409</c> de conflito. Nada é gravado.
+    /// </summary>
+    [Fact]
+    public async Task ANewActionWithAStaleVersionAtTheDeadlineGetsTheSame404()
+    {
+        var (source, clock, service, seed, room, connectionString) = await Active();
+        await using var owned = source;
+        var ct = TestContext.Current.CancellationToken;
+        await using var factory = new DuoraWebFactory(connectionString) { Time = clock };
+        var identity = new IdentityScenario(connectionString, factory);
+        using var alice = await identity.SignedInBrowserAsync(new(seed.Alice, "alice@example.com", IdentityScenario.ValidPassword));
+        using var bob = await identity.SignedInBrowserAsync(new(seed.Bob, "bob@example.com", IdentityScenario.ValidPassword));
+        var before = (await service.RoomAsync(room, seed.Alice, ct))!;
+        await using var connection = await source.OpenConnectionAsync(ct);
+        var deadline = await DeadlineAsync(connection, room, ct);
+        var endpoint = $"/api/v1/rooms/{room}/routes-actions";
+        clock.SetUtcNow(deadline.AddTicks(-1));
+        using (var applied = await alice.PostJsonAsync(endpoint, AcknowledgeIntroduction(before.Version)))
+        {
+            Assert.Equal(HttpStatusCode.NoContent, applied.StatusCode);
+        }
+
+        var afterTheAction = await StateAndVersionAsync(connection, room, ct);
+        clock.SetUtcNow(deadline);
+
+        using var stale = await bob.PostJsonAsync(endpoint, AcknowledgeIntroduction(before.Version));
+
+        Assert.Equal(HttpStatusCode.NotFound, stale.StatusCode);
+        Assert.Equal("NOT_FOUND", (await ProblemWithoutTraceAsync(stale, ct)).GetProperty("code").GetString());
+        Assert.Equal(("Active", before.Version + 1), afterTheAction);
+        Assert.Equal(afterTheAction, await StateAndVersionAsync(connection, room, ct));
+    }
+
+    /// <summary>
+    /// Resíduo aceito pela coordenação em 10/11, como em API-R03: até o job, uma ação aplicada um tick antes do prazo e
+    /// reenviada no prazo responde <c>204</c> sem gravar de novo, e o mesmo <c>actionId</c> com outro corpo responde
+    /// <c>400</c>.
+    /// </summary>
+    [Fact]
+    public async Task AnActionAppliedInTimeIsReplayedAtTheDeadlineUntilTheJobRuns()
+    {
+        var (source, clock, service, seed, room, connectionString) = await Active();
+        await using var owned = source;
+        var ct = TestContext.Current.CancellationToken;
+        await using var factory = new DuoraWebFactory(connectionString) { Time = clock };
+        using var alice = await new IdentityScenario(connectionString, factory)
+            .SignedInBrowserAsync(new(seed.Alice, "alice@example.com", IdentityScenario.ValidPassword));
+        var before = (await service.RoomAsync(room, seed.Alice, ct))!;
+        await using var connection = await source.OpenConnectionAsync(ct);
+        var deadline = await DeadlineAsync(connection, room, ct);
+        var endpoint = $"/api/v1/rooms/{room}/routes-actions";
+        var acknowledged = AcknowledgeIntroduction(before.Version);
+        clock.SetUtcNow(deadline.AddTicks(-1));
+        using (var applied = await alice.PostJsonAsync(endpoint, acknowledged))
+        {
+            Assert.Equal(HttpStatusCode.NoContent, applied.StatusCode);
+        }
+
+        var afterTheAction = await StateAndVersionAsync(connection, room, ct);
+        clock.SetUtcNow(deadline);
+
+        using (var replay = await alice.PostJsonAsync(endpoint, acknowledged))
+        using (var reused = await alice.PostJsonAsync(endpoint, acknowledged with { Stage = "Clues" }))
+        {
+            Assert.Equal(HttpStatusCode.NoContent, replay.StatusCode);
+            Assert.Equal(HttpStatusCode.BadRequest, reused.StatusCode);
+            Assert.Equal("VALIDATION_FAILED", (await ProblemWithoutTraceAsync(reused, ct)).GetProperty("code").GetString());
+        }
+
+        Assert.Equal(("Active", before.Version + 1), afterTheAction);
+        Assert.Equal(afterTheAction, await StateAndVersionAsync(connection, room, ct));
+    }
+
     [Theory]
     [InlineData(false)]
     [InlineData(true)]
@@ -278,6 +401,33 @@ public sealed class RoutesParticipationTests(PostgresFixture postgres)
     {
         var current = (await service.RoomAsync(room, user, ct))!;
         Assert.Equal(ParticipationOutcome.Done, await service.RoutesActionAsync(room, user, Guid.NewGuid(), current.Version, type, stage, step, option, ct));
+    }
+
+    private static RoutesActionRequest AcknowledgeIntroduction(long version) =>
+        new(Guid.NewGuid(), version.ToString(CultureInfo.InvariantCulture), "acknowledge", "Introduction", null, null);
+
+    private static async Task<DateTimeOffset> DeadlineAsync(NpgsqlConnection connection, Guid room, CancellationToken ct)
+    {
+        await using var query = Command(connection, "select active_deadline_at from experiences.game_sessions where id=$1", room);
+        await using var reader = await query.ExecuteReaderAsync(ct);
+        Assert.True(await reader.ReadAsync(ct));
+        return reader.GetFieldValue<DateTimeOffset>(0);
+    }
+
+    private static async Task<(string State, long Version)> StateAndVersionAsync(NpgsqlConnection connection, Guid room, CancellationToken ct)
+    {
+        await using var query = Command(connection, "select state,version from experiences.game_sessions where id=$1", room);
+        await using var reader = await query.ExecuteReaderAsync(ct);
+        Assert.True(await reader.ReadAsync(ct));
+        return (reader.GetString(0), reader.GetInt64(1));
+    }
+
+    /// <summary>O corpo do problema sem <c>traceId</c>, o único campo que muda de uma requisição para outra.</summary>
+    private static async Task<JsonElement> ProblemWithoutTraceAsync(HttpResponseMessage response, CancellationToken ct)
+    {
+        var body = Assert.IsType<JsonObject>(JsonNode.Parse(await response.Content.ReadAsStringAsync(ct)));
+        Assert.True(body.Remove("traceId"));
+        return JsonSerializer.SerializeToElement(body);
     }
 
     private static async Task<long> Reservations(NpgsqlDataSource source, ParticipationSeed seed, CancellationToken ct)

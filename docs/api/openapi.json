@@ -2712,6 +2712,57 @@
             }
           }
         }
+      },
+      "delete": {
+        "tags": [
+          "Participation"
+        ],
+        "parameters": [
+          {
+            "name": "eventId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Forbidden",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "204": {
+            "description": "No Content"
+          },
+          "404": {
+            "description": "Not Found",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          }
+        }
       }
     },
     "/api/v1/events/{eventId}/check-in": {
@@ -7192,7 +7243,8 @@
       "ParticipationResponse": {
         "required": [
           "state",
-          "roomId"
+          "roomId",
+          "roundCancelled"
         ],
         "type": "object",
         "properties": {
@@ -7205,6 +7257,9 @@
               "string"
             ],
             "format": "uuid"
+          },
+          "roundCancelled": {
+            "type": "boolean"
           }
         },
         "additionalProperties": false
