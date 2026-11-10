@@ -341,6 +341,37 @@ public sealed class SelfieSlowProviderTests(PostgresFixture postgres)
         });
     }
 
+    /// <summary>
+    /// Quando todo await do lote termina na hora, o SDK chega à leitura síncrona do corpo ainda dentro da chamada que
+    /// iniciou o lote, e essa leitura só termina com o corte, que só vem quando o teste avança o relógio. O lote simulado
+    /// faz o mesmo bloqueio: o corte precisa chegar sem depender de a chamada devolver a tarefa.
+    /// </summary>
+    [Fact]
+    public async Task TheCutComesEvenWhenTheBatchBlocksItsCallerUntilTheCallTimeout()
+    {
+        var blocked = false;
+
+        await CutDispatchAsync(() =>
+        {
+            using var cut = new CancellationTokenSource(CallTimeout, _time);
+            Volatile.Write(ref blocked, true);
+            return cut.Token.WaitHandle.WaitOne(CallCeiling)
+                ? Task.CompletedTask
+                : throw new TimeoutException("O relógio do teste não chegou ao corte enquanto o lote bloqueava quem o chamou.");
+        }, () => Volatile.Read(ref blocked)).WaitAsync(CallCeiling, Ct);
+    }
+
+    /// <summary>Leitura que o teto soltou não está mais presa: o teste não pode tomá-la pelo corpo parado e esperar o corte.</summary>
+    [Fact]
+    public void AStalledSyncReadReleasedByItsCeilingNoLongerCountsAsStalled()
+    {
+        using var body = new StalledStream(TimeSpan.FromMilliseconds(50));
+
+        Assert.Throws<TimeoutException>(() => body.Read(new byte[1], 0, 1));
+
+        Assert.False(body.IsStalled, body.State);
+    }
+
     [Fact]
     public async Task TheCeilingNamesTheHostDisposalWhenItHangsAfterAPassingBody()
     {
@@ -1038,7 +1069,7 @@ public sealed class SelfieSlowProviderTests(PostgresFixture postgres)
     /// <summary>Cada resposta ganha um corpo novo: nenhuma chamada, de teste nenhum, herda o descarte de outra.</summary>
     private static Task<HttpResponseMessage> StalledBody(ConcurrentQueue<StalledStream> bodies)
     {
-        var body = new StalledStream();
+        var body = new StalledStream(StalledReadCeiling);
         bodies.Enqueue(body);
         var response = new HttpResponseMessage(HttpStatusCode.OK) { Content = new StreamContent(body) };
         response.Content.Headers.ContentType = new MediaTypeHeaderValue("application/x-amz-json-1.1");
@@ -1136,10 +1167,13 @@ public sealed class SelfieSlowProviderTests(PostgresFixture postgres)
     /// Lote cuja chamada fica presa: espera a chamada chegar ao fornecedor, leva o relógio do teste até o corte e devolve
     /// o lote encerrado. Falha em vez de pendurar a suíte se o corte não vier.
     /// </summary>
-    private async Task CutDispatchAsync(DuoraWebFactory host, Func<bool> called)
+    private Task CutDispatchAsync(DuoraWebFactory host, Func<bool> called) =>
+        CutDispatchAsync(() => SelfieConcurrencyHarness.DispatchAsync(host, Ct), called);
+
+    private async Task CutDispatchAsync(Func<Task> dispatch, Func<bool> called)
     {
         _step = "esperando a chamada chegar ao fornecedor";
-        var batch = SelfieConcurrencyHarness.DispatchAsync(host, Ct);
+        var batch = dispatch();
         await WaitUntilAsync(called, batch);
         _step = "avançando o relógio até o corte, com os timers disparando nesta thread";
         _time.Advance(CallTimeout);
@@ -1322,7 +1356,7 @@ public sealed class SelfieSlowProviderTests(PostgresFixture postgres)
     /// Corpo de resposta que nunca entrega um byte, como um socket parado: a leitura assíncrona só termina pelo
     /// cancelamento, e a síncrona só quando o corpo é descartado ou, sem descarte, pelo teto que solta a thread.
     /// </summary>
-    private sealed class StalledStream : Stream
+    private sealed class StalledStream(TimeSpan readCeiling) : Stream
     {
         private readonly TaskCompletionSource _closed = new(TaskCreationOptions.RunContinuationsAsynchronously);
         private volatile bool _syncReadStarted;
@@ -1350,7 +1384,7 @@ public sealed class SelfieSlowProviderTests(PostgresFixture postgres)
         public override int Read(byte[] buffer, int offset, int count)
         {
             _syncReadStarted = true;
-            if (!_closed.Task.Wait(StalledReadCeiling))
+            if (!_closed.Task.Wait(readCeiling))
             {
                 throw new TimeoutException("O corpo parado não foi descartado dentro do teto.");
             }
