@@ -37,17 +37,19 @@ internal static class ParticipationEndpoints
         routes.MapPost("/rooms/{roomId:guid}/actions", async (Guid roomId, RoomActionRequest request, HttpContext context, ParticipationService service, CancellationToken ct) =>
             long.TryParse(request.ExpectedVersion, NumberStyles.None, CultureInfo.InvariantCulture, out var version)
                 ? Result(await service.ActionAsync(roomId, User(context), request.ActionId, version, request.Type, request.CardId, request.OptionId, ct))
-                : Result(ParticipationOutcome.Invalid));
+                : Result(ParticipationOutcome.Invalid))
+            .Produces(204).ProducesProblem(400).ProducesProblem(404).ProducesProblem(409).ProducesProblem(503);
         routes.MapPost("/rooms/{roomId:guid}/routes-actions", async (Guid roomId, RoutesActionRequest request, HttpContext context, ParticipationService service, CancellationToken ct) =>
             long.TryParse(request.ExpectedVersion, NumberStyles.None, CultureInfo.InvariantCulture, out var version)
                 ? Result(await service.RoutesActionAsync(roomId, User(context), request.ActionId, version, request.Type, request.Stage, request.StepId, request.OptionId, ct))
-                : Result(ParticipationOutcome.Invalid));
+                : Result(ParticipationOutcome.Invalid))
+            .Produces(204).ProducesProblem(400).ProducesProblem(404).ProducesProblem(409).ProducesProblem(503);
         // API-R04: "sempre permitir saída segura". Sem política própria, vale a fallback de participante: só sai a
         // elegibilidade, e quem não participa da sala continua recebendo 404 (ADR-0052).
         var exit = api.MapGroup("").WithTags("Participation").ProducesProblem(401).ProducesProblem(403);
         exit.AddEndpointFilter(AnswerLockContentionAsUnavailableAsync);
         exit.MapPost("/rooms/{roomId:guid}/exit", async (Guid roomId, HttpContext context, ParticipationService service, CancellationToken ct) =>
-            Result(await service.ExitAsync(roomId, User(context), ct)));
+            Result(await service.ExitAsync(roomId, User(context), ct))).Produces(204).ProducesProblem(404).ProducesProblem(503);
         api.MapPost("/admin/events", async (PublishEventRequest request, HttpContext context, ParticipationService service, CancellationToken ct) =>
             await service.PublishAsync(request.Title, request.StartsAt, request.Capacity, request.ExperienceVersionId, User(context), ct, request.TimeZone) is { } id
                 ? Results.Created($"/api/v1/events/{id}", new { eventId = id }) : Result(ParticipationOutcome.Invalid))

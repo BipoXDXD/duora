@@ -113,6 +113,11 @@ Prazo de jogo, em `actions` e `routes-actions`: uma ação nova no prazo ou depo
 igual ao da sala `Expired`, antes e depois do job `game-deadline`, mesmo com `expectedVersion` desatualizado. Até
 o job rodar, o reenvio com o mesmo `actionId` segue a regra de replay acima (`204` ou `400`); depois, `404`.
 
+Status declarados no OpenAPI: `actions` e `routes-actions` listam `204`, `400`, `401`, `403`, `404`, `409` e
+`503`; `exit` lista `204`, `401`, `403`, `404` e `503` (sem corpo nem versão, não tem `400` nem `409`). O `503`
+`TEMPORARILY_UNAVAILABLE` com `Retry-After` vem da contenção de lock. Antes só `401` e `403` estavam declarados;
+acrescentar respostas é mudança aditiva, sem breaking change no `oasdiff`.
+
 ## Idioma do documento aceito (issue #103)
 
 API-A02 (`POST /api/v1/auth/register`) aceita `acceptedTermsLocale` e `acceptedPrivacyLocale`,
