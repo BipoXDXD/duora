@@ -14,41 +14,45 @@ using Npgsql;
 namespace Duora.IntegrationTests.Http;
 
 /// <summary>
-/// Serialização (40001), deadlock (40P01) e <c>lock_timeout</c> (55P03) são passageiros: em qualquer rota, crus ou
-/// embrulhados pelo Npgsql, a resposta é a mesma, 503 <c>TEMPORARILY_UNAVAILABLE</c> com um único
-/// <c>Retry-After</c> (#465). As rotas sobem no pipeline de erros da app (<see cref="ApiErrorHandling"/>), com o filtro
-/// real de cada família, e o endpoint lança a falha montada.
+/// Serialização (40001), deadlock (40P01) e <c>lock_timeout</c> (55P03) são passageiros: em qualquer rota fora de
+/// identidade, crus ou embrulhados (Npgsql ou EF), a resposta é a mesma, 503 <c>TEMPORARILY_UNAVAILABLE</c> com o
+/// <c>Retry-After</c> da contenção; banco fora do alcance responde o mesmo 503 com o <c>Retry-After</c> próprio (#465).
+/// As rotas sobem no pipeline de erros da app (<see cref="ApiErrorHandling"/>), com o filtro real de cada família que
+/// ainda tem um, e o endpoint lança a falha montada. As rotas de identidade têm valor próprio
+/// (<c>NeutralUnavailabilityResponseTests</c>).
 /// </summary>
 public sealed class DatabaseContentionResponseTests(EnabledPhotoUploads media)
     : IClassFixture<EnabledPhotoUploads>
 {
-    /// <summary>O valor único de <c>Retry-After</c> da contenção, em segundos.</summary>
+    /// <summary>Decisão da coordenação, 10/11: contenção 2 s, banco fora do alcance 5 s.</summary>
     private const string ContentionRetryAfterSeconds = "2";
+
+    private const string UnreachableRetryAfterSeconds = "5";
 
     private readonly string _canary = $"CANARY-{Guid.NewGuid():N}";
 
     // Cada família é a convenção de erro real que a rota recebe na app; "sem filtro" cai direto no handler global.
-    // Participation e Catalog tinham filtro próprio de contenção e deixaram de ter (#465): hoje são como "sem filtro",
-    // e as linhas ficam para provar que nenhum filtro volta a responder diferente.
+    // Participation e Catalog não têm mais filtro de contenção: ContentionClassificationTests impede que volte um.
     private static readonly Dictionary<string, Func<RouteHandlerBuilder, RouteHandlerBuilder>> Routes = new()
     {
         ["sem-filtro"] = route => route,
-        ["participation"] = route => route,
-        ["catalog"] = route => route,
         ["photo-review"] = PhotoReviewEndpoints.Read,
         ["media"] = route => route.RequireMediaAdmission(),
     };
 
-    public static TheoryData<string, string, int> Cases()
+    /// <summary>Como a falha do servidor chega ao pipeline: crua, embrulhada pelo Npgsql (1 ou 2 vezes) ou pelo EF.</summary>
+    private static readonly string[] Envelopes = ["cru", "npgsql", "npgsql-npgsql", "ef"];
+
+    public static TheoryData<string, string, string> ContentionCases()
     {
-        var cases = new TheoryData<string, string, int>();
+        var cases = new TheoryData<string, string, string>();
         foreach (var route in Routes.Keys)
         {
             foreach (var sqlState in new[] { "40001", "40P01", "55P03" })
             {
-                for (var wrappings = 0; wrappings <= 2; wrappings++)
+                foreach (var envelope in Envelopes)
                 {
-                    cases.Add(route, sqlState, wrappings);
+                    cases.Add(route, sqlState, envelope);
                 }
             }
         }
@@ -56,35 +60,88 @@ public sealed class DatabaseContentionResponseTests(EnabledPhotoUploads media)
         return cases;
     }
 
-    [Theory]
-    [MemberData(nameof(Cases))]
-    public async Task ATransientServerErrorIsTheSameTemporaryUnavailabilityOnEveryRoute(
-        string route, string sqlState, int wrappings)
+    public static TheoryData<string, string> UnreachableCases()
     {
-        Exception failure = new PostgresException(_canary, "ERROR", "ERROR", sqlState);
-        for (var i = 0; i < wrappings; i++)
+        var cases = new TheoryData<string, string>();
+        foreach (var route in Routes.Keys)
         {
-            failure = new NpgsqlException(_canary, failure);
+            foreach (var cause in new[] { "53300", "57P01", "08006", "cliente-timeout" })
+            {
+                cases.Add(route, cause);
+            }
         }
 
+        return cases;
+    }
+
+    [Theory]
+    [MemberData(nameof(ContentionCases))]
+    public async Task ATransientServerErrorIsTheSameTemporaryUnavailabilityOnEveryRoute(
+        string route, string sqlState, string envelope)
+    {
+        var failure = Envelope(new PostgresException(_canary, "ERROR", "ERROR", sqlState), envelope);
+
+        var (whole, logs) = await RespondAsync(route, failure);
+
+        Assert.Equal(Expected(ContentionRetryAfterSeconds), whole);
+        AssertNothingLeaks(whole, logs);
+        var warning = SingleHandlerWarning(logs);
+        Assert.Equal("DatabaseContention", warning.EventId.Name);
+        Assert.Equal(2, warning.EventId.Id);
+        Assert.Contains($"({sqlState}, {nameof(PostgresException)})", warning.Text, StringComparison.Ordinal);
+    }
+
+    /// <summary>Banco fora do alcance tem <c>Retry-After</c> próprio: trocar o valor para o da contenção quebra aqui.</summary>
+    [Theory]
+    [MemberData(nameof(UnreachableCases))]
+    public async Task AnUnreachableDatabaseIsTheSameLongerUnavailabilityOnEveryRoute(string route, string cause)
+    {
+        Exception failure = cause == "cliente-timeout"
+            ? new NpgsqlException(_canary, new TimeoutException(_canary))
+            : new PostgresException(_canary, "FATAL", "FATAL", cause);
+
+        var (whole, logs) = await RespondAsync(route, failure);
+
+        Assert.Equal(Expected(UnreachableRetryAfterSeconds), whole);
+        AssertNothingLeaks(whole, logs);
+        var warning = SingleHandlerWarning(logs);
+        Assert.Equal("DatabaseUnavailable", warning.EventId.Name);
+        Assert.Equal(1, warning.EventId.Id);
+        var described = cause == "cliente-timeout" ? $"(-, {nameof(NpgsqlException)})" : $"({cause}, {nameof(PostgresException)})";
+        Assert.Contains(described, warning.Text, StringComparison.Ordinal);
+    }
+
+    private Exception Envelope(PostgresException server, string envelope) => envelope switch
+    {
+        "cru" => server,
+        "npgsql" => new NpgsqlException(_canary, server),
+        "npgsql-npgsql" => new NpgsqlException(_canary, new NpgsqlException(_canary, server)),
+        // A estratégia de execução do EF desiste com "transient failure" e a falha do Npgsql dentro.
+        "ef" => new InvalidOperationException(_canary, new NpgsqlException(_canary, server)),
+        _ => throw new ArgumentOutOfRangeException(nameof(envelope), envelope, null),
+    };
+
+    private async Task<(WholeProblemResponse Whole, CapturingLoggerProvider Logs)> RespondAsync(string route, Exception failure)
+    {
         var logs = new CapturingLoggerProvider();
         await using var app = await StartAsync(route, failure, logs);
         using var client = app.GetTestClient();
-
         using var response = await client.GetAsync($"/api/v1/teste/{route}", TestContext.Current.CancellationToken);
+        return (await WholeResponseAsync(response), logs);
+    }
 
-        var whole = await WholeResponseAsync(response);
-        Assert.Equal(ExpectedResponse, whole);
+    private void AssertNothingLeaks(WholeProblemResponse whole, CapturingLoggerProvider logs)
+    {
         Assert.DoesNotContain(_canary, whole.Headers, StringComparison.Ordinal);
         Assert.DoesNotContain(_canary, whole.RawBody, StringComparison.Ordinal);
         Assert.DoesNotContain(logs.Entries, entry =>
             entry.Text.Contains(_canary, StringComparison.Ordinal) || entry.Exception is not null);
-        var warning = Assert.Single(logs.Entries, entry =>
-            entry.Category == typeof(DatabaseUnavailableExceptionHandler).FullName);
-        Assert.Contains($"({sqlState}, {nameof(PostgresException)})", warning.Text, StringComparison.Ordinal);
     }
 
-    private static readonly WholeProblemResponse ExpectedResponse = new(
+    private static CapturedLog SingleHandlerWarning(CapturingLoggerProvider logs) =>
+        Assert.Single(logs.Entries, entry => entry.Category == typeof(DatabaseUnavailableExceptionHandler).FullName);
+
+    private static WholeProblemResponse Expected(string retryAfterSeconds) => new(
         503,
         string.Join(
             "\n",
@@ -92,7 +149,7 @@ public sealed class DatabaseContentionResponseTests(EnabledPhotoUploads media)
             "Content-Type: application/problem+json",
             "Expires: -1",
             "Pragma: no-cache",
-            $"Retry-After: {ContentionRetryAfterSeconds}"),
+            $"Retry-After: {retryAfterSeconds}"),
         new JsonObject
         {
             ["code"] = "TEMPORARILY_UNAVAILABLE",
