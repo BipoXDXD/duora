@@ -1,6 +1,7 @@
 import type { OperationHandle } from '@/shared/session-context'
 import { z } from 'zod'
-import { apiClient, sendMutation } from '@/shared/api'
+import { apiClient, classifyRequestFailure, sendMutation, type RequestFailure } from '@/shared/api'
+import { isSessionRestriction, isUnauthorized } from '@/shared/api/request-failure'
 import type { components } from '@/shared/api/schema'
 
 const eventSchema = z.object({
@@ -130,6 +131,37 @@ export async function fetchParticipation(
     }),
   )
 }
+export type RoomRead =
+  { readonly kind: 'room'; readonly room: Room } | { readonly kind: 'failed'; readonly failure: RequestFailure }
+
+const FIRST_SERVER_ERROR_STATUS = 500
+
+/**
+ * Sem dado em cache, o TanStack Query zera `error` e volta a `pending` a cada refetch. A recusa definitiva vira dado
+ * para continuar na tela enquanto o polling consulta de novo. Falha transitória e de sessão seguem como erro, porque
+ * o retry e a revalidação da identidade dependem dele.
+ */
+export async function readRoom(operation: OperationHandle, id: string, signal?: AbortSignal): Promise<RoomRead> {
+  try {
+    return { kind: 'room', room: await fetchRoom(operation, id, signal) }
+  } catch (error) {
+    if (isDefinitiveRefusal(error)) {
+      return { kind: 'failed', failure: classifyRequestFailure(error) }
+    }
+    throw error
+  }
+}
+
+function isDefinitiveRefusal(error: unknown): boolean {
+  const failure = classifyRequestFailure(error)
+  return (
+    failure.kind === 'problem' &&
+    failure.status < FIRST_SERVER_ERROR_STATUS &&
+    !isUnauthorized(error) &&
+    !isSessionRestriction(error)
+  )
+}
+
 export async function fetchRoom(operation: OperationHandle, id: string, signal?: AbortSignal): Promise<Room> {
   return roomSchema.parse(
     await apiClient.requestJson({

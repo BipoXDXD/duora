@@ -52,6 +52,8 @@ public sealed class EligibleParticipantPolicyTests : IAsyncDisposable
         "POST /api/v1/me/age-verifications",
         "POST /api/v1/me/photos",
         "PUT /api/v1/me/blocks/{targetUserId:guid}",
+        // Saída segura (API-R04, ADR-0052): vale também para quem deixou de ser elegível; exige participar da sala.
+        "POST /api/v1/rooms/{roomId:guid}/exit",
         // Novo aceite dos Termos (#296): não bloqueia o uso e vale também para quem ainda não é elegível.
         "POST /api/v1/me/terms-acceptances",
     ];
