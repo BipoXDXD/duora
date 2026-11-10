@@ -79,9 +79,10 @@ runs:
         pathlib.Path(sys.argv[1]).write_text(json.dumps(config))
         PY
         sudo install -m 0644 "$RUNNER_TEMP/component-daemon.json" /etc/docker/daemon.json
-        # O postinst do upgrade já reinicia docker e containerd; às vezes o restart logo em seguida falha
-        # (runs 42739401041 e 42746167683). Na falha, registra o diagnóstico e tenta uma única vez mais,
-        # depois de limpar o estado de falha e com o containerd ativo. Se a segunda falhar, o job falha.
+        # O restart logo depois do upgrade do docker-ce às vezes falha com o limite de partidas do systemd
+        # (runs 42739401041 e 42746167683; o PR #444 reproduziu com start-limit-hit). Na falha, registra o
+        # diagnóstico, limpa o estado de falha, espera o containerd ativo e tenta uma única vez mais.
+        # Se a segunda falhar, o job falha.
         restart_docker() {
           sudo systemctl restart docker && return 0
           echo "::group::docker.service não reiniciou: diagnóstico"
@@ -91,6 +92,7 @@ runs:
           return 1
         }
         if ! restart_docker; then
+          echo "::warning title=Docker reiniciado na segunda tentativa::o restart do docker.service falhou uma vez; diagnóstico no grupo acima"
           sudo systemctl reset-failed docker.service docker.socket
           containerd_deadline=$((SECONDS + 60))
           until systemctl is-active --quiet containerd && sudo test -S /run/containerd/containerd.sock; do
