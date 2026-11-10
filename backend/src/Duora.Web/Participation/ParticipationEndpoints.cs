@@ -23,7 +23,7 @@ internal static class ParticipationEndpoints
             Result(await service.RegisterAsync(eventId, User(context), false, ct))).Produces(204).ProducesProblem(404).ProducesProblem(503);
         // API-E04 (ADR-0053): sem corpo e sem id de pessoa; a inscrição alvo é sempre a de quem chama.
         routes.MapDelete("/events/{eventId:guid}/registration", async (Guid eventId, HttpContext context, ParticipationService service, CancellationToken ct) =>
-            Result(await service.WithdrawAsync(eventId, User(context), ct))).Produces(204).ProducesProblem(404);
+            Result(await service.WithdrawAsync(eventId, User(context), ct))).Produces(204).ProducesProblem(404).ProducesProblem(503);
         routes.MapPost("/events/{eventId:guid}/check-in", async (Guid eventId, HttpContext context, ParticipationService service, CancellationToken ct) =>
             Result(await service.RegisterAsync(eventId, User(context), true, ct))).Produces(204).ProducesProblem(404).ProducesProblem(503);
         routes.MapGet("/events/{eventId:guid}/participation", async (Guid eventId, HttpContext context, ParticipationService service, CancellationToken ct) =>
