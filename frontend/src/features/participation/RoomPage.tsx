@@ -86,6 +86,40 @@ function RoomFailure({ failure }: { readonly failure: RequestFailure }): React.J
   return <RequestFailureAlert failure={failure} />
 }
 
+/**
+ * Ação de jogo recusada com 404: a sala já não aceita escolhas (`Expired` por qualquer motivo). O aviso diz só o que
+ * aconteceu com a escolha, sem afirmar o motivo; a releitura mostra o estado da sala.
+ */
+function ChoiceFailure({ error }: { readonly error: Error | null }): React.JSX.Element {
+  const { t } = useI18n()
+  const failure = classifyRequestFailure(error)
+  if (failure.kind === 'problem' && failure.status === NOT_FOUND) {
+    return <p role="status">{t('participation.choiceNotSaved')}</p>
+  }
+  return <RequestFailureAlert failure={failure} />
+}
+
+interface SettledMutation {
+  readonly isError: boolean
+  readonly submittedAt: number
+}
+
+/**
+ * A falha de uma mutação descreve a sala em que apareceu. Quando o estado da sala muda de novo, as falhas já assentadas
+ * deixam de valer. A mutação ainda pendente fica de fora: é a releitura dela que muda o estado.
+ */
+function useFailuresOfCurrentState(
+  state: string,
+  mutations: readonly SettledMutation[],
+): (mutation: SettledMutation) => boolean {
+  const [seen, setSeen] = useState({ state, staleUntil: 0 })
+  if (seen.state !== state) {
+    const settled = mutations.filter((mutation) => mutation.isError).map((mutation) => mutation.submittedAt)
+    setSeen({ state, staleUntil: Math.max(seen.staleUntil, ...settled) })
+  }
+  return (mutation) => mutation.isError && mutation.submittedAt > seen.staleUntil
+}
+
 function RoomBody({
   room,
   refresh,
@@ -110,6 +144,7 @@ function RoomBody({
     onSuccess: refresh,
     onError: refresh,
   })
+  const failedNow = useFailuresOfCurrentState(room.state, [action, routesAction])
   const state = room.state.toLowerCase()
   const invited = state === 'invited' || state === 'ready'
   const active = state === 'active'
@@ -130,8 +165,8 @@ function RoomBody({
       <p>{t('preferences.noTranslation')}</p>
       <p>{t('preferences.voiceOptional')}</p>
       {command.isError ? <RoomFailure failure={classifyRequestFailure(command.error)} /> : null}
-      {action.isError ? <RequestFailureAlert failure={classifyRequestFailure(action.error)} /> : null}
-      {routesAction.isError ? <RequestFailureAlert failure={classifyRequestFailure(routesAction.error)} /> : null}
+      {failedNow(action) ? <ChoiceFailure error={action.error} /> : null}
+      {failedNow(routesAction) ? <ChoiceFailure error={routesAction.error} /> : null}
       {invited ? (
         <section className="flex flex-col gap-4">
           <p>

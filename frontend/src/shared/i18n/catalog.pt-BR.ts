@@ -159,6 +159,7 @@ export const ptBR = {
   'participation.closed': 'Este encontro foi encerrado.',
   'participation.unavailable': 'Este encontro não está disponível.',
   'participation.awaitingPartner': 'Aguardando a outra pessoa. Sua escolha permanece privada.',
+  'participation.choiceNotSaved': 'Sua última escolha não foi registrada.',
   'participation.skip': 'Pular cartão',
   'participation.myChoice': 'Sua escolha',
   'participation.partnerChoice': 'Escolha da outra pessoa',
