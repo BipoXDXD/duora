@@ -80,6 +80,30 @@ public sealed partial class PhotoReviewApprovalTests
         Assert.DoesNotContain(unbound.Value, entry.Text, StringComparison.Ordinal);
     }
 
+    /// <summary>
+    /// A regra de legado vale só para asset sem promoção: um asset promovido cuja chave passou a ter o formato legado
+    /// não perde a conferência.
+    /// </summary>
+    [Fact]
+    public async Task ALegacyFormatKeyOnAPromotedAssetIsRefused()
+    {
+        var read = await PromotedReadAsync();
+        var legacy = ObjectKey.ForDerivative(ObjectKey.NewQuarantine(), PhotoVariant.Full);
+        byte[] other = [.. TestImages.WebP(64, 32).Select(value => (byte)(value ^ 0x5a))];
+        await new FileSystemObjectStore(_root.FullName).PutAsync(legacy, new MemoryStream(other), other.Length,
+            "image/webp", Ct);
+        await ExecuteAsync("update media.media_variants set object_key=$2 where media_asset_id=$1 and kind='full'",
+            read.AssetId, legacy.Value);
+
+        var media = await read.Reads.OpenAsync(read.Owner.UserId, read.Owner.SessionId, read.AssetId,
+            PhotoVariant.Full, Ct);
+
+        Assert.Null(media);
+        var entry = Assert.Single(read.Logs.Entries, entry => entry.Level >= LogLevel.Information);
+        Assert.Equal(LogLevel.Error, entry.Level);
+        Assert.DoesNotContain(legacy.Value, entry.Text, StringComparison.Ordinal);
+    }
+
     private async Task<PromotedRead> PromotedReadAsync()
     {
         var (reviewer, item) = await PreparedAsync();
