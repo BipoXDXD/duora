@@ -231,6 +231,39 @@ public sealed class StorageOperationBoundaryTests
     }
 
     /// <summary>
+    /// A client that stops reading also cannot hold the slot through the denial: that reply has its own 1 s, on the
+    /// same clock, and losing it is recorded.
+    /// </summary>
+    [Fact]
+    public async Task ADenialTheClientDoesNotReadIsDroppedAfterOneSecond()
+    {
+        var time = new FakeTimeProvider();
+        await using var stream = new StalledDenialStream(time, TimeSpan.FromSeconds(1));
+        using var errors = new StringWriter();
+
+        await StorageOperationBoundary.RunAsync(
+            stream, errors, _ => throw new InvalidDataException(PrivateText), time, CancellationToken.None);
+
+        var newLine = Environment.NewLine;
+        Assert.Equal($"STORAGE_OPERATION_DENIED InvalidDataException{newLine}"
+            + $"STORAGE_REPLY_LOST OperationCanceledException{newLine}", errors.ToString());
+    }
+
+    [Fact]
+    public async Task ADenialJustInsideItsSecondIsDelivered()
+    {
+        var time = new FakeTimeProvider();
+        await using var stream = new StalledDenialStream(time, TimeSpan.FromSeconds(1) - TimeSpan.FromTicks(1));
+        using var errors = new StringWriter();
+
+        await StorageOperationBoundary.RunAsync(
+            stream, errors, _ => throw new InvalidDataException(PrivateText), time, CancellationToken.None);
+
+        Assert.Equal($"STORAGE_OPERATION_DENIED InvalidDataException{Environment.NewLine}", errors.ToString());
+        Assert.Equal("denied", await ReplyAsync(stream));
+    }
+
+    /// <summary>
     /// A client that stops reading must not keep one of the host's 16 slots past the operation budget. Here the clock
     /// is the caller's token, which the budget is linked to: it fires inside the write, and the write has to see it
     /// through the token the operation was handed.
@@ -347,6 +380,24 @@ public sealed class StorageOperationBoundaryTests
                 Stalled = true;
                 StalledToken = cancellationToken;
                 await clock.CancelAsync();
+                cancellationToken.ThrowIfCancellationRequested();
+            }
+            await base.WriteAsync(buffer, cancellationToken);
+        }
+    }
+
+    /// <summary>The client's window is full at the first write: the clock moves by <c>wait</c> before it drains.</summary>
+    private sealed class StalledDenialStream(FakeTimeProvider clock, TimeSpan wait) : MemoryStream
+    {
+        private bool _stalled;
+
+        public override async ValueTask WriteAsync(ReadOnlyMemory<byte> buffer,
+            CancellationToken cancellationToken = default)
+        {
+            if (!_stalled)
+            {
+                _stalled = true;
+                clock.Advance(wait);
                 cancellationToken.ThrowIfCancellationRequested();
             }
             await base.WriteAsync(buffer, cancellationToken);
