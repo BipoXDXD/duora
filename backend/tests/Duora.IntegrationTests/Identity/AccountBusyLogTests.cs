@@ -84,6 +84,7 @@ public sealed partial class AccountBusyLogTests(PostgresFixture postgres)
             () => gate.EnterAsync(key, timeout, TestContext.Current.CancellationToken));
 
         Assert.Equal(AccountBusyReason.AccountQueue, busy.Reason);
+        Assert.Equal(timeout, busy.WaitCeiling);
     }
 
     /// <summary>
@@ -124,7 +125,7 @@ public sealed partial class AccountBusyLogTests(PostgresFixture postgres)
         await using var busyFactory = new DuoraWebFactory(postgres.ConnectionString)
         {
             TestServices = services => services.AddScoped<IPasswordHasher<DuoraUser>>(
-                _ => new BusyPasswordHasher(new AccountBusyException(TimeSpan.FromSeconds(2), AccountBusyReason.AccountLock))),
+                _ => new BusyPasswordHasher(new AccountBusyException(TimeSpan.FromSeconds(2), AccountBusyReason.AccountLock, TimeSpan.FromSeconds(2)))),
         };
         await using var downFactory = new DuoraWebFactory(new CanaryConnectionString().Value);
         using var busyBrowser = new Browser(busyFactory);
@@ -148,7 +149,7 @@ public sealed partial class AccountBusyLogTests(PostgresFixture postgres)
         await using var factory = new DuoraWebFactory(postgres.ConnectionString)
         {
             TestServices = services => services.AddScoped<IPasswordHasher<DuoraUser>>(
-                _ => new BusyPasswordHasher(new AccountBusyException(TimeSpan.FromSeconds(2), AccountBusyReason.LoginDeadline))),
+                _ => new BusyPasswordHasher(new AccountBusyException(TimeSpan.FromSeconds(2), AccountBusyReason.LoginDeadline, TimeSpan.FromSeconds(2)))),
         };
         using var counter = new AccountBusyCounter(factory.Services.GetRequiredService<IMeterFactory>());
         using var browser = new Browser(factory);
