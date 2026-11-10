@@ -161,8 +161,9 @@ public sealed class RegistrationLockTimeoutTests : IAsyncDisposable
 
     /// <summary>
     /// Tudo o que um cadastro grava sobre a conta: senha e stamps da linha, os aceites, os tokens (orçamento de emissão
-    /// e código de confirmação) e os eventos da outbox da conta. A outbox é filtrada por <c>resource_id</c>, não pelo
-    /// payload, que a entrega esvazia: um worker no mesmo banco não faz um evento antigo sumir entre as leituras.
+    /// e código de confirmação) e os eventos da outbox da conta. Um evento é da conta pelo <c>resource_id</c>, que a
+    /// entrega não apaga, ou pelo destinatário do payload, que pega o aviso com id sintético mandado ao endereço (como o
+    /// de redefinição para endereço sem conta). Os dois critérios juntos cobrem também a entrega que esvazia o payload.
     /// </summary>
     private async Task<string> AccountFootprintAsync(TestAccount account)
     {
@@ -176,7 +177,8 @@ public sealed class RegistrationLockTimeoutTests : IAsyncDisposable
                         order by t.login_provider, t.name)
                  from identity.user_tokens t where t.user_id = u.id),
                 (select string_agg(c.id::text, ', ' order by c.id) from identity.consent_records c where c.user_id = u.id),
-                (select string_agg(o.id::text, ', ' order by o.id) from ops.outbox_events o where o.resource_id = u.id))
+                (select string_agg(o.id::text, ', ' order by o.id) from ops.outbox_events o
+                 where o.resource_id = u.id or lower(o.payload->>'to') = lower(u.email)))
             from identity.users u where u.id = $1
             """,
             connection);
