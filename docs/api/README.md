@@ -81,14 +81,34 @@ para a SPA tratá-los:
 
 ## Indisponibilidade temporária do banco (#465)
 
-Um erro passageiro do banco responde igual em toda rota: `503` `TEMPORARILY_UNAVAILABLE`, `Retry-After`, sem
-detalhe da falha. Quem decide é só o handler global (`DatabaseUnavailableExceptionHandler`); nenhum filtro de
-endpoint trata contenção por conta própria.
+Um erro passageiro do banco responde `503` `TEMPORARILY_UNAVAILABLE` com `Retry-After`, sem detalhe da falha.
+Quem decide é só o handler global (`DatabaseUnavailableExceptionHandler`); nenhum filtro de endpoint trata
+contenção por conta própria, e o teste de arquitetura `ContentionClassificationTests` impede que volte um.
 
-| Falha | SQLSTATE | `Retry-After` |
-|---|---|---|
-| Contenção: serialização, deadlock, `lock_timeout` (crua ou embrulhada pelo Npgsql) | `40001`, `40P01`, `55P03` | `2` |
-| Banco fora do alcance: rede, pool esgotado, servidor sem conexões ou desligando | `53300`, `57P01`–`57P03`, `08*`, falha transitória do cliente | `5` |
+Valores (decisão da coordenação, 10/11):
+
+| Falha | SQLSTATE | `Retry-After` fora de `/auth` | `Retry-After` em `/auth` |
+|---|---|---|---|
+| Contenção: serialização, deadlock, `lock_timeout` (crua ou embrulhada pelo Npgsql ou pelo EF) | `40001`, `40P01`, `55P03` | `2` | `30` |
+| Banco fora do alcance: rede, pool esgotado, servidor sem conexões ou desligando | `53300`, `57P01`–`57P03`, `08*`, falha transitória do cliente | `5` | `30` |
+| Timeout de comando (`statement_timeout`) | `57014` | regra da rota (mídia e revisão de foto: `503`; outras: `500`) | `30` |
+| Conta ocupada (`AccountBusyException`: fila, lock ou prazo) | — | o da exceção (na conta, `30`) | `30` |
+| Documentos legais indisponíveis no cadastro | — | — | `30` |
+
+O Warning do handler tem dois eventos, escolhidos pelo mesmo critério do `Retry-After`: `DatabaseUnavailable` (id 1)
+e `DatabaseContention` (id 2), só com SQLSTATE, tipo da exceção, padrão da rota e trace.
+
+**Exceção das rotas de identidade.** Todo `503` sob `/api/v1/auth` responde igual, qualquer que seja a causa:
+mesmo corpo e `Retry-After` igual a `Identity:AccountQueueTimeout` (`AccountLockOptions.BusyRetryAfter`, 30 s por
+padrão). Um valor por causa diria ao cliente o que falhou e, no lock da linha, que a conta existe (TM-06, #468). A
+regra vale para o grupo `/auth` inteiro (inclusive `/auth/google` e `/auth/reauthenticate`): o marcador
+`NeutralUnavailabilityEndpoint` fica no grupo, e toda rota nova ali herda a regra. `ApiProblems.Unavailable` é a
+função única que monta esses 503.
+
+**Rota pública de identidade**, critério verificado por `NeutralUnavailabilityRoutesTests`: rota anônima
+(`IAllowAnonymous`) cujo handler recebe e-mail, senha, token, código ou credencial, num parâmetro com esse nome ou
+numa propriedade do DTO de `Duora.Contracts` que recebe. Toda rota assim precisa ficar sob `/auth` e levar o
+marcador; o teste falha se uma nascer fora do grupo.
 
 Mudança de contrato, sem mudança de schema (o OpenAPI não lista o `Retry-After` desses 503):
 
@@ -96,10 +116,8 @@ Mudança de contrato, sem mudança de schema (o OpenAPI não lista o `Retry-Afte
 - Contenção embrulhada pelo Npgsql: era `503` com `Retry-After: 5`, passa a `2`.
 - Rotas de Participation, Catalog, PhotoReview e Media: continuam `503` com `Retry-After: 2`; a resposta ganha
   `Expires: -1`, como todo erro tratado pelo handler global, e a falha passa a gerar o Warning com o SQLSTATE.
-
-O valor de cada linha é uma constante do handler. A escolha entre `2` e `5` para contenção está pendente da
-coordenação (PR do #465). O `503` de `AccountBusyException` no login e o `57014` (`statement_timeout`) das rotas
-de mídia seguem com regras próprias.
+- Rotas sob `/auth`: todo `503` passa a `Retry-After: 30`; o `57014` passa de `500` a `503`; o `503` legal do
+  cadastro e os `503` do Google passam a levar `Retry-After`.
 
 ## Localização do perfil (expansão da issue #78)
 
