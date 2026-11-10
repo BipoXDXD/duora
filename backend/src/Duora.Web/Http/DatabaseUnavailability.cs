@@ -64,6 +64,11 @@ internal static class DatabaseUnavailability
 internal sealed partial class DatabaseUnavailableExceptionHandler(ILogger<DatabaseUnavailableExceptionHandler> logger)
     : IExceptionHandler
 {
+    private const string NoSqlState = "-";
+
+    // Sem endpoint, o path é texto do cliente e sem limite de tamanho: não vai para o log.
+    private const string NoEndpoint = "(no endpoint)";
+
     private static readonly TimeSpan RetryAfter = TimeSpan.FromSeconds(5);
 
     public async ValueTask<bool> TryHandleAsync(HttpContext httpContext, Exception exception, CancellationToken cancellationToken)
@@ -75,7 +80,7 @@ internal sealed partial class DatabaseUnavailableExceptionHandler(ILogger<Databa
 
         LogDatabaseUnavailable(
             logger,
-            (cause as PostgresException)?.SqlState,
+            (cause as PostgresException)?.SqlState ?? NoSqlState,
             cause.GetType().Name,
             RouteOf(httpContext),
             Activity.Current?.Id ?? httpContext.TraceIdentifier);
@@ -88,14 +93,14 @@ internal sealed partial class DatabaseUnavailableExceptionHandler(ILogger<Databa
     }
 
     /// <summary>O padrão da rota (sem ids); o middleware de exceção já limpou o endpoint do contexto.</summary>
-    private static string? RouteOf(HttpContext httpContext)
+    private static string RouteOf(HttpContext httpContext)
     {
         var failure = httpContext.Features.Get<IExceptionHandlerFeature>();
-        return (failure?.Endpoint as RouteEndpoint)?.RoutePattern.RawText ?? failure?.Path;
+        return (failure?.Endpoint as RouteEndpoint)?.RoutePattern.RawText ?? NoEndpoint;
     }
 
     [LoggerMessage(Level = LogLevel.Warning,
         Message = "Database unavailable ({SqlState}, {ErrorType}) on {Route}, trace {TraceId}")]
     private static partial void LogDatabaseUnavailable(
-        ILogger logger, string? sqlState, string errorType, string? route, string traceId);
+        ILogger logger, string sqlState, string errorType, string route, string traceId);
 }
