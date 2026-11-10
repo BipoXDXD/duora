@@ -227,9 +227,11 @@ em [system.md](system.md); critérios de acessibilidade, em [accessibility.md](a
   "Ir para a sala de espera"); secundária "Cancelar inscrição" quando inscrito.
 - **Cancelar inscrição / Sair da lista (API-E04):** só antes do início, como o servidor. Confirmação em duas etapas
   na própria tela: o foco vai para o aviso "Depois de sair, você não poderá se inscrever de novo neste encontro."
-  (decisão 10 de 24/10/2026), que descreve o botão "Confirmar saída" (`aria-describedby`); "Manter inscrição" desiste
-  e devolve o foco ao botão. Depois da retirada, o foco vai para "Você saiu deste encontro." e somem inscrição e
-  check-in. A tela não promete aviso à pessoa promovida da espera (#320). Hoje vive na lista de eventos
+  (decisão 10 de 24/10/2026), que descreve o botão destrutivo "Sim, cancelar inscrição" ("Sim, sair da lista" na
+  espera) (`aria-describedby`). A ação segura vem primeiro: "Manter inscrição" ("Continuar na lista" na espera) desiste
+  e devolve o foco ao botão. Se o encontro começa com a confirmação aberta, ou o servidor recusa no limite do horário
+  (404), ela fecha e o foco vai para "O encontro começou. Não é mais possível cancelar a inscrição." Depois da
+  retirada, o foco vai para "Você saiu deste encontro." e somem inscrição e check-in. A tela não promete aviso à pessoa promovida da espera (#320). Hoje vive na lista de eventos
   (`EventsPage`), não num detalhe do evento.
 
 ```text
