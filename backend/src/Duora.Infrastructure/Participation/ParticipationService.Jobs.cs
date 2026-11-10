@@ -77,6 +77,12 @@ public sealed partial class ParticipationService
         using var linked = CancellationTokenSource.CreateLinkedTokenSource(ct, deadline.Token);
         ct = linked.Token;
         await using var connection = await source.OpenConnectionAsync(ct);
+        if (job.Kind == "game-deadline" && job.DueAt > Now)
+        {
+            await RequeueEarlyJobAsync(connection, job, ct);
+            return false;
+        }
+
         await using var tx = await connection.BeginTransactionAsync(ct);
         // Position zero: fencing, completion and aggregate changes commit together.
         var owned = await Execute(connection, """
@@ -128,6 +134,18 @@ public sealed partial class ParticipationService
         await tx.CommitAsync(ct);
         return true;
     }
+
+    /// <summary>
+    /// Um <c>game-deadline</c> entregue antes do prazo (relógio de outra instância adiantado, fila manipulada) não pode ser
+    /// consumido: o motor responderia "ainda não venceu" e nada o reagendaria. Volta a <c>Pending</c> no próprio
+    /// <c>due_at</c>, devolvendo a tentativa do claim. Um só comando com o fencing do claim: só o dono do token o devolve, uma
+    /// vez.
+    /// </summary>
+    private Task<int> RequeueEarlyJobAsync(NpgsqlConnection connection, ParticipationJob job, CancellationToken ct) =>
+        Execute(connection, """
+            update ops.jobs set status='Pending',available_at=due_at,attempts=attempts-1,lease_expires_at=null
+            where id=$1 and fencing_token=$2 and status='InFlight' and lease_expires_at>$3 and due_at>$3
+            """, ct, job.Id, job.Token, Now);
 
     private async Task CloseRoundAsync(NpgsqlConnection connection, Guid round, CancellationToken ct)
     {
