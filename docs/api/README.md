@@ -118,7 +118,9 @@ que não é GUID) falha no model binding e recebe `400 INVALID_REQUEST` (`"actio
 GUID e também recebem `INVALID_REQUEST`). Os demais casos recebem `400 VALIDATION_FAILED`: `actionId` ausente ou
 GUID vazio (`00000000-0000-0000-0000-000000000000`), `expectedVersion` que não é inteiro positivo, `type`
 desconhecido, ou campos ausentes ou incoerentes com o `type`. Até o job rodar, o reenvio com o mesmo `actionId`
-segue a regra de replay acima (`204` ou `400`); depois, `404`.
+segue a regra de replay acima (`204` ou `400`); depois, `404`. Na sala `Completed`, o job não muda a sala, então o
+reenvio segue a regra de replay (`204` sem gravar de novo, ou `400` com outro corpo) mesmo depois do prazo e do job. Só
+o autor vê isso, e só sobre a própria ação.
 
 ## Idioma do documento aceito (issue #103)
 
