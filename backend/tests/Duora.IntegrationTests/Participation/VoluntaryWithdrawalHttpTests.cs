@@ -90,9 +90,45 @@ public sealed class VoluntaryWithdrawalHttpTests(PostgresFixture postgres)
         using var notRegistered = await scene.Bob.DeleteAsync(Scene.Path(scene.EventId));
 
         Assert.Equal(HttpStatusCode.NotFound, unknown.StatusCode);
-        Assert.Equal(notRegistered.StatusCode, unknown.StatusCode);
-        Assert.Equal(notRegistered.Content.Headers.ContentType?.MediaType, unknown.Content.Headers.ContentType?.MediaType);
-        Assert.Equal(await Neutral(notRegistered), await Neutral(unknown));
+        Assert.Equal(await NeutralAsync(notRegistered), await NeutralAsync(unknown));
+    }
+
+    /// <summary>
+    /// Inscrição encerrada, evento fechado e evento já iniciado respondem exatamente como evento inexistente: mesmo
+    /// status, headers e corpo, e nada muda no banco.
+    /// </summary>
+    [Theory]
+    [InlineData("completed-registration")]
+    [InlineData("cancelled-event")]
+    [InlineData("running-event")]
+    [InlineData("started")]
+    public async Task ARegistrationThatCannotBeWithdrawnAnswersLikeAnUnknownEvent(string situation)
+    {
+        await using var scene = await Scene.CreateAsync(postgres, registerBob: false);
+        switch (situation)
+        {
+            case "completed-registration":
+                await scene.ExecuteAsync("update events.registrations set state='Completed' where event_id=$1 and user_id=$2",
+                    scene.EventId, scene.Seed.Alice);
+                break;
+            case "cancelled-event":
+                await scene.ExecuteAsync("update events.events set state='Cancelled' where id=$1", scene.EventId);
+                break;
+            case "running-event":
+                await scene.ExecuteAsync("update events.events set state='Running' where id=$1", scene.EventId);
+                break;
+            default:
+                scene.Clock.Advance(TimeSpan.FromMinutes(5));
+                break;
+        }
+        var before = await scene.SnapshotAsync();
+
+        using var refused = await scene.Alice.DeleteAsync(Scene.Path(scene.EventId));
+        using var unknown = await scene.Alice.DeleteAsync(Scene.Path(Guid.NewGuid()));
+
+        Assert.Equal(HttpStatusCode.NotFound, refused.StatusCode);
+        Assert.Equal(await NeutralAsync(unknown), await NeutralAsync(refused));
+        Assert.Equal(before, await scene.SnapshotAsync());
     }
 
     [Fact]
@@ -126,16 +162,24 @@ public sealed class VoluntaryWithdrawalHttpTests(PostgresFixture postgres)
     }
 
     /// <summary>O corpo sem o <c>traceId</c>, que muda por requisição.</summary>
-    private static async Task<string> Neutral(HttpResponseMessage response)
+    /// <summary>Headers que mudam por requisição: data e identificadores de rastreio.</summary>
+    private static readonly HashSet<string> PerRequestHeaders = new(StringComparer.OrdinalIgnoreCase) { "Date", "traceparent", "Request-Id" };
+
+    /// <summary>Status, headers (sem os que mudam por requisição) e corpo sem o <c>traceId</c>.</summary>
+    private static async Task<string> NeutralAsync(HttpResponseMessage response)
     {
+        var headers = response.Headers.Concat(response.Content.Headers)
+            .Where(header => !PerRequestHeaders.Contains(header.Key))
+            .Select(header => $"{header.Key.ToLowerInvariant()}: {string.Join(",", header.Value)}")
+            .Order(StringComparer.Ordinal);
         var text = await response.Content.ReadAsStringAsync(Ct);
-        if (text.Length == 0)
+        if (text.Length > 0)
         {
-            return text;
+            var body = JsonNode.Parse(text)!.AsObject();
+            body.Remove("traceId");
+            text = body.ToJsonString();
         }
-        var body = JsonNode.Parse(text)!.AsObject();
-        body.Remove("traceId");
-        return body.ToJsonString();
+        return $"{(int)response.StatusCode}\n{string.Join("\n", headers)}\n{text}";
     }
 
     /// <summary>Capacidade 1: Alice confirmada e, por padrão, Bob na posição 1 da fila.</summary>
@@ -196,6 +240,12 @@ public sealed class VoluntaryWithdrawalHttpTests(PostgresFixture postgres)
         public Task<string> HistoryAsync(Guid user) => TextAsync(
             "select state||'|'||coalesce(withdrawn_from_state,'-') from events.registrations where event_id=$1 and user_id=$2",
             EventId, user);
+
+        public async Task ExecuteAsync(string sql, params object[] values)
+        {
+            await using var connection = await _source.OpenConnectionAsync(Ct);
+            await Execute(connection, sql, Ct, values);
+        }
 
         public Task<string> RowAsync(Guid user) => TextAsync(
             "select r::text from events.registrations r where event_id=$1 and user_id=$2", EventId, user);
