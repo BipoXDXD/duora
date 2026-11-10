@@ -129,7 +129,7 @@ public sealed partial class CredentialVerifier
         catch (OperationCanceledException expired)
             when (deadline.IsCancellationRequested && !cancellationToken.IsCancellationRequested)
         {
-            throw new AccountBusyException(_timing.LoginTimeout, expired);
+            throw new AccountBusyException(_timing.LoginTimeout, AccountBusyReason.LoginDeadline, expired);
         }
     }
 

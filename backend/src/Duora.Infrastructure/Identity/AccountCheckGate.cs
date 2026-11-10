@@ -73,7 +73,7 @@ internal sealed class AccountCheckGate
         {
             if (!await entry.Semaphore.WaitAsync(timeout, cancellationToken))
             {
-                throw new AccountBusyException(timeout);
+                throw new AccountBusyException(timeout, AccountBusyReason.AccountQueue);
             }
         }
         catch

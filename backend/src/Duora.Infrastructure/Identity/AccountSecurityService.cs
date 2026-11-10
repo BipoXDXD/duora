@@ -57,12 +57,42 @@ public sealed class AccountBusyException : Exception
     }
 
     public AccountBusyException(TimeSpan retryAfter, Exception? innerException = null)
+        : this(retryAfter, AccountBusyReason.Other, innerException)
+    {
+    }
+
+    public AccountBusyException(TimeSpan retryAfter, AccountBusyReason reason, Exception? innerException = null)
         : base("Conta ocupada por outra verificação.", innerException)
     {
         RetryAfter = retryAfter;
+        Reason = reason;
     }
 
     public TimeSpan RetryAfter { get; }
+
+    /// <summary>Qual teto estourou. Só para log e métrica: a resposta HTTP é a mesma para todos (e igual à do banco
+    /// indisponível, salvo o <c>Retry-After</c>), ou o motivo ajudaria a enumerar contas.</summary>
+    public AccountBusyReason Reason { get; }
+}
+
+/// <summary>O teto que estourou numa <see cref="AccountBusyException"/>.</summary>
+public enum AccountBusyReason
+{
+    /// <summary>
+    /// Fora dos três tetos abaixo: o 55P03 (ou o deadlock, 40P01) de <c>TimeZoneStore</c> e de
+    /// <c>LanguagePreferenceGuard</c>, ainda sem motivo próprio, e a inscrição em evento que esgota as tentativas
+    /// (<c>ParticipationService.RegisterAsync</c>).
+    /// </summary>
+    Other,
+
+    /// <summary><c>lock_timeout</c> da linha da conta no PostgreSQL (55P03), em <c>AccountSecurityService</c>.</summary>
+    AccountLock,
+
+    /// <summary>Teto da fila em memória por conta ou por e-mail, em <c>AccountCheckGate</c>.</summary>
+    AccountQueue,
+
+    /// <summary>Prazo total do login (<c>Identity:LoginTimeout</c>), em <c>CredentialVerifier</c>.</summary>
+    LoginDeadline,
 }
 
 /// <summary>Início do cadastro do TOTP (API-A11).</summary>
@@ -730,7 +760,7 @@ public sealed class AccountSecurityService
         }
         catch (Exception error) when (LockTimeoutIn(error) is { } timeout)
         {
-            throw new AccountBusyException(_lock.AccountLockTimeout, timeout);
+            throw new AccountBusyException(_lock.AccountLockTimeout, AccountBusyReason.AccountLock, timeout);
         }
 
         await SetLockTimeoutAsync(NoLockTimeout, cancellationToken);

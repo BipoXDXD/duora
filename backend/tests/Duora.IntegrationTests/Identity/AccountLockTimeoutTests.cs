@@ -175,13 +175,15 @@ public sealed class AccountLockTimeoutTests : IAsyncDisposable
         var mostWaiting = 0L;
         while (!logins.All(login => login.IsCompleted))
         {
-            mostWaiting = Math.Max(mostWaiting, await CountConnectionsWaitingForTheAccountLockAsync());
+            mostWaiting = Math.Max(mostWaiting, await CountConnectionsBlockedByAsync(holder.ProcessId));
             await Task.Delay(TimeSpan.FromMilliseconds(50), TestContext.Current.CancellationToken);
         }
 
         var responses = await Task.WhenAll(logins);
         Assert.All(responses, response => Assert.Equal(HttpStatusCode.ServiceUnavailable, response.StatusCode));
-        Assert.InRange(mostWaiting, 0, 1);
+        // Exatamente 1: o primeiro da fila em memória espera o lock; os outros esperam na fila, sem conexão. 0 seria a
+        // consulta quebrada (ou ninguém chegou ao banco), e o teste não provaria nada.
+        Assert.Equal(1, mostWaiting);
         foreach (var response in responses)
         {
             response.Dispose();
@@ -190,17 +192,27 @@ public sealed class AccountLockTimeoutTests : IAsyncDisposable
         browsers.ForEach(browser => browser.Dispose());
     }
 
-    private async Task<long> CountConnectionsWaitingForTheAccountLockAsync()
+    /// <summary>
+    /// Conexões na fila de bloqueio que começa no <paramref name="holderPid"/>: as que ele bloqueia e as que esperam
+    /// atrás delas (a segunda espera pela mesma linha é bloqueada pela primeira, não pelo holder). Só essa fila: outras
+    /// classes de teste rodam em paralelo no mesmo banco e travam suas próprias contas.
+    /// </summary>
+    private async Task<long> CountConnectionsBlockedByAsync(int holderPid)
     {
         await using var connection = new NpgsqlConnection(_postgres.ConnectionString);
         await connection.OpenAsync(TestContext.Current.CancellationToken);
         await using var command = new NpgsqlCommand(
             """
-            select count(*) from pg_stat_activity
-            where datname = current_database() and wait_event_type = 'Lock'
-              and query like '%from identity.users where id =%for no key update%'
+            with recursive blocked(pid) as (
+                select pid from pg_stat_activity where pg_blocking_pids(pid) @> array[$1]
+                union
+                select waiting.pid from pg_stat_activity waiting
+                join blocked on pg_blocking_pids(waiting.pid) @> array[blocked.pid]
+            )
+            select count(*) from blocked
             """,
             connection);
+        command.Parameters.AddWithValue(holderPid);
         return Convert.ToInt64(await command.ExecuteScalarAsync(TestContext.Current.CancellationToken), System.Globalization.CultureInfo.InvariantCulture);
     }
 
@@ -274,6 +286,9 @@ public sealed class AccountLockTimeoutTests : IAsyncDisposable
     private sealed class AccountHolder(NpgsqlConnection connection, NpgsqlTransaction transaction) : IAsyncDisposable
     {
         private bool _released;
+
+        /// <summary>Pid do backend que segura o lock, para achar quem ele bloqueia.</summary>
+        public int ProcessId { get; } = connection.ProcessID;
 
         public async ValueTask DisposeAsync()
         {
