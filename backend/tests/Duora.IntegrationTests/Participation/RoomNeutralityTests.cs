@@ -143,12 +143,14 @@ public sealed partial class RoomNeutralityTests(PostgresFixture postgres)
 
     /// <summary>
     /// Fixa o comportamento atual até a decisão de INV-03 sobre sala encerrada: é o risco residual aceito do TM-24
-    /// ("depois do fim do jogo"). Em sala <c>Completed</c>, quem fica ainda distingue o bloqueio da saída do par. Quando
-    /// o dono decidir, este teste muda junto, em vez de a diferença sumir ou aparecer em silêncio.
+    /// ("depois do fim do jogo"). Em sala <c>Completed</c>, quem fica ainda distingue o bloqueio da saída e da suspensão
+    /// do par: só o bloqueio tira o <c>roomId</c> do status. Quando o dono decidir, este teste muda junto, em vez de a
+    /// diferença sumir ou aparecer em silêncio.
     /// </summary>
     [Theory]
     [InlineData("block", HttpStatusCode.NotFound, "Waiting", false)]
     [InlineData("exit", HttpStatusCode.OK, "Completed", true)]
+    [InlineData("suspension", HttpStatusCode.NotFound, "Completed", true)]
     public async Task ACompletedRoomStillTellsBlockFromExitUntilTheInv03Decision(string how, HttpStatusCode roomStatus, string participationState, bool keepsRoom)
     {
         var ct = TestContext.Current.CancellationToken;
