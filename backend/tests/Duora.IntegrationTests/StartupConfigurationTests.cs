@@ -1,4 +1,5 @@
 using Duora.Core.Media;
+using Duora.Infrastructure.Identity;
 using Duora.Infrastructure.Media;
 using Duora.Web;
 using Duora.Web.Identity;
@@ -56,6 +57,47 @@ public sealed class StartupConfigurationTests
 
         Assert.Equal(40, connection.MaxPoolSize);
         Assert.Equal(5, connection.Timeout);
+    }
+
+    /// <summary>
+    /// Teto do cadastro para esperar a linha da conta (#466): abaixo de 1 ms o <c>lock_timeout</c> vira 0, que desliga o
+    /// teto; acima de 50 ms a espera volta a aparecer no tempo de resposta.
+    /// </summary>
+    [Theory]
+    [InlineData("00:00:00")]
+    [InlineData("00:00:00.0009")]
+    [InlineData("00:00:00.051")]
+    [InlineData("00:00:05")]
+    public async Task WebDoesNotStartWithARegistrationLockTimeoutOutsideOneToFiftyMilliseconds(string timeout)
+    {
+        await using var app = BuildWeb($"--Identity:RegistrationLockTimeout={timeout}");
+
+        var exception = await Assert.ThrowsAsync<OptionsValidationException>(
+            () => app.StartAsync(TestContext.Current.CancellationToken));
+
+        Assert.Contains("Identity:RegistrationLockTimeout", exception.Message, StringComparison.Ordinal);
+    }
+
+    [Theory]
+    [InlineData("00:00:00.001", 1)]
+    [InlineData("00:00:00.050", 50)]
+    public async Task TheRegistrationLockTimeoutAcceptsItsBounds(string timeout, int expectedMilliseconds)
+    {
+        await using var app = BuildWeb($"--Identity:RegistrationLockTimeout={timeout}");
+
+        var options = app.Services.GetRequiredService<IOptions<RegistrationLockOptions>>().Value;
+
+        Assert.Equal(TimeSpan.FromMilliseconds(expectedMilliseconds), options.RegistrationLockTimeout);
+    }
+
+    [Fact]
+    public async Task TheRegistrationWaitsFiveMillisecondsForTheAccountByDefaultApartFromTheLoginCeiling()
+    {
+        await using var app = BuildWeb("--Identity:AccountLockTimeout=00:00:02");
+
+        var options = app.Services.GetRequiredService<IOptions<RegistrationLockOptions>>().Value;
+
+        Assert.Equal(TimeSpan.FromMilliseconds(5), options.RegistrationLockTimeout);
     }
 
     /// <summary>

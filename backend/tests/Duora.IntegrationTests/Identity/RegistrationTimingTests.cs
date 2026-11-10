@@ -17,7 +17,8 @@ public sealed class SerialTimingMeasurement;
 /// <summary>
 /// Issue #466 (decisão da coordenação, 10/11: (iv-a)): o tempo de resposta do cadastro não distingue um e-mail novo de
 /// uma conta travada por outra operação nem de uma conta com o orçamento de emissão esgotado. Os três respondem 202
-/// idêntico; aqui se afirma que a mediana do tempo também fica dentro de <see cref="MedianDifferenceLimit"/>.
+/// idêntico; aqui se afirma que o tempo também: a mediana das diferenças para o e-mail novo, pareadas por rodada, fica
+/// dentro de <see cref="MedianDifferenceLimit"/>.
 /// </summary>
 /// <remarks>
 /// <para>
@@ -40,17 +41,17 @@ public sealed class RegistrationTimingTests : IAsyncDisposable
     private static readonly TimeSpan HashCost = TimeSpan.FromMilliseconds(40);
 
     /// <summary>
-    /// Diferença máxima entre medianas. Cobre o resíduo esperado (o SQL que o caminho de desistência não roda, ~5–7 ms
-    /// medidos na #466, e o teto curto do cadastro) mais o erro da mediana de 21 amostras numa máquina carregada
-    /// (desvio de até ~15 ms por amostra, ~4 ms na mediana). Fica abaixo de <see cref="HashCost"/> e muito abaixo do teto
-    /// do login, as duas diferenças que o teste tem de pegar.
+    /// Limite da mediana das diferenças pareadas. Cobre o resíduo esperado (o SQL que a desistência não roda, ~5–7 ms
+    /// medidos na #466, e o teto curto do cadastro) mais o erro da mediana numa máquina carregada (desvio de até ~15 ms
+    /// por amostra, ~3 ms na mediana de 31). Fica na metade de <see cref="HashCost"/> e muito abaixo do teto do login,
+    /// as duas diferenças que o teste tem de pegar.
     /// </summary>
     private static readonly TimeSpan MedianDifferenceLimit = TimeSpan.FromMilliseconds(20);
 
     private static readonly TimeSpan LoginLockTimeout = TimeSpan.FromMilliseconds(300);
 
     private const int WarmupRounds = 5;
-    private const int Samples = 21;
+    private const int Samples = 31;
 
     /// <summary>Orçamento persistente de emissão por conta e por hora (cadastro e reenvio).</summary>
     private const int IssuanceBudget = 3;
@@ -119,22 +120,25 @@ public sealed class RegistrationTimingTests : IAsyncDisposable
             }
         }
 
-        var newEmail = Median(times[RegistrationCase.NewEmail]);
-        var heldAccount = Median(times[RegistrationCase.HeldAccount]);
-        var exhaustedBudget = Median(times[RegistrationCase.ExhaustedBudget]);
+        // Diferença pareada por rodada: uma rodada lenta pela carga da máquina pesa nos três casos e se cancela.
+        var heldAccount = MedianDifferenceFromNewEmail(times, RegistrationCase.HeldAccount);
+        var exhaustedBudget = MedianDifferenceFromNewEmail(times, RegistrationCase.ExhaustedBudget);
         TestContext.Current.TestOutputHelper?.WriteLine(string.Create(
             CultureInfo.InvariantCulture,
-            $"#466 medianas (N = {Samples}): e-mail novo {newEmail:F1} ms; conta travada {heldAccount:F1} ms " +
-            $"({heldAccount - newEmail:+0.0;-0.0} ms); orçamento esgotado {exhaustedBudget:F1} ms " +
-            $"({exhaustedBudget - newEmail:+0.0;-0.0} ms); limite ±{MedianDifferenceLimit.TotalMilliseconds:F0} ms."));
+            $"#466 N = {Samples}; medianas: e-mail novo {Median(times[RegistrationCase.NewEmail]):F1} ms, " +
+            $"conta travada {Median(times[RegistrationCase.HeldAccount]):F1} ms, " +
+            $"orçamento esgotado {Median(times[RegistrationCase.ExhaustedBudget]):F1} ms; " +
+            $"desvio por amostra do e-mail novo {StandardDeviation(times[RegistrationCase.NewEmail]):F1} ms; " +
+            $"diferença pareada (mediana): conta travada {heldAccount:+0.0;-0.0} ms, " +
+            $"orçamento esgotado {exhaustedBudget:+0.0;-0.0} ms; limite ±{MedianDifferenceLimit.TotalMilliseconds:F0} ms."));
 
         // Os casos só valem se seguiram o caminho que dizem: a desistência pela trava e o cadastro recusado pelo orçamento.
         Assert.Equal(
             WarmupRounds + Samples,
             _logs.Entries.Count(entry => entry.Text.Contains(GaveUpLogMessage, StringComparison.Ordinal)));
         Assert.Equal(exhaustedOutbox, await Scenario.CountOutboxEventsAsync(exhausted));
-        AssertWithinLimit("conta travada", heldAccount - newEmail);
-        AssertWithinLimit("orçamento esgotado", exhaustedBudget - newEmail);
+        AssertWithinLimit("conta travada", heldAccount);
+        AssertWithinLimit("orçamento esgotado", exhaustedBudget);
     }
 
     private enum RegistrationCase
@@ -149,7 +153,7 @@ public sealed class RegistrationTimingTests : IAsyncDisposable
             Math.Abs(difference) <= MedianDifferenceLimit.TotalMilliseconds,
             string.Create(
                 CultureInfo.InvariantCulture,
-                $"Mediana de {registrationCase} difere da do e-mail novo em {difference:+0.0;-0.0} ms " +
+                $"{registrationCase}: mediana da diferença para o e-mail novo de {difference:+0.0;-0.0} ms " +
                 $"(limite ±{MedianDifferenceLimit.TotalMilliseconds:F0} ms)."));
 
     /// <summary>Conta pendente cujos cadastros já gastaram as emissões da hora; o próximo é recusado sem gravar.</summary>
@@ -193,7 +197,16 @@ public sealed class RegistrationTimingTests : IAsyncDisposable
         return elapsed;
     }
 
-    private static double Median(List<double> values)
+    private static double MedianDifferenceFromNewEmail(Dictionary<RegistrationCase, List<double>> times, RegistrationCase other) =>
+        Median(times[other].Zip(times[RegistrationCase.NewEmail], (sample, newEmail) => sample - newEmail));
+
+    private static double StandardDeviation(List<double> values)
+    {
+        var mean = values.Average();
+        return Math.Sqrt(values.Sum(value => (value - mean) * (value - mean)) / (values.Count - 1));
+    }
+
+    private static double Median(IEnumerable<double> values)
     {
         var sorted = values.Order().ToList();
         var middle = sorted.Count / 2;

@@ -724,9 +724,17 @@ public sealed class AccountSecurityService
     /// transação já aberta por quem chama. Fora dela, o <c>set_config(..., true)</c> morre com o próprio comando e o lock
     /// fica sem teto; em outro contexto, o teto vale para a conexão errada.
     /// </summary>
-    internal async Task<T> WithLockCeilingAsync<T>(Func<Task<T>> takeLock, CancellationToken cancellationToken)
+    internal Task<T> WithLockCeilingAsync<T>(Func<Task<T>> takeLock, CancellationToken cancellationToken) =>
+        WithLockCeilingAsync(_lock.AccountLockTimeout, takeLock, cancellationToken);
+
+    /// <summary>
+    /// Como o outro, com um teto que quem chama escolhe: o cadastro usa o seu, curto, para a espera não aparecer no
+    /// tempo de resposta (#466). <paramref name="ceiling"/> precisa ter ao menos 1 ms, porque <c>0</c> desliga o teto.
+    /// </summary>
+    internal async Task<T> WithLockCeilingAsync<T>(TimeSpan ceiling, Func<Task<T>> takeLock, CancellationToken cancellationToken)
     {
-        await SetLockTimeoutAsync($"{(long)_lock.AccountLockTimeout.TotalMilliseconds}ms", cancellationToken);
+        ArgumentOutOfRangeException.ThrowIfLessThan(ceiling, TimeSpan.FromMilliseconds(1));
+        await SetLockTimeoutAsync($"{(long)ceiling.TotalMilliseconds}ms", cancellationToken);
         T locked;
         try
         {
@@ -734,7 +742,7 @@ public sealed class AccountSecurityService
         }
         catch (Exception error) when (LockTimeoutIn(error) is { } timeout)
         {
-            throw new AccountBusyException(_lock.AccountLockTimeout, timeout);
+            throw new AccountBusyException(ceiling, timeout);
         }
 
         await SetLockTimeoutAsync(NoLockTimeout, cancellationToken);
