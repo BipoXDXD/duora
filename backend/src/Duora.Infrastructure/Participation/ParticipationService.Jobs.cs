@@ -77,10 +77,12 @@ public sealed partial class ParticipationService
         using var linked = CancellationTokenSource.CreateLinkedTokenSource(ct, deadline.Token);
         ct = linked.Token;
         await using var connection = await source.OpenConnectionAsync(ct);
-        // The single read that decides and stamps the whole completion: rereading later would let a clock that steps back
-        // before due_at turn the job Done without effect. It happens before the transaction and its locks, so the instants
-        // derived from it (invite_expires_at = now + 60 s in BuildRoundAsync, completed_at) can be up to JobTimeLimit
-        // (3 s) older than the commit; the invite window may be that much shorter. Accepted in ADR-0021.
+        // The single read that decides the completion and stamps its effects: rereading later would let a clock that steps
+        // back before due_at turn the job Done without effect. Only the released_at stamps of reservation releases reread
+        // the clock, and they decide nothing (see RequeueEarlyJobAsync and ADR-0021). It happens before the transaction
+        // and its locks, so the instants derived from it (invite_expires_at = now + 60 s in BuildRoundAsync, completed_at)
+        // are older than the commit, by around JobTimeLimit (3 s): the token cancels the work at that limit, but a COMMIT
+        // already sent may still land a little after it. The invite window may be that much shorter. Accepted in ADR-0021.
         var now = Now;
         if (job.DueAt > now)
         {
