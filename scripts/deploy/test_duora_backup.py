@@ -1,5 +1,6 @@
 """Testes do wrapper de backup. Rodar da raiz: python3 -m unittest discover -s scripts/deploy -v"""
 
+import configparser
 import contextlib
 import io
 import json
@@ -39,6 +40,20 @@ def backup_entry(*, stop: float, kind: str = "full", error: bool = False,
     return {"label": label or f"label-{int(stop)}", "type": kind, "error": error,
             "archive": {"start": wal_start, "stop": wal_stop}, "database": {"id": 1, "repo-key": 1},
             "timestamp": {"start": int(stop) - 60, "stop": int(stop)}}
+
+
+class CaseSensitiveUnitParser(configparser.RawConfigParser):
+    """Nomes de diretiva do systemd diferenciam maiúsculas; o padrão do configparser as apaga."""
+
+    def optionxform(self, optionstr: str) -> str:
+        return optionstr
+
+
+def effective_timer_setting(unit_text: str, key: str) -> str | None:
+    """Como o systemd lê a unit: só a seção [Timer] conta e a última atribuição vence."""
+    parser = CaseSensitiveUnitParser(strict=False, delimiters=("=",))
+    parser.read_string(unit_text)
+    return parser.get("Timer", key, fallback=None)
 
 
 def archiver(*, archived_ago: float | None = 30.0, failed_ago: float | None = None) -> backup.ArchiverStatus:
@@ -899,19 +914,45 @@ class VerifyRepositoryActionTests(unittest.TestCase):
             with self.assertRaisesRegex(backup.BackupError, "deploy ou backup em andamento"):
                 self.run_action(FakeRunner(info=newest_backup_info(), verify=self.healthy), lock_wait_seconds=0)
 
-    def test_timers_run_daily_light_and_weekly_full_outside_backups_and_reboot(self) -> None:
+    def test_timers_run_daily_light_and_weekly_full_outside_the_sunday_full(self) -> None:
         role = Path(__file__).resolve().parents[2] / "infra" / "ansible" / "roles" / "backup"
         daily = (role / "files" / "duora-backup-verify-repo.timer").read_text(encoding="utf-8")
         weekly = (role / "files" / "duora-backup-verify-repo-full.timer").read_text(encoding="utf-8")
         tasks = (role / "tasks" / "main.yml").read_text(encoding="utf-8")
 
         self.assertIn("Unit=duora-backup@verify-repo.service", daily)
-        self.assertIn("OnCalendar=*-*-* 05:00:00 UTC", daily)
+        self.assertIn("OnCalendar=*-*-* 03:45:00 UTC", daily)
         self.assertIn("Unit=duora-backup@verify-repo-full.service", weekly)
-        # Quarta: longe do full de domingo, e depois do reinício automático das 04:30.
-        self.assertIn("OnCalendar=Wed *-*-* 06:00:00 UTC", weekly)
+        # Quarta: longe do full de domingo.
+        self.assertIn("OnCalendar=Wed *-*-* 04:05:00 UTC", weekly)
         self.assertEqual(2, tasks.count("duora-backup-verify-repo.timer"))
         self.assertEqual(2, tasks.count("duora-backup-verify-repo-full.timer"))
+
+    def test_night_window_timers_run_at_fixed_times_without_jitter(self) -> None:
+        role = Path(__file__).resolve().parents[2] / "infra" / "ansible" / "roles" / "backup"
+        expected = {
+            "duora-backup-diff.timer": "Mon..Sat *-*-* 03:00:00 UTC",
+            "duora-backup-full.timer": "Sun *-*-* 03:00:00 UTC",
+            "duora-backup-media.timer": "*-*-* 03:10:00 UTC",
+            "duora-backup-verify-repo.timer": "*-*-* 03:45:00 UTC",
+            "duora-backup-media-verify.timer": "*-*-* 03:55:00 UTC",
+            "duora-backup-verify-repo-full.timer": "Wed *-*-* 04:05:00 UTC",
+            "duora-backup-media-check.timer": "Thu *-*-* 04:05:00 UTC",
+        }
+        for timer, calendar in expected.items():
+            with self.subTest(timer=timer):
+                text = (role / "files" / timer).read_text(encoding="utf-8")
+                self.assertIn(f"OnCalendar={calendar}\n", text)
+                self.assertNotIn("RandomizedDelaySec", text)
+
+    def test_calendar_timers_catch_up_runs_missed_while_the_host_was_down(self) -> None:
+        role = Path(__file__).resolve().parents[2] / "infra" / "ansible" / "roles" / "backup"
+        timers = sorted(path for path in (role / "files").glob("*.timer") if path.name != "duora-backup-verify.timer")
+
+        self.assertEqual(7, len(timers))
+        for timer in timers:
+            with self.subTest(timer=timer.name):
+                self.assertEqual("true", effective_timer_setting(timer.read_text(encoding="utf-8"), "Persistent"))
 
 
 class RepoSettingsTests(unittest.TestCase):
@@ -1589,11 +1630,11 @@ class MediaBackupUnitsTests(unittest.TestCase):
     def test_timers_run_backup_daily_verify_after_it_and_full_read_weekly(self) -> None:
         expected = {
             "duora-backup-media.timer": ("Unit=duora-media-backup@media-backup.service",
-                                         "OnCalendar=*-*-* 02:30:00 UTC"),
+                                         "OnCalendar=*-*-* 03:10:00 UTC"),
             "duora-backup-media-verify.timer": ("Unit=duora-media-backup@media-verify.service",
-                                                "OnCalendar=*-*-* 05:30:00 UTC"),
+                                                "OnCalendar=*-*-* 03:55:00 UTC"),
             "duora-backup-media-check.timer": ("Unit=duora-media-backup@media-check.service",
-                                               "OnCalendar=Thu *-*-* 06:30:00 UTC"),
+                                               "OnCalendar=Thu *-*-* 04:05:00 UTC"),
         }
         tasks = (self.role / "tasks" / "main.yml").read_text(encoding="utf-8")
         for timer, lines in expected.items():

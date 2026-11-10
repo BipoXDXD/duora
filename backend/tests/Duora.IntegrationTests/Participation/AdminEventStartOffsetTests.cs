@@ -22,22 +22,18 @@ public sealed class AdminEventStartOffsetTests(PostgresFixture postgres)
     [InlineData("2026-12-01T20:00:00")]
     [InlineData("2026-12-01T20:00:00.1234567")]
     [InlineData("2026-12-01")]
-    public async Task AStartWithoutAnOffsetIsRejectedWithoutSideEffects(string startsAt)
-    {
-        await using var admin = await AdminScenario.CreateAsync(postgres);
-        var before = await admin.ScheduleRowsAsync();
+    public Task AStartWithoutAnOffsetIsRejectedWithoutSideEffects(string startsAt) =>
+        AssertRejectedAsync(startsAt);
 
-        using var response = await admin.PublishAsync(startsAt);
-
-        var body = await response.Content.ReadAsStringAsync(Ct);
-        await ProblemAssert.IsProblemAsync(response, HttpStatusCode.BadRequest, "INVALID_REQUEST");
-        foreach (var internalDetail in new[] { "Exception", "Duora.Contracts", "   at " })
-        {
-            Assert.DoesNotContain(internalDetail, body, StringComparison.Ordinal);
-        }
-
-        Assert.Equal(before, await admin.ScheduleRowsAsync());
-    }
+    /// <summary>RFC 3339 exige <c>hh:mm</c> no offset; horas ou minutos fora da faixa também não são instante.</summary>
+    [Theory]
+    [InlineData("2026-12-01T20:00:00+03")]
+    [InlineData("2026-12-01T20:00:00-03")]
+    [InlineData("2026-12-01T20:00:00+0300")]
+    [InlineData("2026-12-01T20:00:00+14:01")]
+    [InlineData("2026-12-01T20:00:00+03:60")]
+    public Task AStartWithAnOffsetOutsideRfc3339IsRejectedWithoutSideEffects(string startsAt) =>
+        AssertRejectedAsync(startsAt);
 
     [Theory]
     [InlineData("2026-12-01T20:00:00Z")]
@@ -59,6 +55,10 @@ public sealed class AdminEventStartOffsetTests(PostgresFixture postgres)
     [InlineData("2026-12-01T20:00:00+00:00", 0)]
     [InlineData("2026-12-01T20:00:00-03:00", -180)]
     [InlineData("2026-12-01T20:00:00+05:30", 330)]
+    [InlineData("2026-12-01T20:00:00+03:00", 180)]
+    [InlineData("2026-12-01T20:00:00\\u002B03:00", 180)]
+    [InlineData("2026-12-01T20:00:00+14:00", 840)]
+    [InlineData("2026-12-01T20:00:00-14:00", -840)]
     public void TheBinderKeepsAnExplicitOffset(string startsAt, int offsetMinutes)
     {
         var request = Bind($"\"{startsAt}\"");
@@ -74,11 +74,37 @@ public sealed class AdminEventStartOffsetTests(PostgresFixture postgres)
     [InlineData("\"amanhã\"")]
     [InlineData("\"\"")]
     [InlineData("\"2026-12-01T20:00:00-3\"")]
+    [InlineData("\"2026-12-01T20:00:00+03\"")]
+    [InlineData("\"2026-12-01T20:00:00-03\"")]
+    [InlineData("\"2026-12-01T20:00+03\"")]
+    [InlineData("\"2026-12-01T20:00:00\\u002B03\"")]
+    [InlineData("\"2026-12-01T20:00:00+0300\"")]
+    [InlineData("\"2026-12-01T20:00:00+14:01\"")]
+    [InlineData("\"2026-12-01T20:00:00-14:01\"")]
+    [InlineData("\"2026-12-01T20:00:00+24:00\"")]
+    [InlineData("\"2026-12-01T20:00:00+03:60\"")]
     [InlineData("1796155200")]
     [InlineData("true")]
     [InlineData("null")]
     public void TheBinderRefusesAStartThatIsNotAnInstant(string startsAt) =>
         Assert.Throws<JsonException>(() => Bind(startsAt));
+
+    private async Task AssertRejectedAsync(string startsAt)
+    {
+        await using var admin = await AdminScenario.CreateAsync(postgres);
+        var before = await admin.ScheduleRowsAsync();
+
+        using var response = await admin.PublishAsync(startsAt);
+
+        var body = await response.Content.ReadAsStringAsync(Ct);
+        await ProblemAssert.IsProblemAsync(response, HttpStatusCode.BadRequest, "INVALID_REQUEST");
+        foreach (var internalDetail in new[] { "Exception", "Duora.Contracts", "   at " })
+        {
+            Assert.DoesNotContain(internalDetail, body, StringComparison.Ordinal);
+        }
+
+        Assert.Equal(before, await admin.ScheduleRowsAsync());
+    }
 
     private static PublishEventRequest Bind(string startsAtJson) =>
         JsonSerializer.Deserialize<PublishEventRequest>(
