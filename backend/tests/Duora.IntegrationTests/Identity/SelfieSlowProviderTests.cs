@@ -113,6 +113,7 @@ public sealed class SelfieSlowProviderTests(PostgresFixture postgres)
         await AssertNotReleasedAsync(scenario, host, account.UserId);
 
         abandonedCallRelease.TrySetResult();
+        _step = "esperando a chamada abandonada terminar";
         await WaitUntilAsync(() => finishedCalls.Count == 1);
         transport.Send = HealthySession;
         _time.Advance(UntilNextTry);
@@ -1082,8 +1083,8 @@ public sealed class SelfieSlowProviderTests(PostgresFixture postgres)
 
     /// <summary>
     /// Chamada parada que só reage ao corte e, depois dele, segue presa até <paramref name="release"/>: a chamada
-    /// abandonada continua viva, segurando a vaga, pelo tempo que o teste decidir. O teto solta a thread se o teste
-    /// nunca soltar a chamada.
+    /// abandonada continua viva, segurando a vaga, pelo tempo que o teste decidir. O teto encerra a chamada
+    /// abandonada, e com ela a vaga, se o teste nunca soltá-la.
     /// </summary>
     private static Func<CancellationToken, Task<HttpResponseMessage>> StallUntilCutThenHold(Task release) =>
         async cancellationToken =>
