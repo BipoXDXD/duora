@@ -21,6 +21,7 @@ public sealed partial class SelfieVerificationDispatcher
     private static readonly TimeSpan CallTimeout = TimeSpan.FromSeconds(10);
 
     private const string AnswerAfterDeadline = "Selfie provider answered after the call deadline.";
+    private const string CallCut = "Selfie provider call was cut at the call deadline.";
     private static readonly TimeSpan TransientDataRetention = TimeSpan.FromHours(24);
 
     /// <summary>
@@ -213,41 +214,39 @@ public sealed partial class SelfieVerificationDispatcher
     }
 
     /// <summary>
-    /// O corte em duas camadas, no relógio injetado. O timer cancela o token no prazo mesmo que a chamada ainda não tenha
-    /// devolvido a tarefa (o SDK da AWS lê o corpo da resposta de forma síncrona). O <c>WaitAsync</c> devolve o controle
-    /// mesmo que o fornecedor ignore o token. A chamada que segue rodando fica abandonada: ninguém lê a resposta dela, e
-    /// ela leva a vaga até terminar. Um bloqueio síncrono que também ignore o token não é interrompido: o
-    /// <c>WaitAsync</c> só age sobre a tarefa devolvida, e devolve pronta até com prazo zero. Por isso a resposta que volta
-    /// depois do prazo é recusada aqui, com o mesmo efeito do corte.
+    /// O corte vem de um único timer, no relógio injetado, armado antes da chamada. Ele cancela o token no prazo mesmo que
+    /// a chamada ainda não tenha devolvido a tarefa (o SDK da AWS lê o corpo da resposta de forma síncrona), e a espera
+    /// pelo mesmo token devolve o controle mesmo que o fornecedor o ignore. Um segundo timer armado só depois de a tarefa
+    /// voltar abria uma janela (issue #453): se o relógio chegasse ao prazo entre a leitura do restante e a criação do
+    /// timer, ele nascia com o prazo inteiro e o lote ficava parado. A chamada que segue rodando fica abandonada: ninguém
+    /// lê a resposta dela, e ela leva a vaga até terminar. Um bloqueio síncrono que também ignore o token não é
+    /// interrompido, porque a espera só começa quando a tarefa volta. Por isso a resposta que volta depois do prazo é
+    /// recusada aqui, com o mesmo efeito do corte.
     /// </summary>
     private async Task<T> CallProviderAsync<T>(Func<CancellationToken, Task<T>> call, CancellationToken cancellationToken)
     {
         var deadline = _time.GetUtcNow() + CallTimeout;
-        using var cooperative = new CancellationTokenSource(CallTimeout, _time);
-        using var linked = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, cooperative.Token);
+        using var cut = new CancellationTokenSource(CallTimeout, _time);
+        using var linked = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, cut.Token);
         var pending = call(linked.Token);
         try
         {
-            var answer = await pending.WaitAsync(RemainingUntil(deadline), _time, cancellationToken);
+            var answer = await pending.WaitAsync(linked.Token);
             return _time.GetUtcNow() < deadline ? answer : throw new TimeoutException(AnswerAfterDeadline);
+        }
+        catch (OperationCanceledException exception) when (cut.IsCancellationRequested && !cancellationToken.IsCancellationRequested)
+        {
+            // Quem chama trata o prazo vencido como TimeoutException, a mesma exceção que o corte sempre produziu.
+            throw new TimeoutException(CallCut, exception);
         }
         finally
         {
             if (!pending.IsCompleted)
             {
-                // O WaitAsync pode vencer o timer: sem cancelar aqui, o token seria descartado sem avisar o fornecedor. A
-                // vaga vem antes, para uma exceção em callback do token não a devolver com a chamada viva; se o
-                // cancelamento encerrar a chamada, a vaga trata a tarefa concluída.
+                // A espera só termina antes da chamada quando o token já foi cancelado, então o fornecedor já foi avisado.
                 _abandonedCall = pending;
-                await linked.CancelAsync();
             }
         }
-    }
-
-    private TimeSpan RemainingUntil(DateTimeOffset deadline)
-    {
-        var remaining = deadline - _time.GetUtcNow();
-        return remaining > TimeSpan.Zero ? remaining : TimeSpan.Zero;
     }
 
     private async Task ExpireAsync(SelfieVerificationRecord row, ClaimedDelivery delivery, string? feedbackCode,
