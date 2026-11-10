@@ -236,9 +236,9 @@ public sealed partial class SelfieVerificationDispatcher
         }
         catch (OperationCanceledException exception) when (cut.IsCancellationRequested && !cancellationToken.IsCancellationRequested)
         {
-            // O corte chega aqui como cancelamento, de tipo que depende de quem percebeu o token primeiro (o fornecedor
-            // que o respeita pode lançar TaskCanceledException). Virar TimeoutException mantém uma Cause só no log
-            // para o prazo vencido e o contrato de quem chama, igual ao timeout do HttpClient e à resposta atrasada.
+            // O corte chega aqui como TaskCanceledException, lançada pelo WaitAsync(linked.Token). Virar
+            // TimeoutException mantém uma Cause só no log para o prazo vencido e o contrato de quem chama, igual ao
+            // timeout do HttpClient e à resposta atrasada.
             throw new TimeoutException(CallCut, exception);
         }
         finally
