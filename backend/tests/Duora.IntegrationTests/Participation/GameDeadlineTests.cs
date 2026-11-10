@@ -219,21 +219,27 @@ public sealed class GameDeadlineTests(PostgresFixture postgres)
     }
 
     /// <summary>
-    /// O prazo só vale para a ação bem formada: um payload malformado no prazo é recusado antes de a sala ser lida e
-    /// continua <c>400 VALIDATION_FAILED</c>, sem gravar.
+    /// O prazo só vale para a ação bem formada. Um payload malformado no prazo é recusado antes de a sala ser lida: a
+    /// resposta é igual à do mesmo payload numa sala inexistente, e nada é gravado. O handler recusa a versão inválida com
+    /// <c>400 VALIDATION_FAILED</c>; JSON inválido e GUID malformado falham no model binding com <c>400 INVALID_REQUEST</c>.
     /// </summary>
-    [Fact]
-    public async Task AMalformedActionAtTheDeadlineIsStillAValidationFailure()
+    [Theory]
+    [InlineData("""{"actionId":"6f1c2a4e-0000-4000-8000-000000000001","expectedVersion":"0","type":"choose-option","cardId":"morning","optionId":"tea"}""", "VALIDATION_FAILED")]
+    [InlineData("""{"actionId":"not-a-guid","expectedVersion":"1","type":"choose-option","cardId":"morning","optionId":"tea"}""", "INVALID_REQUEST")]
+    [InlineData("""{"actionId":""", "INVALID_REQUEST")]
+    public async Task AMalformedActionAtTheDeadlineIsRejectedBeforeTheRoomIsRead(string json, string code)
     {
         await using var scene = await ActiveRoomAsync();
         using var alice = await scene.SignInAliceAsync();
         var active = await scene.RoomFactsAsync();
         scene.Clock.SetUtcNow(scene.Deadline);
 
-        using var malformed = await PostActionAsync(alice, scene.Room, ChooseOption(active.Version) with { ExpectedVersion = "0" });
+        using var malformed = await alice.PostRawJsonAsync($"/api/v1/rooms/{scene.Room}/actions", json);
 
         Assert.Equal(HttpStatusCode.BadRequest, malformed.StatusCode);
-        Assert.Equal("VALIDATION_FAILED", await ProblemCodeAsync(malformed));
+        Assert.Equal(code, await ProblemCodeAsync(malformed));
+        using var unknown = await alice.PostRawJsonAsync($"/api/v1/rooms/{Guid.NewGuid()}/actions", json);
+        Assert.Equal(await NeutralResponse.DescribeAsync(unknown, Ct), await NeutralResponse.DescribeAsync(malformed, Ct));
         Assert.Equal(active, await scene.RoomFactsAsync());
     }
 

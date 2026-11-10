@@ -321,14 +321,46 @@ public sealed class RoutesParticipationTests(PostgresFixture postgres)
         var expired = await RoomFactsAsync(connection, room, ct);
         Assert.Equal(new RoomFacts("Expired", before.Version + 2, ActiveReservations: 0, Actions: 1), expired);
 
+        var unknownRoom = await UnknownRoomAsync(alice, before.Version, ct);
         using (var replay = await alice.PostJsonAsync(endpoint, acknowledged))
         using (var reused = await alice.PostJsonAsync(endpoint, acknowledged with { Stage = "Clues" }))
         {
             Assert.Equal(HttpStatusCode.NotFound, replay.StatusCode);
-            Assert.Equal(HttpStatusCode.NotFound, reused.StatusCode);
+            Assert.Equal(unknownRoom, await NeutralResponse.DescribeAsync(replay, ct));
+            Assert.Equal(unknownRoom, await NeutralResponse.DescribeAsync(reused, ct));
         }
 
         Assert.Equal(expired, await RoomFactsAsync(connection, room, ct));
+    }
+
+    /// <summary>
+    /// O prazo só vale para a ação bem formada. Um payload malformado no prazo é recusado antes de a sala ser lida: a
+    /// resposta é igual à do mesmo payload numa sala inexistente, e nada é gravado. O handler recusa a versão inválida com
+    /// <c>400 VALIDATION_FAILED</c>; JSON inválido e GUID malformado falham no model binding com <c>400 INVALID_REQUEST</c>.
+    /// </summary>
+    [Theory]
+    [InlineData("""{"actionId":"6f1c2a4e-0000-4000-8000-000000000002","expectedVersion":"0","type":"acknowledge","stage":"Introduction"}""", "VALIDATION_FAILED")]
+    [InlineData("""{"actionId":"not-a-guid","expectedVersion":"1","type":"acknowledge","stage":"Introduction"}""", "INVALID_REQUEST")]
+    [InlineData("""{"actionId":""", "INVALID_REQUEST")]
+    public async Task AMalformedActionAtTheDeadlineIsRejectedBeforeTheRoomIsRead(string json, string code)
+    {
+        var (source, clock, _, seed, room, connectionString) = await Active();
+        await using var owned = source;
+        var ct = TestContext.Current.CancellationToken;
+        await using var factory = new DuoraWebFactory(connectionString) { Time = clock };
+        using var alice = await new IdentityScenario(connectionString, factory)
+            .SignedInBrowserAsync(new(seed.Alice, "alice@example.com", IdentityScenario.ValidPassword));
+        await using var connection = await source.OpenConnectionAsync(ct);
+        var active = await RoomFactsAsync(connection, room, ct);
+        clock.SetUtcNow(await DeadlineAsync(connection, room, ct));
+
+        using var malformed = await alice.PostRawJsonAsync($"/api/v1/rooms/{room}/routes-actions", json);
+
+        Assert.Equal(HttpStatusCode.BadRequest, malformed.StatusCode);
+        Assert.Equal(code, await ProblemCodeAsync(malformed, ct));
+        using var unknown = await alice.PostRawJsonAsync($"/api/v1/rooms/{Guid.NewGuid()}/routes-actions", json);
+        Assert.Equal(await NeutralResponse.DescribeAsync(unknown, ct), await NeutralResponse.DescribeAsync(malformed, ct));
+        Assert.Equal(active, await RoomFactsAsync(connection, room, ct));
     }
 
     [Theory]
