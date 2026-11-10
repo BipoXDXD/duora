@@ -15,7 +15,15 @@ Cada estado calcula o hash do código e verifica a senha ou isca. A iscaLazy pod
 no primeiro uso; não se afirma igualdade exata de trabalho ou distribuição. Um piso monotônico500ms com
 jitter até100ms aplica-se aos202, depois de liberar a transação/conexão. Isso segue a mitigação explícita de
 latência do login; não é alegação matemática de tempo constante ou prova de capacidade sob carga.
-Erros de infraestrutura/contensão conservam503 e o fluxo de segurança existente; não são mascarados como202.
+Banco indisponível conserva 503 e o fluxo de segurança existente; não é mascarado como 202. A conta ocupada
+(fila por conta ou `lock_timeout`, 55P03) responde o mesmo 202 (issue #470): só a conta existente chega à trava,
+e o e-mail inexistente sai antes, então um 503 ali diria que a conta existe (TM-06). O reenvio desiste sem gravar
+código, stamp, orçamento nem outbox, e o motivo fica só num Warning sem e-mail nem id. Quem precisar do código
+repete o pedido. `EmailConfirmationResendBusyTests` compara status, corpo sem `traceId` e headers (menos `Date` e
+`Set-Cookie`) da conta pendente travada com os de um e-mail inexistente, e confere a outbox e o Warning.
+O tempo não é igualado: a conta travada só responde depois do teto que estourou (`AccountLockTimeout`, 5 s no
+padrão, ou `AccountQueueTimeout`), acima do piso de 500 ms do e-mail inexistente. Esse canal exige provocar a
+trava, o que o atacante não faz sozinho, e fica fora da #470.
 
 Somente PendingEmail admissível e com senha correta pode usar o orçamento persistente de emissão3/h,
 compartilhado com o cadastro e preservado após restart. Reenvio não renova CreatedAt/limite72h. A mesma trava
