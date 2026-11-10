@@ -500,7 +500,7 @@ com `restic`, para o prefixo `media/` do mesmo bucket B2 com File Lock. A quaren
 | Chave | `duora-media-backup`, presa a `media/`, sem `deleteFiles` ([backblaze-setup.md](backblaze-setup.md#3-chaves)) |
 | Retenção | 14 dias de snapshots (`forget --keep-within 14d --prune`) + 21 dias de lock + 30 dias do lifecycle: uma foto apagada some da VPS na hora e da cópia externa em até ~65 dias |
 | Diário 03:10 UTC | `media-backup`: `restic backup` dos derivados e `forget --prune` |
-| Diário 03:55 UTC | `media-verify`: bucket e chave provados como no verify do banco (prefixo `media/`), snapshot mais novo com no máximo 26 h e `restic check` da estrutura |
+| Diário 03:55 UTC | `media-verify`: bucket e chave provados como no verify do banco (prefixo `media/`), snapshot mais novo com no máximo 24 h 30 min (um dia perdido dá 24 h 45 min e reprova) e `restic check` da estrutura |
 | Semanal (quinta 04:05 UTC) | `media-check`: `restic check --read-data`, baixa e confere todos os pacotes |
 
 Segredos, gravados pelo `duora-secrets write-media-backup-repo` (root, 0400, em `/etc/duora/secrets`):

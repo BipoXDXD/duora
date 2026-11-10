@@ -1535,12 +1535,21 @@ class MediaBackupTests(unittest.TestCase):
             self.run_media("media-verify", runner)
         self.assertEqual([], runner.restic_calls())
 
+    def test_verify_accepts_the_snapshot_of_the_day(self) -> None:
+        # Timer: backup 03:10, verify 03:55. O restic data o snapshot no início do backup.
+        self.run_media("media-verify", media_runner(snapshots=snapshot(NOW - 45 * 60)))
+
     def test_verify_accepts_a_snapshot_on_the_age_limit_and_refuses_one_past_it(self) -> None:
-        limit = backup.MAX_MEDIA_SNAPSHOT_AGE_HOURS * HOUR
-        self.run_media("media-verify", media_runner(snapshots=snapshot(NOW - limit)))
+        # 24 h 30 min: verify manual até 03:40, meia hora depois do backup diário que ainda não rodou.
+        self.run_media("media-verify", media_runner(snapshots=snapshot(NOW - 24.5 * HOUR)))
 
         with self.assertRaisesRegex(backup.BackupError, "snapshot mais novo das fotos"):
-            self.run_media("media-verify", media_runner(snapshots=snapshot(NOW - limit - 1)))
+            self.run_media("media-verify", media_runner(snapshots=snapshot(NOW - 24.5 * HOUR - 1)))
+
+    def test_verify_refuses_the_snapshot_of_the_previous_day_after_a_lost_day(self) -> None:
+        # Backup de ontem 03:10 e o de hoje perdido: o verify das 03:55 vê 24 h 45 min.
+        with self.assertRaisesRegex(backup.BackupError, "snapshot mais novo das fotos"):
+            self.run_media("media-verify", media_runner(snapshots=snapshot(NOW - 24.75 * HOUR)))
 
     def test_verify_refuses_no_snapshot_or_an_unreadable_listing(self) -> None:
         for listing in ("[]", "not json", '[{"id": "x"}]', '[{"time": "ontem"}]', '[{"time": "2026-10-16T02:00:00"}]',
