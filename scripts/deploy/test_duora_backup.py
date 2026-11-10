@@ -42,10 +42,16 @@ def backup_entry(*, stop: float, kind: str = "full", error: bool = False,
             "timestamp": {"start": int(stop) - 60, "stop": int(stop)}}
 
 
+class CaseSensitiveUnitParser(configparser.RawConfigParser):
+    """Nomes de diretiva do systemd diferenciam maiúsculas; o padrão do configparser as apaga."""
+
+    def optionxform(self, optionstr: str) -> str:
+        return optionstr
+
+
 def effective_timer_setting(unit_text: str, key: str) -> str | None:
     """Como o systemd lê a unit: só a seção [Timer] conta e a última atribuição vence."""
-    parser = configparser.RawConfigParser(strict=False, delimiters=("=",))
-    parser.optionxform = str
+    parser = CaseSensitiveUnitParser(strict=False, delimiters=("=",))
     parser.read_string(unit_text)
     return parser.get("Timer", key, fallback=None)
 
