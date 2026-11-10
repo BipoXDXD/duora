@@ -18,6 +18,7 @@ public sealed class KeyRingCertificateTests : IDisposable
 
     private readonly PostgresFixture _postgres;
     private readonly KeyRingHosts _hosts;
+    private readonly Diag455Recorder _diagnostics;
     private readonly DirectoryInfo _volume = Directory.CreateTempSubdirectory("duora-keys-volume-");
     private readonly TestCertificate _first = TestCertificates.Create("duora-key-ring-1");
     private readonly TestCertificate _second = TestCertificates.Create("duora-key-ring-2");
@@ -25,10 +26,15 @@ public sealed class KeyRingCertificateTests : IDisposable
     public KeyRingCertificateTests(PostgresFixture postgres)
     {
         _postgres = postgres;
-        _hosts = new KeyRingHosts(postgres);
+        _diagnostics = new Diag455Recorder(postgres.ConnectionString);
+        _hosts = new KeyRingHosts(postgres, _diagnostics);
     }
 
-    public void Dispose() => _volume.Delete(recursive: true);
+    public void Dispose()
+    {
+        _volume.Delete(recursive: true);
+        _diagnostics.Dispose();
+    }
 
     [Fact]
     public async Task KeyIsWrittenToTheVolumeEncryptedWithTheCertificate()
