@@ -59,6 +59,11 @@ public sealed partial class ParticipationService
         {
             return ParticipationOutcome.Conflict;
         }
+        // Mesma regra de ActionAsync: prazo vencido responde como a sala já expirada, sem revelar quando o job rodou.
+        if (result is ActionValidation<UnlikelyRoutesState, UnlikelyRoutesAction>.Rejected { Reason: RejectionReason.DeadlineReached })
+        {
+            return ParticipationOutcome.Unavailable;
+        }
         if (result is not ActionValidation<UnlikelyRoutesState, UnlikelyRoutesAction>.Accepted accepted)
         {
             return ParticipationOutcome.Invalid;

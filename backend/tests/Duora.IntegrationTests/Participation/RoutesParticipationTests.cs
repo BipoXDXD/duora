@@ -1,5 +1,7 @@
 using System.Globalization;
 using System.Net;
+using System.Text.Json;
+using System.Text.Json.Nodes;
 using Duora.Contracts.Participation;
 using Duora.Core.Experiences.UnlikelyRoutes;
 using Duora.Infrastructure.Participation;
@@ -202,6 +204,52 @@ public sealed class RoutesParticipationTests(PostgresFixture postgres)
         Assert.Equal("Expired", await query.ExecuteScalarAsync(ct));
     }
 
+    /// <summary>
+    /// Como em API-R03: entre o prazo e o job a sala segue <c>Active</c> no banco, mas a ação recebe a mesma <c>404</c> da
+    /// sala já expirada, em status, <c>code</c> e corpo, sem gravar nada e sem revelar quando o job rodou.
+    /// </summary>
+    [Fact]
+    public async Task AnActionAtTheDeadlineGetsTheSame404BeforeAndAfterTheDeadlineJob()
+    {
+        var (source, clock, service, seed, room, connectionString) = await Active();
+        await using var owned = source;
+        var ct = TestContext.Current.CancellationToken;
+        await using var factory = new DuoraWebFactory(connectionString) { Time = clock };
+        using var alice = await new IdentityScenario(connectionString, factory)
+            .SignedInBrowserAsync(new(seed.Alice, "alice@example.com", IdentityScenario.ValidPassword));
+        var before = (await service.RoomAsync(room, seed.Alice, ct))!;
+        await using var connection = await source.OpenConnectionAsync(ct);
+        await using (var query = Command(connection, "select active_deadline_at from experiences.game_sessions where id=$1", room))
+        await using (var deadline = await query.ExecuteReaderAsync(ct))
+        {
+            Assert.True(await deadline.ReadAsync(ct));
+            clock.SetUtcNow(deadline.GetFieldValue<DateTimeOffset>(0));
+        }
+        var endpoint = $"/api/v1/rooms/{room}/routes-actions";
+        RoutesActionRequest Acknowledge() =>
+            new(Guid.NewGuid(), before.Version.ToString(CultureInfo.InvariantCulture), "acknowledge", "Introduction", null, null);
+
+        using var late = await alice.PostJsonAsync(endpoint, Acknowledge());
+
+        Assert.Equal(HttpStatusCode.NotFound, late.StatusCode);
+        var lateProblem = await ProblemWithoutTraceAsync(late, ct);
+        Assert.Equal("NOT_FOUND", lateProblem.GetProperty("code").GetString());
+        Assert.Equal(("Active", before.Version), await StateAndVersionAsync(connection, room, ct));
+
+        for (var job = await service.ClaimJobAsync(ct); job is not null; job = await service.ClaimJobAsync(ct))
+        {
+            await service.CompleteJobAsync(job, ct);
+        }
+        var expired = await StateAndVersionAsync(connection, room, ct);
+        Assert.Equal("Expired", expired.State);
+
+        using var afterTheJob = await alice.PostJsonAsync(endpoint, Acknowledge());
+        Assert.Equal(HttpStatusCode.NotFound, afterTheJob.StatusCode);
+        Assert.Equal(lateProblem.ToString(), (await ProblemWithoutTraceAsync(afterTheJob, ct)).ToString());
+        Assert.Equal(late.Content.Headers.ContentType, afterTheJob.Content.Headers.ContentType);
+        Assert.Equal(expired, await StateAndVersionAsync(connection, room, ct));
+    }
+
     [Theory]
     [InlineData(false)]
     [InlineData(true)]
@@ -278,6 +326,22 @@ public sealed class RoutesParticipationTests(PostgresFixture postgres)
     {
         var current = (await service.RoomAsync(room, user, ct))!;
         Assert.Equal(ParticipationOutcome.Done, await service.RoutesActionAsync(room, user, Guid.NewGuid(), current.Version, type, stage, step, option, ct));
+    }
+
+    private static async Task<(string State, long Version)> StateAndVersionAsync(NpgsqlConnection connection, Guid room, CancellationToken ct)
+    {
+        await using var query = Command(connection, "select state,version from experiences.game_sessions where id=$1", room);
+        await using var reader = await query.ExecuteReaderAsync(ct);
+        Assert.True(await reader.ReadAsync(ct));
+        return (reader.GetString(0), reader.GetInt64(1));
+    }
+
+    /// <summary>O corpo do problema sem <c>traceId</c>, o único campo que muda de uma requisição para outra.</summary>
+    private static async Task<JsonElement> ProblemWithoutTraceAsync(HttpResponseMessage response, CancellationToken ct)
+    {
+        var body = Assert.IsType<JsonObject>(JsonNode.Parse(await response.Content.ReadAsStringAsync(ct)));
+        Assert.True(body.Remove("traceId"));
+        return JsonSerializer.SerializeToElement(body);
     }
 
     private static async Task<long> Reservations(NpgsqlDataSource source, ParticipationSeed seed, CancellationToken ct)
