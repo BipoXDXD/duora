@@ -150,6 +150,8 @@ describe('events with a room from an earlier round', () => {
 
     expect(await screen.findByRole('link', { name: 'Abrir convite ou sala' })).toBeInTheDocument()
     expect(screen.queryByText(ROUND_CANCELLED_PT)).not.toBeInTheDocument()
+  })
+})
 
 function eventsWith(
   state: string,
