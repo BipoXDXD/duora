@@ -294,7 +294,7 @@ public sealed class AccountLockTimeoutTests : IAsyncDisposable
     private static async Task AssertTemporarilyUnavailableAsync(HttpResponseMessage response)
     {
         await ProblemAssert.IsProblemAsync(response, HttpStatusCode.ServiceUnavailable, "TEMPORARILY_UNAVAILABLE");
-        Assert.InRange(ProblemAssert.RetryAfterSeconds(response), 1, 60);
+        Assert.Equal(30, ProblemAssert.RetryAfterSeconds(response));
     }
 
     /// <summary>Outra transação com a linha da conta travada, como uma verificação longa em andamento.</summary>
