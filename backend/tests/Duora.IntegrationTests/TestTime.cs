@@ -1,6 +1,6 @@
 namespace Duora.IntegrationTests;
 
-/// <summary>Passos de relógio que os testes de prazo usam para ficar logo antes ou logo depois de um instante.</summary>
+/// <summary>Passos de relógio que os testes de prazo usam para ficar logo antes de um instante.</summary>
 internal static class TestTime
 {
     /// <summary>
