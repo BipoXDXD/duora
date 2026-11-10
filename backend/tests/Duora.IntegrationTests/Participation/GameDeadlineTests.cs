@@ -70,7 +70,8 @@ public sealed class GameDeadlineTests(PostgresFixture postgres)
     /// <summary>
     /// Entre o prazo e o job a sala segue <c>Active</c> no banco. Quem decide é o relógio do servidor (spec 10.4, "Timeout
     /// vs ação"; T-18): a ação é recusada sem gravar nada e o job, quando roda, ainda expira a sala. A resposta é a mesma
-    /// <c>404</c> antes e depois do job, em status, <c>code</c> e corpo, para não revelar quando o job rodou.
+    /// <c>404</c> para uma ação nova antes e depois do job, em status, <c>code</c> e corpo. A leitura da sala continua
+    /// mostrando o estado do job (<c>Active</c> antes, <c>Expired</c> depois).
     /// </summary>
     [Theory]
     [InlineData(0)]

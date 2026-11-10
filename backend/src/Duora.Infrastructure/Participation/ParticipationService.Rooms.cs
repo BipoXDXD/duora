@@ -219,7 +219,8 @@ public sealed partial class ParticipationService
             return ParticipationOutcome.Conflict;
         }
 
-        // Prazo vencido responde como a sala já expirada: a mesma 404 antes e depois do job, sem revelar quando ele rodou.
+        // Ação nova depois do prazo recebe a mesma 404 da sala expirada, antes e depois do job. Replay e actionId reutilizado
+        // são decididos acima pelo motor, como antes do prazo, até o job rodar.
         if (result is ActionValidation<ConstellationState, ConstellationAction>.Rejected { Reason: RejectionReason.DeadlineReached })
         {
             return ParticipationOutcome.Unavailable;

@@ -206,7 +206,7 @@ public sealed class RoutesParticipationTests(PostgresFixture postgres)
 
     /// <summary>
     /// Como em API-R03: entre o prazo e o job a sala segue <c>Active</c> no banco, mas a ação recebe a mesma <c>404</c> da
-    /// sala já expirada, em status, <c>code</c> e corpo, sem gravar nada e sem revelar quando o job rodou.
+    /// sala já expirada, em status, <c>code</c> e corpo, sem gravar nada.
     /// </summary>
     [Fact]
     public async Task AnActionAtTheDeadlineGetsTheSame404BeforeAndAfterTheDeadlineJob()
