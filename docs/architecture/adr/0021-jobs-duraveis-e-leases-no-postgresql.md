@@ -410,8 +410,13 @@ A decisão de reagendar e o `UPDATE` de devolução usam um único `now`. A conc
 o job ainda tem efeito e não vira `Done` vazio. A primeira versão deste adendo registrava essa releitura como lacuna
 conhecida; ela fechou no PR seguinte (#448), com testes que fazem o relógio recuar logo depois da leitura que decide
 (`RewindingClock`): um para cada tipo de job e, no `game-deadline`, um para cada motor de jogo (Constelação e Rotas
-Improváveis), porque cada motor lê o próprio relógio. Só os carimbos de `released_at` da liberação de reservas ainda releem o relógio, e eles não
-decidem efeito.
+Improváveis), porque cada motor lê o próprio relógio. Esses testes também exigem `completed_at` igual ao instante da
+decisão. Só os carimbos de `released_at` da liberação de reservas ainda releem o relógio, e eles não decidem efeito.
+
+Custo aceito: o `now` único é lido antes da transação e dos seus locks, e a conclusão pode levar até o prazo do item
+(3 s). Os instantes derivados dele, como `invite_expires_at = now + 60 s` em `BuildRoundAsync` e o próprio
+`completed_at`, podem nascer até cerca de 3 s antes do commit, e a janela do convite pode encurtar nessa medida. Reler
+o relógio dentro da transação evitaria isso, mas reabriria a lacuna do `Done` sem efeito.
 
 Consequência: `attempts` não tem `CHECK (attempts >= 0)`. O fencing garante que cada claim é devolvido no máximo uma
 vez, então o valor não fica negativo, mas a garantia está no código, não no esquema. A constraint exige migração e
