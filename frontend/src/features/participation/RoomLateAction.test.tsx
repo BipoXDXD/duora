@@ -93,15 +93,20 @@ function useLateActionRoom(kind: 'constellation' | 'routes', reply: () => Respon
   return snapshot
 }
 
+// Só a primeira tela espera mais que o padrão de 1 s: com a máquina carregada, ela ainda pode estar em "Carregando suas
+// preferências…". As asserções da corrida mantêm o timeout padrão; o teste ganha folga para essa espera caber nele.
+const FIRST_SCREEN = { timeout: 5_000 }
+const SLOW_START = { timeout: 15_000 }
+
 const actionButton = { constellation: 'Parque', routes: 'Entendi' } as const
 const actionButtonInEnglish = { constellation: 'Parque', routes: 'Got it' } as const
 
 describe.each(['constellation', 'routes'] as const)('late %s action', (kind) => {
   // O 404 vale para sala Expired por qualquer motivo: o aviso diz só o que aconteceu com a escolha.
-  it('shows a neutral status instead of the generic alert', async () => {
+  it('shows a neutral status instead of the generic alert', SLOW_START, async () => {
     useLateActionRoom(kind)
     const { user } = await renderApp('/rooms/late')
-    await user.click(await screen.findByRole('button', { name: actionButton[kind] }))
+    await user.click(await screen.findByRole('button', { name: actionButton[kind] }, FIRST_SCREEN))
 
     expect(await screen.findByText(NOT_SAVED['pt-BR'])).toHaveAttribute('role', 'status')
     expect(screen.getByText('O prazo terminou. Veja abaixo o progresso realizado.')).toBeInTheDocument()
@@ -109,10 +114,10 @@ describe.each(['constellation', 'routes'] as const)('late %s action', (kind) => 
   })
 
   // Os controles do jogo somem com a sala Expired; o foco não pode cair no body (WCAG 2.4.3).
-  it('moves focus to the notice when the game controls go away', async () => {
+  it('moves focus to the notice when the game controls go away', SLOW_START, async () => {
     useLateActionRoom(kind)
     const { user } = await renderApp('/rooms/late')
-    await user.click(await screen.findByRole('button', { name: actionButton[kind] }))
+    await user.click(await screen.findByRole('button', { name: actionButton[kind] }, FIRST_SCREEN))
 
     const notice = await screen.findByText(NOT_SAVED['pt-BR'])
     await waitFor(() => {
@@ -120,10 +125,10 @@ describe.each(['constellation', 'routes'] as const)('late %s action', (kind) => 
     })
   })
 
-  it('is translated to English', async () => {
+  it('is translated to English', SLOW_START, async () => {
     useLateActionRoom(kind)
     const { user } = await renderApp('/rooms/late', undefined, 'en-US')
-    await user.click(await screen.findByRole('button', { name: actionButtonInEnglish[kind] }))
+    await user.click(await screen.findByRole('button', { name: actionButtonInEnglish[kind] }, FIRST_SCREEN))
 
     expect(await screen.findByText(NOT_SAVED['en-US'])).toHaveAttribute('role', 'status')
     expect(screen.queryByRole('alert')).not.toBeInTheDocument()
@@ -131,10 +136,10 @@ describe.each(['constellation', 'routes'] as const)('late %s action', (kind) => 
 })
 
 describe('late action notice', () => {
-  it('goes away when the room state changes again', async () => {
+  it('goes away when the room state changes again', SLOW_START, async () => {
     const snapshot = useLateActionRoom('constellation')
     const { user, queryClient } = await renderApp('/rooms/late')
-    await user.click(await screen.findByRole('button', { name: 'Parque' }))
+    await user.click(await screen.findByRole('button', { name: 'Parque' }, FIRST_SCREEN))
     expect(await screen.findByText(NOT_SAVED['pt-BR'])).toBeInTheDocument()
 
     snapshot.state = 'Completed'
@@ -145,10 +150,10 @@ describe('late action notice', () => {
   })
 
   // A falha perde a validade na primeira mudança de estado depois de aparecer, mesmo que a sala volte ao estado dela.
-  it('stays away when the room returns to the state of the failure', async () => {
+  it('stays away when the room returns to the state of the failure', SLOW_START, async () => {
     const snapshot = useLateActionRoom('constellation')
     const { user, queryClient } = await renderApp('/rooms/late')
-    await user.click(await screen.findByRole('button', { name: 'Parque' }))
+    await user.click(await screen.findByRole('button', { name: 'Parque' }, FIRST_SCREEN))
     expect(await screen.findByText(NOT_SAVED['pt-BR'])).toBeInTheDocument()
 
     snapshot.state = 'Completed'
@@ -161,7 +166,7 @@ describe('late action notice', () => {
     expect(screen.queryByText(NOT_SAVED['pt-BR'])).not.toBeInTheDocument()
   })
 
-  it('keeps the error alert for failures other than 404', async () => {
+  it('keeps the error alert for failures other than 404', SLOW_START, async () => {
     useLateActionRoom('constellation', () =>
       HttpResponse.json(
         { type: 'urn:duora:problem:internal', title: 'Internal', status: 500, traceId: '00-boom' },
@@ -169,13 +174,13 @@ describe('late action notice', () => {
       ),
     )
     const { user } = await renderApp('/rooms/late')
-    await user.click(await screen.findByRole('button', { name: 'Parque' }))
+    await user.click(await screen.findByRole('button', { name: 'Parque' }, FIRST_SCREEN))
 
     expect(await screen.findByRole('alert')).toBeInTheDocument()
     expect(screen.queryByText(NOT_SAVED['pt-BR'])).not.toBeInTheDocument()
   })
 
-  it('drops the error alert when the room state changes', async () => {
+  it('drops the error alert when the room state changes', SLOW_START, async () => {
     const snapshot = useLateActionRoom('constellation', () =>
       HttpResponse.json(
         { type: 'urn:duora:problem:internal', title: 'Internal', status: 500, traceId: '00-boom' },
@@ -183,7 +188,7 @@ describe('late action notice', () => {
       ),
     )
     const { user, queryClient } = await renderApp('/rooms/late')
-    await user.click(await screen.findByRole('button', { name: 'Parque' }))
+    await user.click(await screen.findByRole('button', { name: 'Parque' }, FIRST_SCREEN))
     expect(await screen.findByRole('alert')).toBeInTheDocument()
 
     snapshot.state = 'Expired'
