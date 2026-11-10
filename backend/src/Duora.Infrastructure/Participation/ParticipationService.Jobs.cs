@@ -137,8 +137,9 @@ public sealed partial class ParticipationService
     }
 
     /// <summary>
-    /// Um <c>game-deadline</c> ou <c>expire-invite</c> entregue antes do prazo (relógio de outra instância adiantado, fila
-    /// manipulada) não pode ser consumido: a conclusão veria o prazo ainda aberto e nada o reagendaria. Volta a
+    /// Um <c>game-deadline</c> ou <c>expire-invite</c> entregue antes do prazo não pode ser consumido: a conclusão veria o
+    /// prazo ainda aberto e nada o reagendaria. Como o claim e a conclusão usam o mesmo relógio, isso só acontece com
+    /// <c>available_at</c> mexido à mão ou com o relógio do processo recuando entre o claim e a conclusão. Volta a
     /// <c>Pending</c> no próprio <c>due_at</c>, devolvendo a tentativa do claim. Um só comando com o fencing do claim: só o
     /// dono do token o devolve, uma vez.
     /// </summary>
