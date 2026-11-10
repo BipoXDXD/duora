@@ -25,8 +25,8 @@
   </PropertyGroup>
 
   <!-- Data Protection: o DefaultKeyResolver tentaria de novo 10 vezes, com Thread.Sleep de 200 ms antes de cada
-       tentativa, a chave que não decifrou, dentro da trava do KeyRingProvider (na partida a frio e no refresh
-       forçado, não a cada requisição). As chaves do Duora se decifram com certificados locais: sem o certificado, a
+       tentativa, a chave que não decifrou: dentro da trava do KeyRingProvider na partida a frio e no refresh forçado,
+       e numa thread do pool, fora da trava, no refresh periódico do anel vencido; não a cada requisição. As chaves do Duora se decifram com certificados locais: sem o certificado, a
        falha é definitiva e esperar só prende a thread. Aqui, e não num csproj, para valer no runtimeconfig do
        Duora.Web e no dos testes, que hospedam o app no próprio processo. -->
   <ItemGroup>

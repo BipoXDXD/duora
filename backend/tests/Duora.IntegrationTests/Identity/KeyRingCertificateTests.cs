@@ -19,9 +19,12 @@ public sealed class KeyRingCertificateTests : IDisposable
     private const int KeyIneligibleAfterRetries = 12;
     private const int RetryingKeyAfterFailure = 73;
 
-    // Sem chave padrão utilizável, o KeyRingProvider cria uma chave e resolve o anel de novo (CreateCacheableKeyRingCore,
-    // v10.0.14): a chave que não decifra é avaliada nas duas resoluções da partida a frio.
-    private const int ResolutionsAtColdStartWithoutUsableKey = 2;
+    // Na primeira resolução (DefaultKeyResolver.cs:173-206, v10.0.14) a chave preferida que não decifra é avaliada como
+    // candidata e de novo na busca de fallback: o filtro !ReferenceEquals(key, preferredDefaultKey) (l.199) só vale
+    // para as chaves antigas, e o ramo das recentes (CreationDate > now - KeyPropagationWindow, 2 dias, l.203-206)
+    // a inclui. A chave do teste acabou de nascer; com mais de 2 dias seria avaliada uma vez só. A resolução seguinte,
+    // depois de criar a chave nova, prefere a nova e nem avalia a retirada.
+    private const int EvaluationsOfARecentPreferredKey = 2;
 
     private static readonly TimeSpan DefaultKeyLifetime = TimeSpan.FromDays(90);
 
@@ -145,7 +148,8 @@ public sealed class KeyRingCertificateTests : IDisposable
     /// <summary>
     /// Chave cifrada por um certificado ausente nunca se decifra: esperar não traz o certificado de volta. O
     /// resolvedor padrão tentaria de novo 10 vezes, com Thread.Sleep de 200 ms antes de cada tentativa, dentro da
-    /// trava do KeyRingProvider (na partida a frio e no refresh forçado).
+    /// trava do KeyRingProvider (na partida a frio e no refresh forçado) ou numa thread do pool, fora da trava (no
+    /// refresh periódico, quando o anel vence sem que ninguém force).
     /// </summary>
     [Fact]
     public async Task KeyFromARetiredCertificateIsSkippedWithoutRetrying()
@@ -167,7 +171,7 @@ public sealed class KeyRingCertificateTests : IDisposable
         var resolver = logs.Entries.Where(entry => entry.Category == KeyResolverCategory).ToList();
         Assert.DoesNotContain(resolver, entry => entry.EventId.Id == RetryingKeyAfterFailure);
         var ineligible = resolver.Where(entry => entry.EventId.Id == KeyIneligibleAfterRetries).ToList();
-        Assert.Equal(ResolutionsAtColdStartWithoutUsableKey, ineligible.Count);
+        Assert.Equal(EvaluationsOfARecentPreferredKey, ineligible.Count);
         Assert.All(ineligible, entry => Assert.Contains(retiredKeyId, entry.Text, StringComparison.Ordinal));
     }
 
