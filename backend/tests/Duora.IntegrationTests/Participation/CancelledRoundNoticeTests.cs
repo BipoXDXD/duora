@@ -102,6 +102,31 @@ public sealed class CancelledRoundNoticeTests(PostgresFixture postgres)
         Assert.Equal(new ParticipationStatus("Waiting", null, RoundCancelled: true), await scene.StatusAsync(scene.Seed.Alice));
     }
 
+    [Fact]
+    public async Task APersonWhoseCheckInIsLaterThanTheCancelledRoundStartIsNotToldAboutIt()
+    {
+        await using var scene = await CreateSceneAsync();
+        Assert.Equal(ParticipationOutcome.Done, await scene.Service.RegisterAsync(scene.EventId, scene.Seed.Alice, checkIn: false, Ct));
+        await scene.CancelFirstRoundAsync();
+
+        // O serviço fecha o check-in no início do encontro; o estado é gravado direto para fixar a regra da leitura.
+        await scene.MarkCheckedInAsync(scene.Seed.Alice, scene.StartsAt.AddSeconds(SecondsPastStartThatCancelTheBuild + 1));
+
+        Assert.Equal(new ParticipationStatus("Waiting", null, RoundCancelled: false), await scene.StatusAsync(scene.Seed.Alice));
+    }
+
+    [Fact]
+    public async Task APersonCheckedInExactlyWhenTheCancelledRoundStartedIsTold()
+    {
+        await using var scene = await CreateSceneAsync();
+        Assert.Equal(ParticipationOutcome.Done, await scene.Service.RegisterAsync(scene.EventId, scene.Seed.Alice, checkIn: false, Ct));
+        await scene.CancelFirstRoundAsync();
+
+        await scene.MarkCheckedInAsync(scene.Seed.Alice, scene.StartsAt);
+
+        Assert.Equal(new ParticipationStatus("Waiting", null, RoundCancelled: true), await scene.StatusAsync(scene.Seed.Alice));
+    }
+
     private async Task<Scene> CreateSceneAsync()
     {
         var connectionString = await postgres.CreateMigratedDatabaseAsync(Ct);
@@ -136,7 +161,7 @@ public sealed class CancelledRoundNoticeTests(PostgresFixture postgres)
         public async Task CancelFirstRoundAsync()
         {
             Clock.SetUtcNow(StartsAt.AddSeconds(SecondsPastStartThatCancelTheBuild));
-            await RunDueJobsAsync();
+            await RunDueJobsAsync(Service);
             Assert.Equal("Cancelled", await RoundStateAsync(Seed.Rounds[0]));
         }
 
@@ -155,6 +180,13 @@ public sealed class CancelledRoundNoticeTests(PostgresFixture postgres)
             Assert.Equal("Inviting", await RoundStateAsync(_secondRound));
         }
 
+        public async Task MarkCheckedInAsync(Guid user, DateTimeOffset checkedInAt)
+        {
+            await using var connection = await Source.OpenConnectionAsync(Ct);
+            Assert.Equal(1, await Execute(connection, "update events.registrations set state='CheckedIn',checked_in_at=$3 where event_id=$1 and user_id=$2",
+                Ct, EventId, user, checkedInAt));
+        }
+
         private async Task<string> RoundStateAsync(Guid round)
         {
             await using var connection = await Source.OpenConnectionAsync(Ct);
@@ -162,17 +194,17 @@ public sealed class CancelledRoundNoticeTests(PostgresFixture postgres)
             return (string)(await query.ExecuteScalarAsync(Ct))!;
         }
 
-        private async Task RunDueJobsAsync()
+        private static async Task RunDueJobsAsync(ParticipationService service)
         {
             for (var attempt = 0; attempt < MaximumDueJobs; attempt++)
             {
-                var job = await Service.ClaimJobAsync(Ct);
+                var job = await service.ClaimJobAsync(Ct);
                 if (job is null)
                 {
                     return;
                 }
 
-                Assert.True(await Service.CompleteJobAsync(job, Ct), $"O job {job.Kind} recém-entregue não foi concluído.");
+                Assert.True(await service.CompleteJobAsync(job, Ct), $"O job {job.Kind} recém-entregue não foi concluído.");
             }
 
             throw new InvalidOperationException("A fila de jobs não esvaziou.");

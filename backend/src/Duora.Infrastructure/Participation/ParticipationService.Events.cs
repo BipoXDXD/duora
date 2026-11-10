@@ -236,16 +236,17 @@ public sealed partial class ParticipationService(NpgsqlDataSource source, TimePr
         }
 
         // Só a sala mais recente conta: filtrar dentro do lateral faria a sala abortada trazer de volta a de uma rodada anterior.
-        // O aviso de cancelamento olha a última rodada que saiu de Scheduled: some quando a seguinte começa (spec 5.2).
+        // O aviso de cancelamento olha a última rodada que saiu de Scheduled: some quando a seguinte começa (spec 5.2). Só
+        // vale para quem já tinha presença confirmada quando essa rodada começava.
         await using var command = Command(connection, """
             select r.state,case when s.state<>'Aborted' and not s.blocked then s.id end,s.state,
-              r.state='CheckedIn' and coalesce(lr.state='Cancelled',false) from events.registrations r
+              r.state='CheckedIn' and coalesce(lr.state='Cancelled' and r.checked_in_at<=lr.starts_at,false) from events.registrations r
             left join lateral(select gs.id,gs.state,
                 exists(select 1 from safety.blocks b where (b.blocker_id=p.user_low and b.blocked_id=p.user_high) or (b.blocker_id=p.user_high and b.blocked_id=p.user_low)) blocked
               from events.pairings p join experiences.game_sessions gs on gs.pairing_id=p.id
               where p.event_id=r.event_id and (p.user_low=r.user_id or p.user_high=r.user_id)
               order by p.created_at desc limit 1) s on true
-            left join lateral(select rd.state from events.rounds rd where rd.event_id=r.event_id and rd.state<>'Scheduled'
+            left join lateral(select rd.state,rd.starts_at from events.rounds rd where rd.event_id=r.event_id and rd.state<>'Scheduled'
               order by rd.number desc limit 1) lr on true
             where r.event_id=$1 and r.user_id=$2
             """, eventId, user);
