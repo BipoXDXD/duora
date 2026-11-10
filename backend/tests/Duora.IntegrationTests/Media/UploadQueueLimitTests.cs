@@ -71,8 +71,8 @@ public sealed class UploadQueueLimitTests(PostgresFixture postgres) : IAsyncLife
             browsers.Add(await NewBrowserAsync());
         }
 
-        // Largada única: todos os envios esperam o mesmo sinal sem prender thread do pool, e as continuações
-        // assíncronas fazem os envios partirem juntos quando o sinal sai.
+        // Largada única: os 9 envios aguardam o mesmo sinal sem prender thread do pool e partem juntos no SetResult.
+        // RunContinuationsAsynchronously evita que o SetResult rode o início dos 9 envios na própria thread do teste.
         var start = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         var uploads = browsers.Select(async (browser, i) =>
         {
