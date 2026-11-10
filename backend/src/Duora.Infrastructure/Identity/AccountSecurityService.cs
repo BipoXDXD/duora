@@ -26,6 +26,13 @@ internal sealed class AccountLockOptions
     /// <summary>Teto da espera em memória, sem conexão (30 s, hipótese sujeita a medição).</summary>
     public TimeSpan AccountQueueTimeout { get; set; } = TimeSpan.FromSeconds(30);
 
+    /// <summary>
+    /// <c>Retry-After</c> de todo <see cref="AccountBusyException"/> da conta: o teto da fila, que a fila em memória já
+    /// usa. O lock no PostgreSQL só é disputado por conta existente; com o próprio teto no header, um e-mail
+    /// inexistente nunca receberia esse valor, e o 503 diria que a conta existe (TM-06, issue #468).
+    /// </summary>
+    public TimeSpan BusyRetryAfter => AccountQueueTimeout;
+
     public bool IsValid() => AccountLockTimeout >= Minimum && AccountLockTimeout <= Maximum
         && AccountQueueTimeout >= Minimum && AccountQueueTimeout <= Maximum;
 }
@@ -35,7 +42,8 @@ internal sealed class AccountLockOptions
 /// (<see cref="AccountLockOptions.AccountQueueTimeout"/>), o lock no PostgreSQL
 /// (<see cref="AccountLockOptions.AccountLockTimeout"/>, <c>lock_timeout</c>, 55P03) ou o prazo total do login
 /// (<c>Identity:LoginTimeout</c>). A verificação que não entrou não gravou nada; o cliente pode tentar de novo depois
-/// de <see cref="RetryAfter"/>, que é o teto que estourou.
+/// de <see cref="RetryAfter"/>. Na conta, ele é sempre <see cref="AccountLockOptions.BusyRetryAfter"/>, qualquer que
+/// seja o teto que estourou, para o header não revelar se a conta existe.
 /// </summary>
 public sealed class AccountBusyException : Exception
 {
@@ -253,6 +261,12 @@ public sealed class AccountSecurityService
         _time = time;
         _lock = accountLock;
     }
+
+    /// <summary>
+    /// <c>Retry-After</c> de quem desiste de esperar a conta, inclusive no prazo total do login
+    /// (<see cref="AccountLockOptions.BusyRetryAfter"/>).
+    /// </summary>
+    public TimeSpan BusyRetryAfter => _lock.BusyRetryAfter;
 
     /// <summary>
     /// Serializa logins antes de procurar a conta, inclusive endereços inexistentes. A chave usa a mesma
@@ -730,7 +744,7 @@ public sealed class AccountSecurityService
         }
         catch (Exception error) when (LockTimeoutIn(error) is { } timeout)
         {
-            throw new AccountBusyException(_lock.AccountLockTimeout, timeout);
+            throw new AccountBusyException(_lock.BusyRetryAfter, timeout);
         }
 
         await SetLockTimeoutAsync(NoLockTimeout, cancellationToken);

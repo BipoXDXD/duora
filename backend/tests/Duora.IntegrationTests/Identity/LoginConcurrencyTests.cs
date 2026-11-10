@@ -176,7 +176,8 @@ public sealed class LoginConcurrencyTests(PostgresFixture postgres)
             var waitedMilliseconds = Environment.TickCount64 - startedAtMilliseconds;
 
             await ProblemAssert.IsProblemAsync(response, HttpStatusCode.ServiceUnavailable, "TEMPORARILY_UNAVAILABLE");
-            Assert.Equal(1, ProblemAssert.RetryAfterSeconds(response));
+            // O header é o teto da fila (30 s padrão), o mesmo de toda conta ocupada, não o prazo que venceu (#468).
+            Assert.Equal(30, ProblemAssert.RetryAfterSeconds(response));
             Assert.Null(browser.Cookie("__Host-duora"));
             Assert.True(waitedMilliseconds >= 1000, $"Desistiu cedo: {waitedMilliseconds} ms ({waited.Elapsed}).");
             Assert.True(waited.Elapsed < TimeSpan.FromSeconds(10), $"Esperou {waited.Elapsed}, além do prazo total.");
