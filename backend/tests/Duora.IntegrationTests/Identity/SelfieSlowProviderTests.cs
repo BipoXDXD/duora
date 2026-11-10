@@ -94,8 +94,10 @@ public sealed class SelfieSlowProviderTests(PostgresFixture postgres)
     public Task AStalledSessionStartThroughTheRealSdkIsCutAndRetriedWithoutReleasingTheAccount() => WithinTheWholeTestCeilingAsync(async () =>
     {
         var connection = await postgres.CreateMigratedDatabaseAsync(Ct);
-        var transport = new SyntheticAwsTransport(Stall);
-        var host = RealSdkHost(connection, transport);
+        var abandonedCallRelease = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var transport = new SyntheticAwsTransport(StallUntilCutThenHold(abandonedCallRelease.Task));
+        var finishedCalls = new FinishedProviderCalls();
+        var host = RealSdkHost(connection, transport, finishedCalls: finishedCalls);
         var scenario = new IdentityScenario(connection, host);
         var account = await scenario.CreateConfirmedAccountAsync();
         await SelfieConcurrencyHarness.RequestAsync(host, account.UserId, Ct);
@@ -110,6 +112,8 @@ public sealed class SelfieSlowProviderTests(PostgresFixture postgres)
             _time.GetUtcNow().AddSeconds(5)));
         await AssertNotReleasedAsync(scenario, host, account.UserId);
 
+        abandonedCallRelease.TrySetResult();
+        await WaitUntilAsync(() => finishedCalls.Count == 1);
         transport.Send = HealthySession;
         _time.Advance(UntilNextTry);
         await SelfieConcurrencyHarness.DispatchAsync(host, Ct);
@@ -1076,8 +1080,18 @@ public sealed class SelfieSlowProviderTests(PostgresFixture postgres)
     private static Task<long> EmailAsync(IdentityScenario scenario, string comparison) => scenario.ScalarAsync(
         $"select count(*) from ops.outbox_deliveries where consumer = 'transactional-email' and status {comparison} 'Delivered'");
 
-    private static Task<HttpResponseMessage> Stall(CancellationToken cancellationToken) =>
-        Task.Delay(Timeout.Infinite, cancellationToken).ContinueWith(_ => new HttpResponseMessage(), TaskScheduler.Default);
+    /// <summary>
+    /// Chamada parada que só reage ao corte e, depois dele, segue presa até <paramref name="release"/>: a chamada
+    /// abandonada continua viva, segurando a vaga, pelo tempo que o teste decidir. O teto solta a thread se o teste
+    /// nunca soltar a chamada.
+    /// </summary>
+    private static Func<CancellationToken, Task<HttpResponseMessage>> StallUntilCutThenHold(Task release) =>
+        async cancellationToken =>
+        {
+            await Task.Delay(Timeout.Infinite, cancellationToken).ContinueWith(_ => { }, TaskScheduler.Default);
+            await release.WaitAsync(CallCeiling, CancellationToken.None);
+            return new HttpResponseMessage();
+        };
 
     /// <summary>Cada resposta ganha um corpo novo: nenhuma chamada, de teste nenhum, herda o descarte de outra.</summary>
     private static Task<HttpResponseMessage> StalledBody(ConcurrentQueue<StalledStream> bodies)
@@ -1122,12 +1136,17 @@ public sealed class SelfieSlowProviderTests(PostgresFixture postgres)
         return Task.FromResult(response);
     }
 
-    private DuoraWebFactory RealSdkHost(string connection, SyntheticAwsTransport transport, CapturingLoggerProvider? logs = null) =>
+    private DuoraWebFactory RealSdkHost(string connection, SyntheticAwsTransport transport, CapturingLoggerProvider? logs = null,
+        FinishedProviderCalls? finishedCalls = null) =>
         DisposedAtTheEnd(new DuoraWebFactory(connection, logs)
         {
             Time = _time,
             Settings = SelfieTestSettings.Enabled(ScriptedSelfieProvider.Policy),
-            TestServices = services => services.AddSingleton<HttpClientFactory>(transport),
+            TestServices = services =>
+            {
+                services.AddSingleton<HttpClientFactory>(transport);
+                finishedCalls?.CountAroundTheProvider(services);
+            },
         });
 
     private DuoraWebFactory FakeProviderHost(string connection, ISelfieProvider provider, CapturingLoggerProvider? logs = null) =>
@@ -1437,6 +1456,47 @@ public sealed class SelfieSlowProviderTests(PostgresFixture postgres)
         {
             _closed.TrySetResult();
             base.Dispose(disposing);
+        }
+    }
+
+    /// <summary>
+    /// Chamadas ao fornecedor real já concluídas, inclusive as que o dispatcher abandonou no corte. Conta depois da
+    /// conclusão, como o <see cref="FaultySelfieProvider"/>, para o teste não pedir o lote seguinte enquanto a vaga ainda
+    /// vê a chamada abandonada em andamento.
+    /// </summary>
+    private sealed class FinishedProviderCalls
+    {
+        private int _count;
+
+        public int Count => Volatile.Read(ref _count);
+
+        /// <summary>Envolve o fornecedor que a produção registrou, sem trocar o SDK nem o transporte por baixo dele.</summary>
+        public void CountAroundTheProvider(IServiceCollection services)
+        {
+            var registered = services.Last(service => service.ServiceType == typeof(ISelfieProvider));
+            if (registered.ImplementationFactory is not { } create)
+            {
+                throw new InvalidOperationException("O fornecedor da selfie deixou de ser registrado por fábrica.");
+            }
+
+            services.Remove(registered);
+            services.AddSingleton<ISelfieProvider>(provider => new Counting((ISelfieProvider)create(provider), this));
+        }
+
+        private Task<T> CountWhenFinished<T>(Task<T> call)
+        {
+            _ = call.ContinueWith(_ => Interlocked.Increment(ref _count), CancellationToken.None,
+                TaskContinuationOptions.ExecuteSynchronously, TaskScheduler.Default);
+            return call;
+        }
+
+        private sealed class Counting(ISelfieProvider inner, FinishedProviderCalls calls) : ISelfieProvider
+        {
+            public Task<SelfieSession> StartAsync(Guid attemptId, CancellationToken cancellationToken) =>
+                calls.CountWhenFinished(inner.StartAsync(attemptId, cancellationToken));
+
+            public Task<SelfieResult> ReadAsync(string reference, CancellationToken cancellationToken) =>
+                calls.CountWhenFinished(inner.ReadAsync(reference, cancellationToken));
         }
     }
 
