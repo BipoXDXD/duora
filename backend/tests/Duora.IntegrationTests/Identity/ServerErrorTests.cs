@@ -3,6 +3,7 @@ using Duora.Infrastructure.Identity;
 using Duora.Web.Http;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Logging;
 using Npgsql;
 
 namespace Duora.IntegrationTests.Identity;
@@ -30,6 +31,34 @@ public sealed class ServerErrorTests(PostgresFixture postgres)
         await ProblemAssert.IsProblemAsync(response, HttpStatusCode.ServiceUnavailable, "TEMPORARILY_UNAVAILABLE");
         Assert.InRange(ProblemAssert.RetryAfterSeconds(response), 1, 60);
         await AssertNoInternalsAsync(response, connection.Password);
+    }
+
+    // O 503 sozinho não diz se foi o banco nem qual falha (#447): o handler deixa um Warning com o que identifica a
+    // falha e a requisição, nunca a exceção, a mensagem do driver nem a connection string.
+    [Fact]
+    public async Task AnUnreachableDatabaseLeavesAWarningWithoutInternals()
+    {
+        var connection = new CanaryConnectionString();
+        var logs = new CapturingLoggerProvider();
+        await using var factory = new DuoraWebFactory(connection.Value, logs);
+        using var browser = new Browser(factory);
+        await browser.FetchCsrfTokenAsync();
+
+        using var response = await browser.PostJsonAsync("/api/v1/auth/login", LoginBody);
+
+        var body = await ProblemAssert.IsProblemAsync(response, HttpStatusCode.ServiceUnavailable, "TEMPORARILY_UNAVAILABLE");
+        var traceId = (string?)body["traceId"] ?? throw new InvalidOperationException("Sem traceId.");
+        var warning = Assert.Single(
+            logs.Entries,
+            entry => entry.Category == typeof(DatabaseUnavailableExceptionHandler).FullName);
+        Assert.Equal(LogLevel.Warning, warning.Level);
+        Assert.Null(warning.Exception);
+        Assert.Contains(nameof(NpgsqlException), warning.Text, StringComparison.Ordinal);
+        Assert.Contains("/api/v1/auth/login", warning.Text, StringComparison.Ordinal);
+        Assert.Contains(traceId, warning.Text, StringComparison.Ordinal);
+        string[] internals = ["127.0.0.1", "Port=", "Username", "Host=", "   at ", "Failed to connect"];
+        Assert.DoesNotContain(internals, leak => warning.Text.Contains(leak, StringComparison.Ordinal));
+        Assert.DoesNotContain(logs.Entries, entry => entry.Text.Contains(connection.Password, StringComparison.Ordinal));
     }
 
     [Fact]
