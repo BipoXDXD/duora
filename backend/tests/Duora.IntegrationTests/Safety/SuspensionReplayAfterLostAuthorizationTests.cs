@@ -67,11 +67,14 @@ public sealed class SuspensionReplayAfterLostAuthorizationTests : IAsyncDisposab
     }
 
     /// <summary>
-    /// Sem a policy da fronteira, o serviço ainda confere o papel antes de procurar a chave: a mesma ordem e a mesma
-    /// chave de um ex-moderador dão <c>Forbidden</c>, nunca o <c>Suspended</c> com <c>Replayed</c>.
+    /// Sem a policy e sem o filtro de MFA da fronteira, o serviço ainda confere o papel e o TOTP recente antes de
+    /// procurar a chave: a mesma ordem e a mesma chave dão <c>Forbidden</c>, nunca o <c>Suspended</c> com
+    /// <c>Replayed</c>.
     /// </summary>
-    [Fact]
-    public async Task TheServiceRefusesTheReplayOfAFormerModeratorBeforeLookingUpTheKey()
+    [Theory]
+    [InlineData(Loss.RoleRemoved)]
+    [InlineData(Loss.TotpNoLongerRecent)]
+    public async Task TheServiceRefusesTheReplayAfterLosingAuthorizationBeforeLookingUpTheKey(Loss loss)
     {
         var participant = await _scenario.CreateEligibleParticipantAsync();
         var (account, moderator) = await _scenario.PrivilegedBrowserAsync();
@@ -79,7 +82,7 @@ public sealed class SuspensionReplayAfterLostAuthorizationTests : IAsyncDisposab
         var key = AccountSuspensionScenario.NewKey();
         await AccountSuspensionScenario.SuspendAsync(moderator, participant.UserId, key);
         var session = new ModeratorSession(account.UserId, await MfaScenario.ReadSessionIdAsync(moderator));
-        await LoseAuthorizationAsync(Loss.RoleRemoved, account, moderator);
+        await LoseAuthorizationAsync(loss, account, moderator);
 
         await using var scope = _factory.Services.CreateAsyncScope();
         var outcome = await scope.ServiceProvider.GetRequiredService<AccountSuspensions>().SuspendAsModeratorAsync(
