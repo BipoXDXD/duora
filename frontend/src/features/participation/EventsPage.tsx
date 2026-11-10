@@ -62,6 +62,8 @@ function EventEntry({ event, userId }: { readonly event: Event; readonly userId:
   const withdrawButton = useRef<HTMLButtonElement>(null)
   const warning = useRef<HTMLParagraphElement>(null)
   const outcome = useRef<HTMLParagraphElement>(null)
+  const heading = useRef<HTMLHeadingElement>(null)
+  const [startedDuringConfirmation, setStartedDuringConfirmation] = useState(false)
   const pendingFocus = useRef<WithdrawalFocus | null>(null)
   const key = ['account', userId, 'participation', event.eventId]
   const participation = useQuery({
@@ -84,6 +86,17 @@ function EventEntry({ event, userId }: { readonly event: Event; readonly userId:
   const withdrawn = state === 'withdrawn'
   // O instante da última leitura do estado: puro na renderização e renovado pelo polling de 3 s.
   const canWithdraw = canWithdrawRegistration(state, event.startsAt, participation.dataUpdatedAt)
+  if (confirmingWithdrawal && !canWithdraw) {
+    // O encontro começou (ou a inscrição mudou) com a confirmação aberta: ela fecha, como o servidor recusaria.
+    setConfirmingWithdrawal(false)
+    setStartedDuringConfirmation(true)
+  }
+  useEffect(() => {
+    // A confirmação sumiu com o foco dentro dela; o título do encontro é estável e diz onde a pessoa está.
+    if (startedDuringConfirmation && document.activeElement === document.body) {
+      heading.current?.focus()
+    }
+  }, [startedDuringConfirmation])
   const withdrawLabel = t(state === 'waitlisted' ? 'participation.leaveWaitlist' : 'participation.withdraw')
   useEffect(() => {
     const focus = pendingFocus.current
@@ -98,7 +111,9 @@ function EventEntry({ event, userId }: { readonly event: Event; readonly userId:
   })
   return (
     <section className="flex flex-col gap-4 rounded-lg border border-border p-5">
-      <h2 className="text-xl font-semibold">{event.title}</h2>
+      <h2 ref={heading} tabIndex={-1} className="text-xl font-semibold">
+        {event.title}
+      </h2>
       <p>
         <time className="whitespace-pre-line" dateTime={event.startsAt}>
           {formatEventDateTime(new Date(event.startsAt), event.timeZone)}

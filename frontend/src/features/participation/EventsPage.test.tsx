@@ -2,7 +2,7 @@ import { withSessionContext } from '@/test/private-context'
 import { screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { http, HttpResponse } from 'msw'
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import { API, server } from '@/test/msw'
 import { renderApp } from '@/test/render'
 import { canWithdrawRegistration } from './withdrawal'
@@ -175,6 +175,32 @@ describe('withdrawing from an event (API-E04)', () => {
       throw new Error('Evento passado sem seção.')
     }
     expect(within(pastEntry).queryByRole('button', { name: 'Cancelar inscrição' })).not.toBeInTheDocument()
+  })
+
+  it('closes the confirmation and keeps focus on the event when it starts meanwhile', async () => {
+    const startsAt = Date.parse('2099-01-01T00:00:00Z')
+    const now = vi.spyOn(Date, 'now').mockReturnValue(startsAt - 60_000)
+    try {
+      const user = userEvent.setup()
+      const deletes = eventsWith('Confirmed')
+      await renderApp('/events')
+      await user.click(await screen.findByRole('button', { name: 'Cancelar inscrição' }))
+      expect(screen.getByText(/não poderá se inscrever de novo/)).toHaveFocus()
+
+      now.mockReturnValue(startsAt)
+
+      await waitFor(
+        () => {
+          expect(screen.queryByText(/não poderá se inscrever de novo/)).not.toBeInTheDocument()
+        },
+        { timeout: 5000 },
+      )
+      expect(screen.getByRole('heading', { name: 'Evento sintético' })).toHaveFocus()
+      expect(screen.queryByRole('button', { name: 'Cancelar inscrição' })).not.toBeInTheDocument()
+      expect(deletes).toHaveLength(0)
+    } finally {
+      now.mockRestore()
+    }
   })
 
   it.each([
