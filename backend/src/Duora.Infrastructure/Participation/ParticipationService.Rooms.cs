@@ -221,7 +221,7 @@ public sealed partial class ParticipationService
 
         // Ação nova depois do prazo recebe a mesma 404 da sala expirada, antes e depois do job. Replay e actionId reutilizado
         // são decididos acima pelo motor, como antes do prazo, até o job rodar.
-        if (result is ActionValidation<ConstellationState, ConstellationAction>.Rejected { Reason: RejectionReason.DeadlineReached })
+        if (IsNewActionAfterTheDeadline(result, session.Schedule))
         {
             return ParticipationOutcome.Unavailable;
         }
@@ -241,6 +241,16 @@ public sealed partial class ParticipationService
         await tx.CommitAsync(ct);
         return ParticipationOutcome.Done;
     }
+
+    /// <summary>
+    /// O motor checa o fim da sessão antes do prazo: numa sala <c>Completed</c>, a ação nova depois do prazo chega como
+    /// <c>SessionFinished</c>, e recebe a mesma 404 da sala ainda <c>Active</c> (#463, ADR-0054).
+    /// </summary>
+    private bool IsNewActionAfterTheDeadline<TState, TAction>(ActionValidation<TState, TAction> result, GameSchedule schedule)
+        where TState : class
+        where TAction : class, IGameAction =>
+        result is ActionValidation<TState, TAction>.Rejected { Reason: RejectionReason.DeadlineReached }
+        || (result is ActionValidation<TState, TAction>.Rejected { Reason: RejectionReason.SessionFinished } && schedule.IsDue(Now));
 
     public async Task<ParticipationOutcome> ExitAsync(Guid room, Guid user, CancellationToken ct)
     {
