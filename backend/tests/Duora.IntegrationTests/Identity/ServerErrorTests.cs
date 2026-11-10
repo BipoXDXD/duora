@@ -126,7 +126,8 @@ public sealed class ServerErrorTests(PostgresFixture postgres)
     public void ServerSideUnavailabilityIsRecognizedWhenWrappedByANpgsqlException(string sqlState)
     {
         var error = new PostgresException("indisponível", "FATAL", "FATAL", sqlState);
-        // Uma NpgsqlException do driver por fora não pode esconder o SqlState do servidor.
+        // Caso defensivo, montado à mão: não foi confirmado que o Npgsql 10.0.3 embrulhe assim um erro do servidor.
+        // Se acontecer, a NpgsqlException por fora não pode esconder o SqlState do servidor.
         var wrapped = new InvalidOperationException("transient", new NpgsqlException("driver", error));
 
         Assert.True(DatabaseUnavailability.IsTemporary(wrapped));
