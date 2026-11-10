@@ -96,7 +96,8 @@ Valores (decisão da coordenação, 10/11):
 | Documentos legais indisponíveis no cadastro | — | — | `30` |
 
 O Warning do handler tem dois eventos, escolhidos pelo mesmo critério do `Retry-After`: `DatabaseUnavailable` (id 1)
-e `DatabaseContention` (id 2), só com SQLSTATE, tipo da exceção, padrão da rota e trace.
+e `DatabaseContention` (id 2), só com SQLSTATE, tipo da exceção, padrão da rota e trace. O `57014` sob `/auth` sai no
+evento `DatabaseUnavailable` (1).
 
 **Exceção das rotas de identidade.** Todo `503` sob `/api/v1/auth` responde igual, qualquer que seja a causa:
 mesmo corpo e `Retry-After` igual a `Identity:AccountQueueTimeout` (`AccountLockOptions.BusyRetryAfter`, 30 s por
@@ -113,7 +114,8 @@ marcador; o teste falha se uma nascer fora do grupo.
 Entra numa release só com o #451, que é a base deste PR: o #451 dá ao handler global o Warning estruturado
 (SQLSTATE, tipo da exceção, padrão da rota e trace, nunca a mensagem do Npgsql nem a connection string) e trata o
 erro passageiro do servidor embrulhado pelo Npgsql como indisponibilidade. O #465 parte daí, separa o Warning em
-dois eventos e unifica cru e embrulhado.
+dois eventos e unifica cru e embrulhado na contenção (`40001`, `40P01`, `55P03`). Fora dela, `53200`, `53400`,
+`55006` e `58030` ainda divergem (embrulhado `503` com `5`, cru `500`): issue #476.
 
 Mudança de contrato, sem mudança de schema (o OpenAPI não lista o `Retry-After` desses 503):
 

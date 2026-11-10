@@ -545,9 +545,11 @@ A07 e A11–A16, e um terceiro valor só para o login seria configuração sem e
 ficar abaixo do prazo. Quem baixar o `AccountQueueTimeout` abaixo do `LoginTimeout` passa a ter a
 fila desistindo primeiro; o `Retry-After` é o mesmo nos dois casos.
 
-O `503` de banco indisponível (pool esgotado, `DatabaseUnavailableExceptionHandler`, `Retry-After: 5`) é
-outro contrato e não muda: não depende da conta, e um e-mail inexistente o recebe igual
-(`LoginBusyNeutralityTests.AnUnavailableDatabaseAnswersTheSameForAnExistingAndAMissingEmail`).
+O `503` de banco indisponível (pool esgotado, `DatabaseUnavailableExceptionHandler`) não depende da conta,
+e um e-mail inexistente o recebe igual
+(`LoginBusyNeutralityTests.AnUnavailableDatabaseAnswersTheSameForAnExistingAndAMissingEmail`). Sob `/auth`, o
+login inclusive, ele responde com o mesmo `Retry-After: 30` da conta ocupada; fora de `/auth`, com `5` (#465,
+[contrato](../api/README.md#indisponibilidade-temporária-do-banco-465)).
 
 O login adquire primeiro uma vez por e-mail normalizado pelo Identity, antes de buscar a conta.
 Endereços existentes e inexistentes disputam essa mesma forma de fila. A chave em memória é o endereço

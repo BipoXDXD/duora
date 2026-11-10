@@ -214,15 +214,16 @@ public sealed class EnabledPhotoUploads(PostgresFixture postgres) : IAsyncLifeti
 {
     private DuoraWebFactory? _factory;
     private AsyncServiceScope _scope;
+    private PhotoUploads? _uploads;
 
-    internal PhotoUploads Uploads { get; private set; } = null!;
+    internal PhotoUploads Uploads => _uploads ?? throw new InvalidOperationException("Fixture não inicializada.");
 
     public ValueTask InitializeAsync()
     {
         _factory = new DuoraWebFactory(postgres.ConnectionString);
         _scope = _factory.Services.CreateAsyncScope();
-        Uploads = _scope.ServiceProvider.GetRequiredService<PhotoUploads>();
-        Assert.True(Uploads.UploadsEnabled);
+        _uploads = _scope.ServiceProvider.GetRequiredService<PhotoUploads>();
+        Assert.True(_uploads.UploadsEnabled);
         return ValueTask.CompletedTask;
     }
 
