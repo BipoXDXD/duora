@@ -133,6 +133,34 @@ public sealed class KeyRingCertificateTests : IDisposable
         await ProblemAssert.IsProblemAsync(confirmation, HttpStatusCode.BadRequest, "INVALID_TOKEN");
     }
 
+    /// <summary>
+    /// Chave cifrada por um certificado ausente nunca se decifra: esperar não traz o certificado de volta. O
+    /// resolvedor padrão tentava de novo 10 vezes, com Thread.Sleep de 200 ms em cada uma, segurando a thread do
+    /// pool e a trava do key ring a cada resolução; com o pool pequeno do CI, a abertura de conexão de outra
+    /// requisição estourava o Timeout do Npgsql e virava 503.
+    /// </summary>
+    [Fact]
+    public async Task KeyFromARetiredCertificateIsSkippedWithoutRetrying()
+    {
+        await _hosts.SignInOnAFreshHostAsync(_volume, With(_first));
+        var logs = new CapturingLoggerProvider();
+        var settings = With(_second);
+        settings["Logging:LogLevel:Microsoft.AspNetCore.DataProtection"] = "Debug";
+        await using var retired = new DuoraWebFactory(_postgres.ConnectionString, logs)
+        {
+            SharedKeyRing = _volume,
+            Settings = settings,
+        };
+
+        using var browser = new Browser(retired);
+        await browser.FetchCsrfTokenAsync();
+
+        Assert.DoesNotContain(
+            logs.Entries,
+            entry => entry.Category.EndsWith(".DefaultKeyResolver", StringComparison.Ordinal)
+                && entry.Text.Contains("Retrying", StringComparison.Ordinal));
+    }
+
     [Fact]
     public async Task PreviousCertificatesMayHoldMoreThanOneCertificate()
     {

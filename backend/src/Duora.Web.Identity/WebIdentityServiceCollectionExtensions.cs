@@ -93,6 +93,10 @@ internal sealed class DataProtectionStorageOptions
 
 public static class WebIdentityServiceCollectionExtensions
 {
+    // Dado do AppContext que o DefaultKeyResolver do ASP.NET Core lê como teto de novas tentativas por resolução.
+    private const string KeyResolverRetries =
+        "Microsoft.AspNetCore.DataProtection.KeyManagement.MaximumTotalDefaultKeyResolverRetries";
+
     /// <summary>
     /// Identidade do processo web: as contas da Infrastructure, mais SignInManager, token providers do Data
     /// Protection, cookie de sessão com ticket no PostgreSQL e Data Protection com key ring persistido. O host não
@@ -207,6 +211,13 @@ public static class WebIdentityServiceCollectionExtensions
                 "DataProtection:PreviousCertificates precisa ser vazio ou PEM com pares de certificado e chave privada.")
             .ValidateOnStart();
 
+
+        // O resolvedor padrão repete 10 vezes, com Thread.Sleep de 200 ms, a chave que não decifrou, contando com
+        // falha passageira de um cofre remoto. Aqui as chaves se decifram com certificados locais: sem o certificado
+        // (retirado antes da hora, volume de outro ambiente) a falha é definitiva, e cada resolução do key ring
+        // prendia 2 s uma thread do pool e a trava do key ring, atrasando as requisições vizinhas até o Npgsql
+        // estourar o tempo de abertura de conexão (503). O dado é do processo e é lido quando o resolvedor nasce.
+        AppContext.SetData(KeyResolverRetries, 0);
 
         // Nome estável: o mesmo key ring precisa ler o que outra instância ou versão protegeu. A vida da chave é a
         // padrão, explícita aqui porque a política depende dela: a cada 90 dias nasce uma chave nova, e as antigas
