@@ -24,3 +24,6 @@
 20261028151040_SelfieResultFollowsAccount | SQL DROP CONSTRAINT | anterior à guarda: troca a FK da selfie para seguir a conta
 20261029120000_PhotoReviewSevenDayWait | SQL DROP CONSTRAINT | anterior à guarda: troca o CHECK de prazo do caso
 20261101180000_PrivateGenerationAuthority | SQL DROP CONSTRAINT | anterior à guarda: troca os CHECKs de remoção de candidatos e promoções (ADR-0047)
+
+# Revisadas depois da guarda.
+20261109120000_VoluntaryRegistrationWithdrawal | SQL DROP CONSTRAINT | amplia ck_registrations_withdrawal para a retirada voluntária (API-E04, ADR-0053, opção B do dono); toda linha válida antes segue válida; duas revisões no PR #436
