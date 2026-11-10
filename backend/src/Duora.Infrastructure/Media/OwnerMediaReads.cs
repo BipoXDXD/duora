@@ -150,6 +150,12 @@ public sealed partial class OwnerMediaReads
                             _time);
                     }
                 }
+                catch (EndOfStreamException)
+                {
+                    reservation.Dispose();
+                    LogBodyCut(_logger, assetId, variant);
+                    throw;
+                }
                 catch
                 {
                     reservation.Dispose();
@@ -261,6 +267,9 @@ public sealed partial class OwnerMediaReads
 
     [LoggerMessage(Level = LogLevel.Warning, Message = "Leitura do derivado {Variant} do asset {AssetId} recusada: orçamento de memória cheio ou conta no limite de leituras")]
     private static partial void LogBudgetExhausted(ILogger logger, Guid assetId, string variant);
+
+    [LoggerMessage(Level = LogLevel.Warning, Message = "Derivado promovido {Variant} do asset {AssetId} terminou antes do tamanho gravado; respondido como indisponível")]
+    private static partial void LogBodyCut(ILogger logger, Guid assetId, string variant);
 
     private sealed record StoredVariant(string ObjectKey, long? SizeBytes, byte[]? Sha256, bool RequiresDigest);
 }

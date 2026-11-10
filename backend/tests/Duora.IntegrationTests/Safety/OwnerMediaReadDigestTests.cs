@@ -52,8 +52,8 @@ public sealed partial class PhotoReviewApprovalTests
 
     /// <summary>
     /// Um corpo que termina antes do tamanho gravado é o que o S3 entrega quando a rede corta a leitura: falha
-    /// transitória, que sobe como <see cref="IOException"/> para a admissão de mídia responder 503, sem log de
-    /// integridade e sem bytes.
+    /// transitória, que sobe como <see cref="IOException"/> para a admissão de mídia responder 503, sem bytes. Fica um
+    /// Warning com asset e variante, sem chave nem dono, para o corte não sumir em silêncio.
     /// </summary>
     [Fact]
     public async Task ABodyThatEndsBeforeItsRecordedSizeIsATransientFailureNotA404()
@@ -66,7 +66,12 @@ public sealed partial class PhotoReviewApprovalTests
         await Assert.ThrowsAsync<EndOfStreamException>(() => read.Reads.OpenAsync(read.Owner.UserId,
             read.Owner.SessionId, read.AssetId, PhotoVariant.Full, Ct));
 
-        Assert.DoesNotContain(read.Logs.Entries, entry => entry.Level >= LogLevel.Information);
+        var entry = Assert.Single(read.Logs.Entries, entry => entry.Level >= LogLevel.Information);
+        Assert.Equal(LogLevel.Warning, entry.Level);
+        Assert.Contains(read.AssetId.ToString(), entry.Text, StringComparison.Ordinal);
+        Assert.Contains("full", entry.Text, StringComparison.Ordinal);
+        Assert.DoesNotContain(read.Key.Value, entry.Text, StringComparison.Ordinal);
+        Assert.DoesNotContain(read.Owner.UserId.ToString(), entry.Text, StringComparison.Ordinal);
     }
 
     /// <summary>
