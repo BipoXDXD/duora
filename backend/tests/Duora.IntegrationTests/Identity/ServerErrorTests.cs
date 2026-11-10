@@ -109,16 +109,28 @@ public sealed class ServerErrorTests(PostgresFixture postgres)
     [InlineData("57P01")]
     [InlineData("57P03")]
     [InlineData("08006")]
-    public void ServerSideUnavailabilityIsRecognizedEvenWhenWrapped(string sqlState)
+    public void ServerSideUnavailabilityIsRecognizedWhenWrappedByEf(string sqlState)
     {
         var error = new PostgresException("indisponível", "FATAL", "FATAL", sqlState);
         var wrapped = new InvalidOperationException("transient", error);
-        // Uma NpgsqlException do driver por fora não pode esconder o SqlState do servidor.
-        var wrappedByTheDriver = new InvalidOperationException("transient", new NpgsqlException("driver", error));
 
         Assert.True(DatabaseUnavailability.IsTemporary(wrapped));
         Assert.Same(error, DatabaseUnavailability.TemporaryCause(wrapped));
-        Assert.Same(error, DatabaseUnavailability.TemporaryCause(wrappedByTheDriver));
+    }
+
+    [Theory]
+    [InlineData("53300")]
+    [InlineData("57P01")]
+    [InlineData("57P03")]
+    [InlineData("08006")]
+    public void ServerSideUnavailabilityIsRecognizedWhenWrappedByANpgsqlException(string sqlState)
+    {
+        var error = new PostgresException("indisponível", "FATAL", "FATAL", sqlState);
+        // Uma NpgsqlException do driver por fora não pode esconder o SqlState do servidor.
+        var wrapped = new InvalidOperationException("transient", new NpgsqlException("driver", error));
+
+        Assert.True(DatabaseUnavailability.IsTemporary(wrapped));
+        Assert.Same(error, DatabaseUnavailability.TemporaryCause(wrapped));
     }
 
     // O Npgsql herda IsTransient só da interna imediata: aqui ela é o timeout do cliente, não o erro do servidor,
