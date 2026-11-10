@@ -3,7 +3,7 @@ using Microsoft.Extensions.Logging;
 
 namespace Duora.IntegrationTests;
 
-public sealed record CapturedLog(string Category, LogLevel Level, string Text, Exception? Exception);
+public sealed record CapturedLog(string Category, LogLevel Level, EventId EventId, string Text, Exception? Exception);
 
 /// <summary>Guarda tudo o que a aplicação loga, com a mensagem formatada e a exceção, para os testes inspecionarem.</summary>
 public sealed class CapturingLoggerProvider : ILoggerProvider
@@ -55,7 +55,7 @@ public sealed class CapturingLoggerProvider : ILoggerProvider
             Func<TState, Exception?, string> formatter)
         {
             var text = formatter(state, exception) + Environment.NewLine + exception;
-            provider.Add(new CapturedLog(category, logLevel, text, exception));
+            provider.Add(new CapturedLog(category, logLevel, eventId, text, exception));
         }
     }
 }

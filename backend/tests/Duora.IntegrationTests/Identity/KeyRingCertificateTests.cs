@@ -14,6 +14,15 @@ public sealed class KeyRingCertificateTests : IDisposable
     private const string PreviousCertificates = "DataProtection:PreviousCertificates";
     private const string RequireCertificate = "DataProtection:RequireCertificate";
 
+    // Ids de LoggerMessage do Data Protection (LoggingExtensions.cs, ASP.NET Core v10.0.14).
+    private const string KeyResolverCategory = "Microsoft.AspNetCore.DataProtection.KeyManagement.DefaultKeyResolver";
+    private const int KeyIneligibleAfterRetries = 12;
+    private const int RetryingKeyAfterFailure = 73;
+
+    // Sem chave padrão utilizável, o KeyRingProvider cria uma chave e resolve o anel de novo (CreateCacheableKeyRingCore,
+    // v10.0.14): a chave que não decifra é avaliada nas duas resoluções da partida a frio.
+    private const int ResolutionsAtColdStartWithoutUsableKey = 2;
+
     private static readonly TimeSpan DefaultKeyLifetime = TimeSpan.FromDays(90);
 
     private readonly PostgresFixture _postgres;
@@ -135,14 +144,14 @@ public sealed class KeyRingCertificateTests : IDisposable
 
     /// <summary>
     /// Chave cifrada por um certificado ausente nunca se decifra: esperar não traz o certificado de volta. O
-    /// resolvedor padrão tentava de novo 10 vezes, com Thread.Sleep de 200 ms em cada uma, segurando a thread do
-    /// pool e a trava do key ring a cada resolução; com o pool pequeno do CI, a abertura de conexão de outra
-    /// requisição estourava o Timeout do Npgsql e virava 503.
+    /// resolvedor padrão tentaria de novo 10 vezes, com Thread.Sleep de 200 ms antes de cada tentativa, dentro da
+    /// trava do KeyRingProvider (na partida a frio e no refresh forçado).
     /// </summary>
     [Fact]
     public async Task KeyFromARetiredCertificateIsSkippedWithoutRetrying()
     {
         await _hosts.SignInOnAFreshHostAsync(_volume, With(_first));
+        var retiredKeyId = Path.GetFileNameWithoutExtension(Assert.Single(_volume.GetFiles("key-*.xml")).Name)["key-".Length..];
         var logs = new CapturingLoggerProvider();
         var settings = With(_second);
         settings["Logging:LogLevel:Microsoft.AspNetCore.DataProtection"] = "Debug";
@@ -155,10 +164,11 @@ public sealed class KeyRingCertificateTests : IDisposable
         using var browser = new Browser(retired);
         await browser.FetchCsrfTokenAsync();
 
-        Assert.DoesNotContain(
-            logs.Entries,
-            entry => entry.Category.EndsWith(".DefaultKeyResolver", StringComparison.Ordinal)
-                && entry.Text.Contains("Retrying", StringComparison.Ordinal));
+        var resolver = logs.Entries.Where(entry => entry.Category == KeyResolverCategory).ToList();
+        Assert.DoesNotContain(resolver, entry => entry.EventId.Id == RetryingKeyAfterFailure);
+        var ineligible = resolver.Where(entry => entry.EventId.Id == KeyIneligibleAfterRetries).ToList();
+        Assert.Equal(ResolutionsAtColdStartWithoutUsableKey, ineligible.Count);
+        Assert.All(ineligible, entry => Assert.Contains(retiredKeyId, entry.Text, StringComparison.Ordinal));
     }
 
     [Fact]
