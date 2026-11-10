@@ -38,9 +38,7 @@ public sealed partial class SelfieSuspensionRecoveryTests
         using var replay = await RecoverAsync(moderator, user, delivery, key);
 
         var body = (await ProblemAssert.IsProblemAsync(replay, expectedStatus, expectedCode)).ToJsonString();
-        Assert.DoesNotContain(measure, body, StringComparison.OrdinalIgnoreCase);
-        Assert.DoesNotContain(user.ToString(), body, StringComparison.OrdinalIgnoreCase);
-        Assert.DoesNotContain(delivery.ToString(), body, StringComparison.OrdinalIgnoreCase);
+        ReplayLeakAssert.ContainsNone(replay, body, Guid.Parse(measure), user, delivery);
         Assert.False(replay.Headers.Contains("Location"));
         Assert.Null(replay.Headers.ETag);
         await AssertSingleRecoveryAsync(user, delivery, Guid.Parse(measure));

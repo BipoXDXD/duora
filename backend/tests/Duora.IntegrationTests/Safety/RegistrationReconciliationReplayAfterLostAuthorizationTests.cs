@@ -33,9 +33,7 @@ public sealed class RegistrationReconciliationReplayAfterLostAuthorizationTests(
             AccountSuspensionScenario.WithKey(a.RunKey));
 
         var body = (await ProblemAssert.IsProblemAsync(replay, expectedStatus, expectedCode)).ToJsonString();
-        Assert.DoesNotContain(a.Run.ToString(), body, StringComparison.OrdinalIgnoreCase);
-        Assert.DoesNotContain(a.Run.ToString("N"), body, StringComparison.OrdinalIgnoreCase);
-        Assert.DoesNotContain(a.Unit.ToString(), body, StringComparison.OrdinalIgnoreCase);
+        ReplayLeakAssert.ContainsNone(replay, body, a.Run, a.Unit);
         Assert.False(replay.Headers.Contains("Location"));
         Assert.Null(replay.Headers.ETag);
         Assert.Equal(before, await a.FingerprintAsync());
@@ -63,9 +61,12 @@ public sealed class RegistrationReconciliationReplayAfterLostAuthorizationTests(
         using var replay = await a.PostApplyAsync(key: key);
 
         var body = (await ProblemAssert.IsProblemAsync(replay, expectedStatus, expectedCode)).ToJsonString();
-        foreach (var secret in facts.Append(correlation).Append(a.Run.ToString()).Append(a.Unit.ToString()))
+        ReplayLeakAssert.ContainsNone(replay, body, [.. facts.Select(Guid.Parse), a.Run, a.Unit]);
+        Assert.DoesNotContain(correlation, body, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain(correlation, string.Join('\n', replay.Headers.SelectMany(h => h.Value)), StringComparison.OrdinalIgnoreCase);
+        if (Guid.TryParse(correlation, out var correlationId))
         {
-            Assert.DoesNotContain(secret, body, StringComparison.OrdinalIgnoreCase);
+            ReplayLeakAssert.ContainsNone(replay, body, correlationId);
         }
 
         Assert.Equal(before, await a.FingerprintAsync());
