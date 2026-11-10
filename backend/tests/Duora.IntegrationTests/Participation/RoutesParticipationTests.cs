@@ -309,6 +309,7 @@ public sealed class RoutesParticipationTests(PostgresFixture postgres)
         Assert.Equal(completed, await RoomFactsAsync(connection, room, ct));
 
         await RunDueJobsAsync(service, ct);
+        Assert.Equal("Done|1", await GameDeadlineJobAsync(connection, room, ct));
         Assert.Equal(completed, await RoomFactsAsync(connection, room, ct));
 
         using var afterTheJob = await alice.PostJsonAsync(endpoint, AcknowledgeIntroduction(completed.Version));
@@ -359,6 +360,7 @@ public sealed class RoutesParticipationTests(PostgresFixture postgres)
         Assert.Equal("Completed", completed.State);
         clock.SetUtcNow((await DeadlineAsync(connection, room, ct)).AddSeconds(60));
         await RunDueJobsAsync(service, ct);
+        Assert.Equal("Done|1", await GameDeadlineJobAsync(connection, room, ct));
         Assert.Equal(completed, await RoomFactsAsync(connection, room, ct));
         var endpoint = $"/api/v1/rooms/{room}/routes-actions";
 
@@ -583,6 +585,13 @@ public sealed class RoutesParticipationTests(PostgresFixture postgres)
         await using var reader = await query.ExecuteReaderAsync(ct);
         Assert.True(await reader.ReadAsync(ct));
         return new(reader.GetString(0), reader.GetInt64(1), reader.GetInt64(2), reader.GetInt64(3));
+    }
+
+    /// <summary><c>status|tentativas</c> do job <c>game-deadline</c> da sala.</summary>
+    private static async Task<string> GameDeadlineJobAsync(NpgsqlConnection connection, Guid room, CancellationToken ct)
+    {
+        await using var query = Command(connection, "select status||'|'||attempts from ops.jobs where kind='game-deadline' and aggregate_id=$1", room);
+        return (string)(await query.ExecuteScalarAsync(ct))!;
     }
 
     private static async Task RunDueJobsAsync(ParticipationService service, CancellationToken ct)
