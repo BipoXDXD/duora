@@ -156,23 +156,38 @@ public sealed class ServerErrorTests(PostgresFixture postgres)
     {
         var error = new PostgresException("erro comum", "ERROR", "ERROR", sqlState);
 
+        Assert.False(DatabaseUnavailability.IsTemporary(error));
         Assert.False(DatabaseUnavailability.IsTemporary(new InvalidOperationException("wrapped", error)));
-        Assert.False(DatabaseUnavailability.IsTemporary(new NpgsqlException("driver", error)));
         Assert.False(DatabaseUnavailability.IsTemporary(new InvalidOperationException("sem banco")));
     }
 
-    // O IsTransient do Npgsql desce por NpgsqlException aninhadas até o erro do servidor (sonda com o 10.0.3): uma
-    // serialização, um deadlock ou um lock_timeout embrulhado duas vezes continua sendo erro de SQL comum, não 503.
+    // Para o Npgsql, constraint e objeto inexistente não são passageiros: embrulhados por ele continuam erro de SQL.
+    [Theory]
+    [InlineData("23505")]
+    [InlineData("42P01")]
+    public void AServerErrorThatNpgsqlDoesNotRetryIsNotUnavailabilityWhenWrappedByIt(string sqlState)
+    {
+        var error = new PostgresException("erro comum", "ERROR", "ERROR", sqlState);
+
+        Assert.False(DatabaseUnavailability.IsTemporary(new NpgsqlException("driver", error)));
+        Assert.False(DatabaseUnavailability.IsTemporary(new NpgsqlException("driver", new NpgsqlException("driver", error))));
+    }
+
+    // Serialização, deadlock e lock_timeout embrulhados pelo Npgsql eram 503 na main (o IsTransient dele desce até o erro
+    // do servidor; sonda com o 10.0.3) e continuam: o cliente pode repetir. A causa apontada é o erro do servidor, para o
+    // Warning levar o SqlState dele. Cru, o mesmo erro continua fora deste handler, como na main.
     [Theory]
     [InlineData("40001")]
     [InlineData("40P01")]
     [InlineData("55P03")]
-    public void AnOrdinaryServerErrorWrappedTwiceByNpgsqlIsNotUnavailability(string sqlState)
+    public void ARetryableServerErrorWrappedByNpgsqlIsUnavailabilityAsInMain(string sqlState)
     {
         var error = new PostgresException("erro comum", "ERROR", "ERROR", sqlState);
-        var wrapped = new NpgsqlException("driver", new NpgsqlException("driver", error));
+        var once = new NpgsqlException("driver", error);
+        var twice = new NpgsqlException("driver", once);
 
-        Assert.False(DatabaseUnavailability.IsTemporary(wrapped));
+        Assert.Same(error, DatabaseUnavailability.TemporaryCause(once));
+        Assert.Same(error, DatabaseUnavailability.TemporaryCause(twice));
     }
 
     // Caso defensivo, montado à mão: a outra direção da descida, que passa só por NpgsqlException. Um timeout do

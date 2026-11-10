@@ -25,9 +25,11 @@ internal static class DatabaseUnavailability
                 case PostgresException:
                     // Erro de SQL comum (constraint, sintaxe, serialização): não é indisponibilidade.
                     return null;
-                case NpgsqlException client when client.IsTransient && !WrapsServerError(client):
-                    // Falha de rede, conexão recusada ou pool esgotado: o servidor nem respondeu.
-                    return client;
+                case NpgsqlException client when client.IsTransient:
+                    // Falha de rede, conexão recusada ou pool esgotado: o servidor nem respondeu. Ou um erro do servidor
+                    // que o Npgsql embrulhou e considera passageiro (serialização, deadlock, lock_timeout): 503, como
+                    // na main, com o erro do servidor como causa para o Warning levar o SqlState dele.
+                    return ServerErrorWrappedBy(client) ?? client;
             }
         }
 
@@ -35,10 +37,10 @@ internal static class DatabaseUnavailability
     }
 
     // O IsTransient da NpgsqlException vem da interna imediata e, se ela também é NpgsqlException, desce por ela até a
-    // primeira interna de outro tipo (comportamento observado no Npgsql 10.0.3). Se essa interna é o erro do servidor, o
-    // SqlState dele decide; se é outra (um timeout do cliente, por exemplo), um PostgresException mais fundo não muda o
-    // diagnóstico.
-    private static bool WrapsServerError(NpgsqlException client)
+    // primeira interna de outro tipo (comportamento observado no Npgsql 10.0.3). Se essa interna é o erro do servidor, foi
+    // o IsTransient dele que decidiu; se é outra (um timeout do cliente, por exemplo), um PostgresException mais fundo não
+    // é a causa.
+    private static PostgresException? ServerErrorWrappedBy(NpgsqlException client)
     {
         var inner = client.InnerException;
         while (inner is NpgsqlException and not PostgresException)
@@ -46,7 +48,7 @@ internal static class DatabaseUnavailability
             inner = inner.InnerException;
         }
 
-        return inner is PostgresException;
+        return inner as PostgresException;
     }
 
     private static bool IsUnavailableState(string sqlState) =>
