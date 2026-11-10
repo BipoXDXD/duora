@@ -9,6 +9,7 @@ using Duora.Infrastructure.Email;
 using Duora.Infrastructure.Persistence;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 
 namespace Duora.Infrastructure.Identity;
@@ -47,7 +48,7 @@ internal sealed class AccountLifecycleOptions
 /// Casos de uso da conta sobre o ASP.NET Core Identity (spec 8.2). Toda resposta para quem não é o titular é
 /// neutra, e os e-mails saem pela outbox na mesma transação que os justifica, nunca por chamada direta.
 /// </summary>
-public sealed class AccountService
+public sealed partial class AccountService
 {
     /// <summary>Mesma entropia do security stamp que o Identity gera (160 bits).</summary>
     private const int SecurityStampBytes = 20;
@@ -63,6 +64,7 @@ public sealed class AccountService
     private readonly AccountLifecycleOptions _lifecycle;
     private readonly TimeProvider _time;
     private readonly LegalPublication _legal;
+    private readonly ILogger<AccountService> _logger;
 
     internal AccountService(
         DuoraDbContext db,
@@ -71,7 +73,8 @@ public sealed class AccountService
         DecoyPasswordHash decoy,
         AccountLifecycleOptions lifecycle,
         TimeProvider time,
-        LegalPublication legal)
+        LegalPublication legal,
+        ILogger<AccountService> logger)
     {
         _db = db;
         _users = users;
@@ -81,6 +84,7 @@ public sealed class AccountService
         _lifecycle = lifecycle;
         _time = time;
         _legal = legal;
+        _logger = logger;
     }
 
     /// <summary>
@@ -116,7 +120,21 @@ public sealed class AccountService
         var passwordHash = _users.PasswordHasher.HashPassword(null!, password);
 
         await using var transaction = await _db.Database.BeginTransactionAsync(cancellationToken);
-        var registration = await UpsertRegistrationAsync(email, passwordHash, EmailLanguageTag.Format(language), now, cancellationToken);
+        RegistrationRow registration;
+        try
+        {
+            registration = await _security.WithLockCeilingAsync(
+                () => UpsertRegistrationAsync(email, passwordHash, EmailLanguageTag.Format(language), now, cancellationToken),
+                cancellationToken);
+        }
+        catch (AccountBusyException)
+        {
+            // Outra operação segura a conta além do teto do login. Desistir sem gravar nada, como o cadastro
+            // limitado abaixo: quem chama recebe a mesma resposta de qualquer cadastro (TM-06), e só o log distingue.
+            LogRegistrationGaveUpOnAccountLock(_logger);
+            return;
+        }
+
         if (!await ReserveIssuanceAsync(registration.UserId, now, cancellationToken))
         {
             // Roll back the upsert too: a throttled registration must not replace the current proof/password.
@@ -733,6 +751,10 @@ public sealed class AccountService
     }
 
     private sealed record RegistrationRow(Guid UserId, bool EmailConfirmed);
+
+    /// <summary>Sem e-mail nem id: a linha só diz que um cadastro desistiu da trava da conta.</summary>
+    [LoggerMessage(Level = LogLevel.Warning, Message = "Registration gave up waiting for the account row lock; nothing was written and the caller got the usual 202.")]
+    private static partial void LogRegistrationGaveUpOnAccountLock(ILogger logger);
 }
 
 /// <summary>

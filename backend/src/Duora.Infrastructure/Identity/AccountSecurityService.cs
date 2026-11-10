@@ -716,11 +716,12 @@ public sealed class AccountSecurityService
 
     /// <summary>
     /// Roda <paramref name="takeLock"/> com <c>lock_timeout</c> no teto da conta. Passou do teto,
-    /// <see cref="AccountBusyException"/> (503) em vez de segurar a conexão até o timeout do comando. O teto vale só
+    /// <see cref="AccountBusyException"/> em vez de segurar a conexão até o timeout do comando (o login responde 503; o
+    /// cadastro desiste sem gravar e responde como sempre). O teto vale só
     /// para essa espera: o <c>set_config(..., true)</c> duraria a transação inteira, e um comando seguinte que esperasse
     /// outra linha (as sessões, no reset) estouraria no meio da operação, como 500. Depois do lock, volta ao padrão.
     /// </summary>
-    private async Task<T> WithLockCeilingAsync<T>(Func<Task<T>> takeLock, CancellationToken cancellationToken)
+    internal async Task<T> WithLockCeilingAsync<T>(Func<Task<T>> takeLock, CancellationToken cancellationToken)
     {
         await SetLockTimeoutAsync($"{(long)_lock.AccountLockTimeout.TotalMilliseconds}ms", cancellationToken);
         T locked;

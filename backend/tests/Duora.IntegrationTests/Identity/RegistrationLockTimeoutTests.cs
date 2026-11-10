@@ -1,6 +1,8 @@
 using System.Diagnostics;
 using System.Globalization;
+using System.Net;
 using System.Net.Http.Headers;
+using Microsoft.Extensions.Logging;
 using Npgsql;
 
 namespace Duora.IntegrationTests.Identity;
@@ -21,12 +23,13 @@ public sealed class RegistrationLockTimeoutTests : IAsyncDisposable
     private static readonly HashSet<string> PerRequestHeaders = new(StringComparer.OrdinalIgnoreCase) { "Date" };
 
     private readonly PostgresFixture _postgres;
+    private readonly CapturingLoggerProvider _logs = new();
     private readonly DuoraWebFactory _factory;
 
     public RegistrationLockTimeoutTests(PostgresFixture postgres)
     {
         _postgres = postgres;
-        _factory = new DuoraWebFactory(postgres.ConnectionString)
+        _factory = new DuoraWebFactory(postgres.ConnectionString, _logs)
         {
             Time = TestClock.StartingNow(),
             Settings = new Dictionary<string, string?>
@@ -51,28 +54,50 @@ public sealed class RegistrationLockTimeoutTests : IAsyncDisposable
         using var heldBrowser = new Browser(_factory);
         await heldBrowser.FetchCsrfTokenAsync();
 
-        HttpResponseMessage held;
-        var waited = Stopwatch.StartNew();
-        await using (await HoldAccountAsync(account.UserId))
-        {
-            var signup = heldBrowser.PostJsonAsync("/api/v1/auth/register", IdentityScenario.RegistrationBody(account.Email));
-            var finished = await Task.WhenAny(signup, Task.Delay(ResponseLimit, TestContext.Current.CancellationToken));
-            waited.Stop();
-            Assert.True(finished == signup, $"O cadastro da conta travada não respondeu em {ResponseLimit.TotalSeconds} s.");
-            held = await signup;
-        }
+        var (held, waited) = await RegisterWhileHeldAsync(account, heldBrowser);
 
         using (held)
         {
             TestContext.Current.TestOutputHelper?.WriteLine(
-                $"#461 cadastro da conta travada: {(int)held.StatusCode} em {waited.ElapsedMilliseconds} ms; " +
+                $"#461 cadastro da conta travada: {(int)held.StatusCode} em {waited.TotalMilliseconds:F0} ms; " +
                 $"headers={string.Join("; ", Headers(held).Select(h => $"{h.Key}={h.Value}"))}");
-            Assert.True(waited.Elapsed >= AccountLockTimeout, "O cadastro deveria ter esperado a trava até o teto.");
+            Assert.True(waited >= AccountLockTimeout, "O cadastro deveria ter esperado a trava até o teto.");
+            Assert.Equal(HttpStatusCode.Accepted, newEmail.StatusCode);
             Assert.Equal(newEmail.StatusCode, held.StatusCode);
             Assert.Equal(
                 await newEmail.Content.ReadAsStringAsync(TestContext.Current.CancellationToken),
                 await held.Content.ReadAsStringAsync(TestContext.Current.CancellationToken));
             Assert.Equal(Headers(newEmail), Headers(held));
+        }
+    }
+
+    [Fact]
+    public async Task ASignupThatGivesUpOnTheAccountLockIsLoggedWithoutTheEmailOrAccountId()
+    {
+        var account = await Scenario.CreateConfirmedAccountAsync();
+        using var browser = new Browser(_factory);
+        await browser.FetchCsrfTokenAsync();
+
+        var (response, _) = await RegisterWhileHeldAsync(account, browser);
+        response.Dispose();
+
+        var gaveUp = Assert.Single(_logs.Entries, entry => entry.Text.Contains("gave up waiting for the account row lock", StringComparison.Ordinal));
+        Assert.Equal(LogLevel.Warning, gaveUp.Level);
+        Assert.DoesNotContain(account.Email, gaveUp.Text, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain(account.UserId.ToString("D"), gaveUp.Text, StringComparison.OrdinalIgnoreCase);
+    }
+
+    /// <summary>Cadastra o e-mail de <paramref name="account"/> com a linha da conta travada por outra transação.</summary>
+    private async Task<(HttpResponseMessage Response, TimeSpan Waited)> RegisterWhileHeldAsync(TestAccount account, Browser browser)
+    {
+        var waited = Stopwatch.StartNew();
+        await using (await HoldAccountAsync(account.UserId))
+        {
+            var signup = browser.PostJsonAsync("/api/v1/auth/register", IdentityScenario.RegistrationBody(account.Email));
+            var finished = await Task.WhenAny(signup, Task.Delay(ResponseLimit, TestContext.Current.CancellationToken));
+            waited.Stop();
+            Assert.True(finished == signup, $"O cadastro da conta travada não respondeu em {ResponseLimit.TotalSeconds} s.");
+            return (await signup, waited.Elapsed);
         }
     }
 
