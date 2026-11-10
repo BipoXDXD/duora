@@ -110,6 +110,11 @@ função única que monta esses 503.
 numa propriedade do DTO de `Duora.Contracts` que recebe. Toda rota assim precisa ficar sob `/auth` e levar o
 marcador; o teste falha se uma nascer fora do grupo.
 
+Entra numa release só com o #451, que é a base deste PR: o #451 dá ao handler global o Warning estruturado
+(SQLSTATE, tipo da exceção, padrão da rota e trace, nunca a mensagem do Npgsql nem a connection string) e trata o
+erro passageiro do servidor embrulhado pelo Npgsql como indisponibilidade. O #465 parte daí, separa o Warning em
+dois eventos e unifica cru e embrulhado.
+
 Mudança de contrato, sem mudança de schema (o OpenAPI não lista o `Retry-After` desses 503):
 
 - Contenção crua numa rota sem filtro próprio: era `500` `INTERNAL_ERROR`, passa a `503` com `Retry-After: 2`.
