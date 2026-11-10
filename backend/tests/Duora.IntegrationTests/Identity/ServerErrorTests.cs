@@ -177,7 +177,7 @@ public sealed class ServerErrorTests(PostgresFixture postgres)
 
     // Caso defensivo, montado à mão: a outra direção da descida, que passa só por NpgsqlException. Um timeout do
     // cliente sob dois embrulhos encerra a descida, e o 57014 mais fundo não faz a falha virar erro de SQL comum. O que
-    // este teste fixa é a causa apontada por TemporaryCause, o embrulho de fora. O status não depende dela: se o
+    // este teste fixa é a causa apontada por TemporaryCause, o embrulho de fora. O status não depende dela: se só o
     // embrulho de fora fosse recusado, a descida pararia no de dentro, que também é indisponibilidade.
     [Fact]
     public void AClientTimeoutWrappedTwiceByNpgsqlIsUnavailability()
