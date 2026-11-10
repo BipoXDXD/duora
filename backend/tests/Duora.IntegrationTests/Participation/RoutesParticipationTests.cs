@@ -340,6 +340,38 @@ public sealed class RoutesParticipationTests(PostgresFixture postgres)
     }
 
     /// <summary>
+    /// Resíduo do replay na sala <c>Completed</c>, como em API-R03: o job não muda a sala, então mesmo depois do prazo e do
+    /// job a ação que completou a sala, reenviada, responde <c>204</c> sem gravar de novo, e o mesmo <c>actionId</c> com outro
+    /// corpo responde <c>400</c>. Só o autor vê isso, e só sobre a própria ação.
+    /// </summary>
+    [Fact]
+    public async Task TheActionThatCompletedTheRoomIsStillReplayedAfterTheDeadlineAndTheJob()
+    {
+        var (source, clock, service, seed, room, connectionString) = await Active();
+        await using var owned = source;
+        var ct = TestContext.Current.CancellationToken;
+        await using var factory = new DuoraWebFactory(connectionString) { Time = clock };
+        using var bob = await new IdentityScenario(connectionString, factory)
+            .SignedInBrowserAsync(new(seed.Bob, "bob@example.com", IdentityScenario.ValidPassword));
+        var completing = await CompleteRoutesAsync(service, seed, room, ct);
+        await using var connection = await source.OpenConnectionAsync(ct);
+        var completed = await RoomFactsAsync(connection, room, ct);
+        Assert.Equal("Completed", completed.State);
+        clock.SetUtcNow((await DeadlineAsync(connection, room, ct)).AddSeconds(60));
+        await RunDueJobsAsync(service, ct);
+        Assert.Equal(completed, await RoomFactsAsync(connection, room, ct));
+        var endpoint = $"/api/v1/rooms/{room}/routes-actions";
+
+        using var replay = await bob.PostJsonAsync(endpoint, completing);
+        using var reused = await bob.PostJsonAsync(endpoint, completing with { Type = "request-revision" });
+
+        Assert.Equal(HttpStatusCode.NoContent, replay.StatusCode);
+        Assert.Equal(HttpStatusCode.BadRequest, reused.StatusCode);
+        Assert.Equal("VALIDATION_FAILED", await ProblemCodeAsync(reused, ct));
+        Assert.Equal(completed, await RoomFactsAsync(connection, room, ct));
+    }
+
+    /// <summary>
     /// Resíduo aceito pela coordenação em 10/11, como em API-R03: até o job, uma ação aplicada um tick antes do prazo e
     /// reenviada no prazo responde <c>204</c> sem gravar de novo, e o mesmo <c>actionId</c> com outro corpo responde
     /// <c>400</c>. Depois do job, os dois recebem <c>404</c>.
@@ -508,8 +540,11 @@ public sealed class RoutesParticipationTests(PostgresFixture postgres)
         Assert.Equal(ParticipationOutcome.Done, await service.RoutesActionAsync(room, user, Guid.NewGuid(), current.Version, type, stage, step, option, ct));
     }
 
-    /// <summary>Joga a rota inteira pelo serviço, antes do prazo e sem revisão: a sala termina <c>Completed</c>.</summary>
-    private static async Task CompleteRoutesAsync(ParticipationService service, ParticipationSeed seed, Guid room, CancellationToken ct)
+    /// <summary>
+    /// Joga a rota inteira pelo serviço, antes do prazo e sem revisão: a sala termina <c>Completed</c>. Devolve a confirmação
+    /// de Bob, a ação que completou a sala, para o teste de replay.
+    /// </summary>
+    private static async Task<RoutesActionRequest> CompleteRoutesAsync(ParticipationService service, ParticipationSeed seed, Guid room, CancellationToken ct)
     {
         await Acknowledge(service, seed, room, "Introduction", ct);
         await Acknowledge(service, seed, room, "Clues", ct);
@@ -518,8 +553,11 @@ public sealed class RoutesParticipationTests(PostgresFixture postgres)
         await Action(service, room, chooser, "choose-option", null, "stop", "park", ct);
         await Action(service, room, partner, "choose-option", null, "second", "lake", ct);
         await Action(service, room, seed.Alice, "confirm-route", null, null, null, ct);
-        await Action(service, room, seed.Bob, "confirm-route", null, null, null, ct);
+        var version = (await service.RoomAsync(room, seed.Bob, ct))!.Version;
+        var completing = new RoutesActionRequest(Guid.NewGuid(), version.ToString(CultureInfo.InvariantCulture), "confirm-route", null, null, null);
+        Assert.Equal(ParticipationOutcome.Done, await service.RoutesActionAsync(room, seed.Bob, completing.ActionId, version, "confirm-route", null, null, null, ct));
         Assert.Equal("Completed", (await service.RoomAsync(room, seed.Alice, ct))!.State);
+        return completing;
     }
 
     private static RoutesActionRequest AcknowledgeIntroduction(long version) =>
