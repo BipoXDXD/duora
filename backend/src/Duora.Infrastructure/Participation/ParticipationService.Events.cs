@@ -227,6 +227,45 @@ public sealed partial class ParticipationService(NpgsqlDataSource source, TimePr
         return ParticipationOutcome.Done;
     }
 
+    /// <summary>
+    /// API-E04 (ADR-0053): a própria pessoa retira a inscrição antes do início. Repetir não repete efeito; evento ou
+    /// inscrição inexistente, encerrada ou fora da janela respondem igual, como indisponível.
+    /// </summary>
+    public async Task<ParticipationOutcome> WithdrawAsync(Guid eventId, Guid user, CancellationToken ct)
+    {
+        for (var attempt = 0; attempt < 3; attempt++)
+        {
+            try
+            {
+                return await WithdrawOnceAsync(eventId, user, ct);
+            }
+            catch (RegistrationPlanChangedException)
+            {
+                // A new waiter appeared before the event lock. Start over with all guards, in UUID order.
+            }
+        }
+        throw new AccountBusyException(TimeSpan.FromSeconds(2));
+    }
+
+    private async Task<ParticipationOutcome> WithdrawOnceAsync(Guid eventId, Guid user, CancellationToken ct)
+    {
+        await using var connection = await source.OpenConnectionAsync(ct);
+        await using var tx = await connection.BeginTransactionAsync(ct);
+        var plan = await RegistrationLockPlan.ForRegistrationAsync(connection, eventId, user, ct);
+        await Guard(connection, plan.Users, ct);
+        await plan.LockEventsAsync(connection, ct);
+        plan.RequireCovered(await RegistrationLockPlan.ForRegistrationAsync(connection, eventId, user, ct));
+        // A rota está no grupo EligibleParticipant: só chega aqui quem a política considerou elegível na porta, e conta
+        // inelegível não retira (ADR-0053). Não se revalida sob os locks porque a retirada não dá acesso a nada; uma
+        // mudança de conta durante a transação não muda o efeito. O relógio só é lido depois dos locks.
+        var outcome = await RegistrationTransitions.WithdrawByParticipantAsync(connection, eventId, user, Now, ct);
+        if (outcome == ParticipationOutcome.Done)
+        {
+            await tx.CommitAsync(ct);
+        }
+        return outcome;
+    }
+
     public async Task<ParticipationStatus?> StatusAsync(Guid eventId, Guid user, CancellationToken ct)
     {
         await using var connection = await source.OpenConnectionAsync(ct);
