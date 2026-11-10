@@ -47,6 +47,41 @@ public sealed class LanguagePreferenceTests(PostgresFixture postgres) : IAsyncDi
         }
     }
 
+    /// <summary>
+    /// T-19 em API-P03: duas abas leem a mesma versão e gravam uma depois da outra, com corpos diferentes. A aba antiga
+    /// recebe <c>412</c> e a primeira gravação fica no banco, sem perda silenciosa.
+    /// </summary>
+    [Theory]
+    [InlineData(false, "1|true|pt")]
+    [InlineData(true, "2|true|pt")]
+    public async Task StaleTabGets412AfterAnotherTabSavedAndTheFirstSaveStays(bool previouslySaved, string expectedRow)
+    {
+        var scenario = new IdentityScenario(postgres, _factory);
+        var account = await scenario.CreateConfirmedAccountAsync();
+        using var browser = await scenario.SignedInBrowserAsync(account);
+        if (previouslySaved)
+        {
+            using var saved = await PutAsync(browser, "preferences", """{"communicationLanguages":["en"],"allowDifferentDisplayLocales":false}""", "0");
+            Assert.Equal(HttpStatusCode.OK, saved.StatusCode);
+        }
+        using var tabA = await browser.GetAsync("/api/v1/me/preferences");
+        using var tabB = await browser.GetAsync("/api/v1/me/preferences");
+        var tag = tabA.Headers.ETag!.Tag;
+        Assert.Equal(tag, tabB.Headers.ETag!.Tag);
+
+        using var first = await PutWithTagAsync(browser, """{"communicationLanguages":["pt"],"allowDifferentDisplayLocales":true}""", tag);
+        using var stale = await PutWithTagAsync(browser, """{"communicationLanguages":["en","pt"],"allowDifferentDisplayLocales":false}""", tag);
+
+        Assert.Equal(HttpStatusCode.OK, first.StatusCode);
+        Assert.Equal(HttpStatusCode.PreconditionFailed, stale.StatusCode);
+        Assert.Equal(expectedRow, await StoredPreferencesAsync(account.UserId));
+        using var reread = await browser.GetAsync("/api/v1/me/preferences");
+        Assert.Equal(first.Headers.ETag!.Tag, reread.Headers.ETag!.Tag);
+        var body = JsonNode.Parse(await reread.Content.ReadAsStringAsync(TestContext.Current.CancellationToken))!;
+        Assert.Equal(["pt"], body["communicationLanguages"]!.AsArray().Select(x => (string?)x));
+        Assert.True((bool)body["allowDifferentDisplayLocales"]!);
+    }
+
     [Theory]
     [InlineData("""{"communicationLanguages":[],"allowDifferentDisplayLocales":false}""")]
     [InlineData("""{"communicationLanguages":["pt","pt"],"allowDifferentDisplayLocales":false}""")]
@@ -172,4 +207,21 @@ public sealed class LanguagePreferenceTests(PostgresFixture postgres) : IAsyncDi
 
     private static Task<HttpResponseMessage> PutAsync(Browser browser, string resource, string body, string version) =>
         browser.PutAsync($"/api/v1/me/{resource}", body, new MutationHeaders(Extra: new Dictionary<string, string> { ["If-Match"] = $"\"{version}\"" }));
+
+    private static Task<HttpResponseMessage> PutWithTagAsync(Browser browser, string body, string entityTag) =>
+        browser.PutAsync("/api/v1/me/preferences", body, new MutationHeaders(Extra: new Dictionary<string, string> { ["If-Match"] = entityTag }));
+
+    /// <summary><c>versão|permite outro idioma de exibição|idiomas em ordem</c>, lido direto do banco.</summary>
+    private async Task<string> StoredPreferencesAsync(Guid userId)
+    {
+        await using var connection = new NpgsqlConnection(postgres.ConnectionString);
+        await connection.OpenAsync(TestContext.Current.CancellationToken);
+        await using var command = new NpgsqlCommand("""
+            select p.version||'|'||p.allow_different_display_locales||'|'||
+              array_to_string(array(select language_code from profiles.communication_languages where user_id=p.user_id order by language_code),',')
+            from profiles.preferences p where p.user_id=$1
+            """, connection);
+        command.Parameters.AddWithValue(userId);
+        return (string)(await command.ExecuteScalarAsync(TestContext.Current.CancellationToken))!;
+    }
 }
