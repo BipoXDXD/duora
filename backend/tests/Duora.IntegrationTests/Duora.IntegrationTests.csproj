@@ -18,10 +18,6 @@
     <PackageReference Include="Testcontainers" />
     <PackageReference Include="Testcontainers.PostgreSql" />
     <PackageReference Include="xunit.v3" />
-    <!-- Diagnóstico da #455 (PR de diagnóstico, nunca mesclado): dump do próprio processo na parada do thread pool e
-         leitura das pilhas gerenciadas com ClrMD. VersionOverride mantém a mudança só neste projeto de teste. -->
-    <PackageReference Include="Microsoft.Diagnostics.NETCore.Client" VersionOverride="0.2.745401" />
-    <PackageReference Include="Microsoft.Diagnostics.Runtime" VersionOverride="3.1.512801" />
   </ItemGroup>
   <!-- The SDK's dotnet test console suppresses successful test-host output. Record this synthetic
        experiment directly on the hosted backend runner, then keep the full existing test gate unchanged.

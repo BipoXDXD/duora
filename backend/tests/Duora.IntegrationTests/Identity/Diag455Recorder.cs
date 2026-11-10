@@ -1,5 +1,6 @@
 using System.Diagnostics;
 using System.Globalization;
+using Duora.Infrastructure.Identity;
 using Microsoft.Extensions.Logging;
 using Npgsql;
 
@@ -9,7 +10,9 @@ namespace Duora.IntegrationTests.Identity;
 /// Diagnóstico temporário da issue #455 (PR de diagnóstico, nunca mesclado). Grava, com relógio monotônico desde o
 /// início do teste e hora UTC, os logs do Npgsql dos hosts do teste, o estado do thread pool a cada 250 ms e uma sonda
 /// de abertura síncrona de conexão física numa thread dedicada, alternando GSS padrão e <c>GssEncryptionMode=Disable</c>.
-/// A saída vai para o stdout e para <c>$RUNNER_TEMP/backend-test-results/diag455-*.diag</c> (artefato em falha).
+/// Também registra cada resposta 5xx dos hosts (<see cref="Diag455ResponseProbe"/>) e, por first-chance, as exceções
+/// de banco indisponível ou conta ocupada, inclusive as que a autorização engole. Nada reprova o teste: o 503 já
+/// reprova. A saída vai para o stdout e para <c>$RUNNER_TEMP/backend-test-results/diag455-*.diag</c> (artefato em falha).
 /// </summary>
 internal sealed class Diag455Recorder : IDisposable
 {
@@ -33,9 +36,6 @@ internal sealed class Diag455Recorder : IDisposable
     private int _hosts;
     private bool _closed;
 
-    // Escrito só pelo sampler e lido no Dispose, depois do Join.
-    private bool _stallCaptured;
-
     // Resumo do teste, escrito no Dispose.
     private int _physicalOpens;
     private double _maxPhysicalOpenMs;
@@ -48,6 +48,9 @@ internal sealed class Diag455Recorder : IDisposable
     // Sonda do thread pool: instante em que o item foi enfileirado; 0 quando nenhum está pendente.
     private long _poolProbeQueuedAt;
     private double _lastPoolLagMs;
+    private int _serverErrors;
+    private int _unavailable;
+    private int _firstChance;
 
     public Diag455Recorder(string connectionString)
     {
@@ -70,6 +73,7 @@ internal sealed class Diag455Recorder : IDisposable
         _prober = new Thread(ProbeLoop) { IsBackground = true, Name = "diag455-prober" };
         _sampler.Start();
         _prober.Start();
+        AppDomain.CurrentDomain.FirstChanceException += RecordFirstChance;
     }
 
     /// <summary>Provider que grava os logs do Npgsql (Trace) e os avisos/erros da aplicação com o rótulo da origem.</summary>
@@ -101,8 +105,20 @@ internal sealed class Diag455Recorder : IDisposable
         Write(source, text);
     }
 
+    /// <summary>Resposta 5xx de um host do teste, já descrita pelo probe.</summary>
+    public void RecordFailedResponse(string source, string line, int status)
+    {
+        Interlocked.Increment(ref _serverErrors);
+        if (status == 503)
+        {
+            Interlocked.Increment(ref _unavailable);
+        }
+        Write(source + "-5xx", line);
+    }
+
     public void Dispose()
     {
+        AppDomain.CurrentDomain.FirstChanceException -= RecordFirstChance;
         _stop.Cancel();
         _sampler.Join();
         _prober.Join();
@@ -112,7 +128,8 @@ internal sealed class Diag455Recorder : IDisposable
         {
             summary = string.Create(CultureInfo.InvariantCulture,
                 $"test={_test} hostPhysicalOpens={_physicalOpens} maxHostPhysicalOpenMs={_maxPhysicalOpenMs:F1} " +
-                $"timeouts={_timeouts} maxPending={_maxPending} maxPoolLagMs={_maxPoolLagMs:F1} " +
+                $"timeouts={_timeouts} responses5xx={_serverErrors} responses503={_unavailable} " +
+                $"firstChanceDbUnavailable={_firstChance} maxPending={_maxPending} maxPoolLagMs={_maxPoolLagMs:F1} " +
                 $"probeGss={_gssStats} probeNoGss={_noGssStats}");
         }
         Write("summary", summary);
@@ -128,21 +145,13 @@ internal sealed class Diag455Recorder : IDisposable
             _closed = true;
             _file?.Dispose();
         }
-
-        // O passo de testes esconde a saída de teste verde e só sobe o .diag em falha: a parada capturada reprova o
-        // teste para as pilhas chegarem ao artefato. Só neste PR de diagnóstico.
-        if (_stallCaptured)
-        {
-            throw new InvalidOperationException(
-                "diag455: parada do thread pool capturada; pilhas no stdout e no diag455-*.diag do artefato.");
-        }
     }
 
     private void SampleLoop()
     {
         var lastCompleted = ThreadPool.CompletedWorkItemCount;
         var lastAdvance = Stopwatch.GetTimestamp();
-        var captured = false;
+        var stallLogged = false;
         while (!_stop.Token.WaitHandle.WaitOne(SamplePeriodMs))
         {
             var pending = ThreadPool.PendingWorkItemCount;
@@ -162,27 +171,16 @@ internal sealed class Diag455Recorder : IDisposable
 
             var stalledMs = Stopwatch.GetElapsedTime(lastAdvance).TotalMilliseconds;
             var stalled = pending > 0 && stalledMs >= StallThresholdMs;
-            if (!captured && (stalled || Diag455StackCapture.Forced))
+            if (stalled && !stallLogged)
             {
-                captured = true;
-                _stallCaptured = stalled;
-                CaptureStacks(string.Create(CultureInfo.InvariantCulture,
-                    $"completedStuckMs={stalledMs:F0} pending={pending} completed={completed} " +
-                    $"threads={ThreadPool.ThreadCount} forced={!stalled}"));
+                stallLogged = true;
+                Write("stall", string.Create(CultureInfo.InvariantCulture,
+                    $"completedStuckMs={stalledMs:F0} pending={pending} completed={completed} threads={ThreadPool.ThreadCount}"));
             }
-        }
-    }
-
-    /// <summary>
-    /// Pilhas de todas as threads no meio da parada (#455): mostram onde as threads do pool estão presas. A captura
-    /// suspende o processo enquanto o dump é gravado, então só roda na primeira parada de cada teste.
-    /// </summary>
-    private void CaptureStacks(string reason)
-    {
-        Write("stacks", "capturing " + reason);
-        foreach (var line in Diag455StackCapture.TryCapture(reason))
-        {
-            Write("stacks", line);
+            else if (!stalled)
+            {
+                stallLogged = false;
+            }
         }
     }
 
@@ -210,6 +208,30 @@ internal sealed class Diag455Recorder : IDisposable
             Volatile.Write(ref _poolProbeQueuedAt, 0);
         }, null);
         return string.Create(CultureInfo.InvariantCulture, $"poolProbe=lastLag:{Volatile.Read(ref _lastPoolLagMs):F1}ms");
+    }
+
+    /// <summary>
+    /// Toda exceção de banco indisponível ou conta ocupada no processo, no instante em que é lançada: a autorização
+    /// engole a de elegibilidade e devolve 503 sem exceção. Processo inteiro, então pode vir de outro teste paralelo.
+    /// </summary>
+    private void RecordFirstChance(object? sender, System.Runtime.ExceptionServices.FirstChanceExceptionEventArgs e)
+    {
+        var interesting = e.Exception switch
+        {
+            AccountBusyException => true,
+            PostgresException server => server.SqlState is "53300" or "55P03" or "57P01" or "57P02" or "57P03"
+                || server.SqlState.StartsWith("08", StringComparison.Ordinal),
+            NpgsqlException client => client.IsTransient,
+            TimeoutException => true,
+            _ => false,
+        };
+        if (!interesting)
+        {
+            return;
+        }
+
+        Interlocked.Increment(ref _firstChance);
+        Write("first-chance", Diag455ResponseProbe.Describe(e.Exception));
     }
 
     private void TrackPoolLag(double lag)

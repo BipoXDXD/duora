@@ -1,5 +1,6 @@
 using System.Net;
 using Duora.Infrastructure;
+using Microsoft.AspNetCore.Hosting;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
@@ -27,12 +28,17 @@ internal sealed class KeyRingHosts(PostgresFixture postgres, Diag455Recorder? di
             };
         }
 
-        var logs = diagnostics.Provider(diagnostics.NextHostLabel());
+        var label = diagnostics.NextHostLabel();
+        var logs = diagnostics.Provider(label);
         return new(postgres.ConnectionString, logs)
         {
             SharedKeyRing = keyRing,
             Settings = settings ?? new Dictionary<string, string?>(),
-            TestServices = WithNpgsqlLogs,
+            TestServices = services =>
+            {
+                WithNpgsqlLogs(services);
+                services.AddSingleton<IStartupFilter>(new Diag455ResponseProbe(diagnostics, label));
+            },
         };
     }
 
