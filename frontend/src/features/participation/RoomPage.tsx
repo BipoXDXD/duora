@@ -143,9 +143,9 @@ function RoomBody({
 }): React.JSX.Element {
   const { t, formatDateTime } = useI18n()
   const notices = useFailureNotices<FailureSource>(room.state)
-  const recordAfterReread = (source: FailureSource) => async () => {
+  const recordAfterReread = (source: FailureSource) => async (failure: Error) => {
     const stateAtFailure = await reread()
-    if (stateAtFailure !== undefined) notices.record(source, stateAtFailure)
+    if (stateAtFailure !== undefined) notices.record(source, failure, stateAtFailure)
   }
   const command = usePrivateMutation({
     mutationFn: (operation, action: 'accept' | 'reject' | 'exit') => roomCommand(operation, room.roomId, action),
@@ -172,8 +172,13 @@ function RoomBody({
   const answeringInvitation = command.variables === 'accept' || command.variables === 'reject'
   // A resposta ao convite só vale enquanto a sala não começou nem terminou com jogo: depois disso a tela já explica.
   const invitationFailed =
-    answeringInvitation && command.isError && notices.isCurrent('command') && !active && !completed && !expiredGame
-  const exitFailed = command.variables === 'exit' && command.isError && notices.isCurrent('command')
+    answeringInvitation &&
+    command.isError &&
+    notices.isCurrent('command', command.error) &&
+    !active &&
+    !completed &&
+    !expiredGame
+  const exitFailed = command.variables === 'exit' && command.isError && notices.isCurrent('command', command.error)
   // Uma só mensagem: enquanto a resposta ao convite está em curso ou falhou, ela ocupa o lugar de "encerrada".
   const answerExplainsRoom = answeringInvitation && (command.isPending || invitationFailed)
   const closed = !invited && !active && !completed && !expiredGame && !answerExplainsRoom
@@ -191,8 +196,10 @@ function RoomBody({
       <p>{t('preferences.voiceOptional')}</p>
       {invitationFailed ? <InvitationFailure error={command.error} /> : null}
       {exitFailed ? <RoomFailure failure={classifyRequestFailure(command.error)} /> : null}
-      {action.isError && notices.isCurrent('action') ? <ChoiceFailure error={action.error} /> : null}
-      {routesAction.isError && notices.isCurrent('routes') ? <ChoiceFailure error={routesAction.error} /> : null}
+      {action.isError && notices.isCurrent('action', action.error) ? <ChoiceFailure error={action.error} /> : null}
+      {routesAction.isError && notices.isCurrent('routes', routesAction.error) ? (
+        <ChoiceFailure error={routesAction.error} />
+      ) : null}
       {invited ? (
         <section className="flex flex-col gap-4">
           <p>

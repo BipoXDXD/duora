@@ -4,15 +4,19 @@ import { useState } from 'react'
 type Phase = 'awaiting' | 'current' | 'dropped'
 
 interface FailureNotice {
+  readonly failure: Error
   readonly state: string
   readonly phase: Phase
 }
 
 export interface FailureNotices<TSource extends string> {
   /** Grava o estado relido do cache logo depois da falha, antes de a mutação expor `isError`. */
-  readonly record: (source: TSource, stateAtFailure: string) => void
-  /** A última falha da fonte ainda descreve a sala; sem estado gravado (releitura indisponível), vale. */
-  readonly isCurrent: (source: TSource) => boolean
+  readonly record: (source: TSource, failure: Error, stateAtFailure: string) => void
+  /**
+   * A falha ainda descreve a sala. Falha sem estado gravado (releitura indisponível ou `onError` interrompido) vale,
+   * mesmo que uma falha anterior da fonte já tenha caído.
+   */
+  readonly isCurrent: (source: TSource, failure: Error | null) => boolean
 }
 
 /**
@@ -26,12 +30,12 @@ export function useFailureNotices<TSource extends string>(roomState: string): Fa
     setNotices(advanced)
   }
   return {
-    record: (source, stateAtFailure) => {
-      setNotices((previous) => new Map(previous).set(source, { state: stateAtFailure, phase: 'awaiting' }))
+    record: (source, failure, stateAtFailure) => {
+      setNotices((previous) => new Map(previous).set(source, { failure, state: stateAtFailure, phase: 'awaiting' }))
     },
-    isCurrent: (source) => {
+    isCurrent: (source, failure) => {
       const notice = advanced.get(source)
-      return notice === undefined || notice.phase === 'current'
+      return notice?.failure !== failure || notice.phase === 'current'
     },
   }
 }
