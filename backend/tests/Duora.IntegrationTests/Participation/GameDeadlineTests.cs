@@ -100,6 +100,33 @@ public sealed class GameDeadlineTests(PostgresFixture postgres)
     }
 
     /// <summary>
+    /// O reagendamento obedece ao fencing: A faz o claim cedo e perde o lease; B faz o claim de novo, ainda antes do prazo, e
+    /// fica com o token seguinte. A conclusão atrasada de A não toca a linha de B; só a de B devolve o job à fila.
+    /// </summary>
+    [Fact]
+    public async Task AStaleCompletionOfAnEarlyGameDeadlineJobDoesNotRequeueTheNewClaim()
+    {
+        await using var scene = await ActiveRoomAsync();
+        var active = await scene.RoomFactsAsync();
+        scene.Clock.SetUtcNow(scene.Deadline - TimeSpan.FromMinutes(2));
+        await scene.AnticipateGameDeadlineJobAsync();
+        var first = await scene.Service.ClaimJobAsync(Ct);
+        Assert.NotNull(first);
+
+        scene.Clock.Advance(TimeSpan.FromSeconds(61));
+        var second = await scene.Service.ClaimJobAsync(Ct);
+
+        Assert.NotNull(second);
+        Assert.Equal((first.Id, first.Token + 1), (second.Id, second.Token));
+        Assert.False(await scene.Service.CompleteJobAsync(first, Ct));
+        Assert.Equal("InFlight|2", await scene.GameDeadlineJobAsync());
+
+        Assert.False(await scene.Service.CompleteJobAsync(second, Ct));
+        Assert.Equal(new GameDeadlineJob("Pending", 1, scene.Deadline), await scene.GameDeadlineJobRowAsync());
+        Assert.Equal(active, await scene.RoomFactsAsync());
+    }
+
+    /// <summary>
     /// Entre o prazo e o job a sala segue <c>Active</c> no banco. Quem decide é o relógio do servidor (spec 10.4, "Timeout
     /// vs ação"; T-18): a ação é recusada sem gravar nada e o job, quando roda, ainda expira a sala. Os status são o
     /// comportamento atual; o status está pendente de decisão (400 antes do job, 404 depois). Os asserts de status ficam
