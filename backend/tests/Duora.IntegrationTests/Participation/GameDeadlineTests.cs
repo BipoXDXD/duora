@@ -44,7 +44,11 @@ public sealed class GameDeadlineTests(PostgresFixture postgres)
         Assert.Equal("Done|1", await scene.GameDeadlineJobAsync());
     }
 
-    /// <summary>A fila não entrega antes do prazo; aqui o job é adiantado à mão para exercitar a segunda barreira, a do próprio motor.</summary>
+    /// <summary>
+    /// A fila não entrega antes do prazo; aqui o job é adiantado à mão para exercitar a segunda barreira, a do próprio motor.
+    /// Lacuna registrada na T-18: se a fila entregar cedo, o job é consumido (<c>Done</c>) sem expirar a sala, não é
+    /// reagendado, e só o <c>close-round</c> encerra a sala depois. O assert do job fixa esse comportamento atual.
+    /// </summary>
     [Fact]
     public async Task AGameDeadlineJobForcedOneTickBeforeTheDeadlineLeavesTheRoomActive()
     {
@@ -59,6 +63,7 @@ public sealed class GameDeadlineTests(PostgresFixture postgres)
         Assert.Equal(("game-deadline", scene.Room), (job.Kind, job.AggregateId));
         Assert.True(await scene.Service.CompleteJobAsync(job, Ct));
         Assert.Equal(active, await scene.RoomFactsAsync());
+        Assert.Equal("Done|1", await scene.GameDeadlineJobAsync());
     }
 
     /// <summary>
