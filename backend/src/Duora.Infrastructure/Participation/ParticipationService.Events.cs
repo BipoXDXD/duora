@@ -255,7 +255,9 @@ public sealed partial class ParticipationService(NpgsqlDataSource source, TimePr
         await Guard(connection, plan.Users, ct);
         await plan.LockEventsAsync(connection, ct);
         plan.RequireCovered(await RegistrationLockPlan.ForRegistrationAsync(connection, eventId, user, ct));
-        // Sair não exige elegibilidade: a política do grupo já decidiu na porta. O relógio só é lido depois dos locks.
+        // A rota está no grupo EligibleParticipant: só chega aqui quem a política considerou elegível na porta, e conta
+        // inelegível não retira (ADR-0053). Não se revalida sob os locks porque a retirada não dá acesso a nada; uma
+        // mudança de conta durante a transação não muda o efeito. O relógio só é lido depois dos locks.
         var outcome = await RegistrationTransitions.WithdrawByParticipantAsync(connection, eventId, user, Now, ct);
         if (outcome == ParticipationOutcome.Done)
         {
