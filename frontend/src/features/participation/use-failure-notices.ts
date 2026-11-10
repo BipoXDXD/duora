@@ -9,14 +9,20 @@ interface FailureNotice {
   readonly phase: Phase
 }
 
+/** O que o aviso precisa de uma mutação: se falhou e com qual erro. */
+export interface MutationStatus {
+  readonly isError: boolean
+  readonly error: Error | null
+}
+
 export interface FailureNotices<TSource extends string> {
   /** Grava o estado relido do cache logo depois da falha, antes de a mutação expor `isError`. */
   readonly record: (source: TSource, failure: Error, stateAtFailure: string) => void
   /**
-   * A falha ainda descreve a sala. Falha sem estado gravado (releitura indisponível ou `onError` interrompido) vale,
-   * mesmo que uma falha anterior da fonte já tenha caído.
+   * A mutação falhou e a falha ainda descreve a sala. Falha sem estado gravado (releitura indisponível ou `onError`
+   * interrompido) vale, mesmo que uma falha anterior da fonte já tenha caído.
    */
-  readonly isCurrent: (source: TSource, failure: Error | null) => boolean
+  readonly shows: (source: TSource, mutation: MutationStatus) => boolean
 }
 
 /**
@@ -33,9 +39,9 @@ export function useFailureNotices<TSource extends string>(roomState: string): Fa
     record: (source, failure, stateAtFailure) => {
       setNotices((previous) => new Map(previous).set(source, { failure, state: stateAtFailure, phase: 'awaiting' }))
     },
-    isCurrent: (source, failure) => {
+    shows: (source, { isError, error }) => {
       const notice = advanced.get(source)
-      return notice?.failure !== failure || notice.phase === 'current'
+      return isError && (notice?.failure !== error || notice.phase === 'current')
     },
   }
 }

@@ -5,6 +5,7 @@ import { useFailureNotices } from './use-failure-notices'
 type Source = 'command' | 'action'
 
 const failure = new Error('falha')
+const failed = { isError: true, error: failure }
 
 function renderNotices(initialState: string) {
   return renderHook(({ state }: { state: string }) => useFailureNotices<Source>(state), {
@@ -24,7 +25,7 @@ describe('useFailureNotices', () => {
 
     notices.rerender({ state: 'Expired' })
 
-    expect(notices.result.current.isCurrent('action', failure)).toBe(true)
+    expect(notices.result.current.shows('action', failed)).toBe(true)
   })
 
   it('does not show a failure while the render still has the state before the reread', () => {
@@ -35,7 +36,7 @@ describe('useFailureNotices', () => {
 
     notices.rerender({ state: 'Active' })
 
-    expect(notices.result.current.isCurrent('action', failure)).toBe(false)
+    expect(notices.result.current.shows('action', failed)).toBe(false)
   })
 
   it('drops a failure on the first state change after it showed', () => {
@@ -47,7 +48,7 @@ describe('useFailureNotices', () => {
 
     notices.rerender({ state: 'Completed' })
 
-    expect(notices.result.current.isCurrent('action', failure)).toBe(false)
+    expect(notices.result.current.shows('action', failed)).toBe(false)
   })
 
   it('keeps a dropped failure away when the room returns to its state', () => {
@@ -60,13 +61,19 @@ describe('useFailureNotices', () => {
 
     notices.rerender({ state: 'Expired' })
 
-    expect(notices.result.current.isCurrent('action', failure)).toBe(false)
+    expect(notices.result.current.shows('action', failed)).toBe(false)
+  })
+
+  it('does not show a notice while the mutation has not failed', () => {
+    const notices = renderNotices('Active')
+
+    expect(notices.result.current.shows('command', { isError: false, error: null })).toBe(false)
   })
 
   it('treats a failure without a reread state as current', () => {
     const notices = renderNotices('Active')
 
-    expect(notices.result.current.isCurrent('command', failure)).toBe(true)
+    expect(notices.result.current.shows('command', failed)).toBe(true)
   })
 
   it('keeps the failures of each source apart', () => {
@@ -80,8 +87,8 @@ describe('useFailureNotices', () => {
       notices.result.current.record('command', failure, 'Expired')
     })
 
-    expect(notices.result.current.isCurrent('command', failure)).toBe(true)
-    expect(notices.result.current.isCurrent('action', failure)).toBe(false)
+    expect(notices.result.current.shows('command', failed)).toBe(true)
+    expect(notices.result.current.shows('action', failed)).toBe(false)
   })
 
   it('lets a new failure of a source replace the dropped one', () => {
@@ -95,7 +102,7 @@ describe('useFailureNotices', () => {
       notices.result.current.record('action', failure, 'Expired')
     })
 
-    expect(notices.result.current.isCurrent('action', failure)).toBe(true)
+    expect(notices.result.current.shows('action', failed)).toBe(true)
   })
 
   // A releitura pode não trazer estado, ou o `onError` pode sair antes de gravar: a falha nova não herda a fase da antiga.
@@ -106,6 +113,6 @@ describe('useFailureNotices', () => {
     })
     notices.rerender({ state: 'Expired' })
 
-    expect(notices.result.current.isCurrent('action', failure)).toBe(true)
+    expect(notices.result.current.shows('action', failed)).toBe(true)
   })
 })

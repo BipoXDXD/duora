@@ -172,13 +172,8 @@ function RoomBody({
   const answeringInvitation = command.variables === 'accept' || command.variables === 'reject'
   // A resposta ao convite só vale enquanto a sala não começou nem terminou com jogo: depois disso a tela já explica.
   const invitationFailed =
-    answeringInvitation &&
-    command.isError &&
-    notices.isCurrent('command', command.error) &&
-    !active &&
-    !completed &&
-    !expiredGame
-  const exitFailed = command.variables === 'exit' && command.isError && notices.isCurrent('command', command.error)
+    answeringInvitation && notices.shows('command', command) && !active && !completed && !expiredGame
+  const exitFailed = command.variables === 'exit' && notices.shows('command', command)
   // Uma só mensagem: enquanto a resposta ao convite está em curso ou falhou, ela ocupa o lugar de "encerrada".
   const answerExplainsRoom = answeringInvitation && (command.isPending || invitationFailed)
   const closed = !invited && !active && !completed && !expiredGame && !answerExplainsRoom
@@ -196,10 +191,8 @@ function RoomBody({
       <p>{t('preferences.voiceOptional')}</p>
       {invitationFailed ? <InvitationFailure error={command.error} /> : null}
       {exitFailed ? <RoomFailure failure={classifyRequestFailure(command.error)} /> : null}
-      {action.isError && notices.isCurrent('action', action.error) ? <ChoiceFailure error={action.error} /> : null}
-      {routesAction.isError && notices.isCurrent('routes', routesAction.error) ? (
-        <ChoiceFailure error={routesAction.error} />
-      ) : null}
+      {notices.shows('action', action) ? <ChoiceFailure error={action.error} /> : null}
+      {notices.shows('routes', routesAction) ? <ChoiceFailure error={routesAction.error} /> : null}
       {invited ? (
         <section className="flex flex-col gap-4">
           <p>
