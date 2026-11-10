@@ -9,6 +9,7 @@ using Amazon.Runtime;
 using Duora.Core.Identity;
 using Duora.Infrastructure.Email;
 using Duora.Infrastructure.Identity;
+using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
 using Microsoft.Extensions.Hosting;
@@ -389,6 +390,47 @@ public sealed class SelfieSlowProviderTests(PostgresFixture postgres)
         Assert.Throws<TimeoutException>(() => body.Read(new byte[1], 0, 1));
 
         Assert.False(body.IsStalled, body.State);
+    }
+
+    /// <summary>
+    /// O fato de que depende o lote começar em outra thread no <see cref="CutDispatchAsync(Func{Task}, Func{bool})"/>
+    /// (issue #458): com a resposta já pronta no transporte, o fornecedor que a produção registra lê o corpo parado de
+    /// forma síncrona, na thread que o chamou, antes de devolver a tarefa. Quem chama fica preso até o corpo ser
+    /// descartado; se for a thread do teste, ninguém mais avança o relógio até o corte. Sem banco: só o registro da selfie
+    /// da produção e o SDK real, sobre o transporte sintético.
+    /// </summary>
+    [Fact]
+    public async Task TheRealSdkReadsAStalledBodyOnTheCallingThreadBeforeReturningTheTask()
+    {
+        var stalledBodies = new ConcurrentQueue<StalledStream>();
+        var firstBody = new TaskCompletionSource<StalledStream>(TaskCreationOptions.RunContinuationsAsynchronously);
+        var transport = new SyntheticAwsTransport(_ =>
+        {
+            var response = StalledBody(stalledBodies);
+            firstBody.TrySetResult(stalledBodies.Last());
+            return response;
+        });
+        await using var services = ProductionSelfieServices(transport);
+        var provider = services.GetRequiredService<ISelfieProvider>();
+        var call = new CallOnADedicatedThread(() => provider.StartAsync(Guid.NewGuid(), Ct));
+
+        var body = await firstBody.Task.WaitAsync(CallCeiling, Ct);
+        int readThread;
+        bool returnedBeforeTheRead;
+        try
+        {
+            readThread = await body.SyncReadThread.WaitAsync(CallCeiling, Ct);
+            returnedBeforeTheRead = call.Returned;
+        }
+        finally
+        {
+            transport.Send = HealthySession;
+            body.Dispose();
+        }
+
+        await call.FinishedAsync().WaitAsync(CallCeiling, Ct);
+        Assert.Equal(call.ThreadId, readThread);
+        Assert.False(returnedBeforeTheRead, "O SDK devolveu a tarefa antes de ler o corpo parado.");
     }
 
     [Fact]
@@ -1151,6 +1193,18 @@ public sealed class SelfieSlowProviderTests(PostgresFixture postgres)
             },
         });
 
+    /// <summary>O registro da selfie que a produção usa, com o SDK real sobre o transporte sintético e sem banco.</summary>
+    private ServiceProvider ProductionSelfieServices(SyntheticAwsTransport transport)
+    {
+        var services = new ServiceCollection();
+        services.AddSingleton<IConfiguration>(new ConfigurationBuilder()
+            .AddInMemoryCollection(SelfieTestSettings.Enabled(ScriptedSelfieProvider.Policy)).Build());
+        services.AddSingleton<TimeProvider>(_time);
+        services.AddSelfieVerification();
+        services.AddSingleton<HttpClientFactory>(transport);
+        return services.BuildServiceProvider();
+    }
+
     private DuoraWebFactory FakeProviderHost(string connection, ISelfieProvider provider, CapturingLoggerProvider? logs = null) =>
         DisposedAtTheEnd(SelfieConcurrencyHarness.Host(connection, _time, provider, logs: logs));
 
@@ -1402,6 +1456,10 @@ public sealed class SelfieSlowProviderTests(PostgresFixture postgres)
         private volatile bool _syncReadStarted;
         private volatile bool _asyncReadStarted;
         private volatile bool _syncReadReleasedByCeiling;
+        private readonly TaskCompletionSource<int> _syncReadThread = new(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        /// <summary>Completa com a thread da primeira leitura síncrona, assim que ela começa e antes de ela prender a thread.</summary>
+        public Task<int> SyncReadThread => _syncReadThread.Task;
 
         public bool IsStalled => (_syncReadStarted || _asyncReadStarted) && !_syncReadReleasedByCeiling && !_closed.Task.IsCompleted;
 
@@ -1425,6 +1483,7 @@ public sealed class SelfieSlowProviderTests(PostgresFixture postgres)
         public override int Read(byte[] buffer, int offset, int count)
         {
             _syncReadStarted = true;
+            _syncReadThread.TrySetResult(Environment.CurrentManagedThreadId);
             if (!_closed.Task.Wait(readCeiling))
             {
                 _syncReadReleasedByCeiling = true;
@@ -1459,6 +1518,37 @@ public sealed class SelfieSlowProviderTests(PostgresFixture postgres)
             _closed.TrySetResult();
             base.Dispose(disposing);
         }
+    }
+
+    /// <summary>
+    /// Chamada feita numa thread só dela, fora do pool: a thread que lê o corpo só é a mesma se a leitura acontecer dentro
+    /// da chamada, e <see cref="Returned"/> só vira verdadeiro depois que a chamada devolve a tarefa.
+    /// </summary>
+    private sealed class CallOnADedicatedThread
+    {
+        private readonly TaskCompletionSource _finished = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        private volatile bool _returned;
+
+        public CallOnADedicatedThread(Func<Task> call)
+        {
+            var thread = new Thread(() =>
+            {
+                var pending = call();
+                _returned = true;
+                pending.ContinueWith(finished => { _ = finished.Exception; _finished.TrySetResult(); }, CancellationToken.None,
+                    TaskContinuationOptions.ExecuteSynchronously, TaskScheduler.Default);
+            })
+            { IsBackground = true, Name = "chamada ao fornecedor" };
+            thread.Start();
+            ThreadId = thread.ManagedThreadId;
+        }
+
+        public int ThreadId { get; }
+
+        public bool Returned => _returned;
+
+        /// <summary>Termina quando a tarefa da chamada termina, com sucesso ou falha: o resultado não importa aqui.</summary>
+        public Task FinishedAsync() => _finished.Task;
     }
 
     /// <summary>
