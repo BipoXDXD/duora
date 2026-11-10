@@ -9,6 +9,14 @@ namespace Duora.IntegrationTests;
 /// </summary>
 internal static class FixtureCleanup
 {
+    /// <summary>Inventário com teto e, depois dele, a remoção, que roda mesmo quando o inventário falha ou estoura.</summary>
+    internal static async ValueTask RemoveAfterInventoryAsync(string step, Func<CancellationToken, Task<string>> inventory,
+        TimeSpan inventoryCeiling, Func<ValueTask> removal)
+    {
+        var stateBefore = await InventoryWithinCeilingAsync(inventory, inventoryCeiling);
+        await RunAsync(step, removal, stateBefore);
+    }
+
     internal static async ValueTask RunAsync(string step, Func<ValueTask> action, string stateBefore)
     {
         var started = Stopwatch.GetTimestamp();

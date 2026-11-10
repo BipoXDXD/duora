@@ -149,8 +149,8 @@ public sealed class PostgresFixture : IAsyncLifetime
     {
         try
         {
-            var inventory = await FixtureCleanup.InventoryWithinCeilingAsync(DescribeForCleanupAsync, InventoryCeiling);
-            await FixtureCleanup.RunAsync("remover o container do PostgreSQL", _container.DisposeAsync, inventory);
+            await FixtureCleanup.RemoveAfterInventoryAsync("remover o container do PostgreSQL", DescribeForCleanupAsync,
+                InventoryCeiling, _container.DisposeAsync);
         }
         finally
         {

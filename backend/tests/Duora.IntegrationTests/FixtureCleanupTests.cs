@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using System.Text.RegularExpressions;
 
 namespace Duora.IntegrationTests;
@@ -41,6 +42,53 @@ public sealed partial class FixtureCleanupTests(PostgresFixture postgres)
             inventory);
         Assert.DoesNotContain("indisponível", inventory, StringComparison.Ordinal);
     }
+
+    [Fact]
+    public async Task AnInventoryThatThrowsStillLetsTheRemovalRunAndTheFailureSaysWhy()
+    {
+        var removals = 0;
+
+        var failure = await Assert.ThrowsAsync<InvalidOperationException>(() => FixtureCleanup.RemoveAfterInventoryAsync(
+            "remover o container",
+            _ => throw new InvalidOperationException("inventário sintético quebrou"),
+            ShortInventoryCeiling,
+            () =>
+            {
+                removals++;
+                return ValueTask.FromException(new IOException("remoção sintética falhou"));
+            }).AsTask());
+
+        Assert.Equal(1, removals);
+        Assert.Contains("inventário indisponível: InvalidOperationException: inventário sintético quebrou", failure.Message,
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task AnInventoryThatHangsIgnoringTheTokenIsCutAtTheCeilingAndTheRemovalStillRuns()
+    {
+        var removals = 0;
+        var started = Stopwatch.GetTimestamp();
+
+        var failure = await Assert.ThrowsAsync<InvalidOperationException>(() => FixtureCleanup.RemoveAfterInventoryAsync(
+            "remover o container",
+            _ => new TaskCompletionSource<string>().Task,
+            ShortInventoryCeiling,
+            () =>
+            {
+                removals++;
+                return ValueTask.FromException(new IOException("remoção sintética falhou"));
+            }).AsTask());
+
+        Assert.Equal(1, removals);
+        Assert.Contains("inventário indisponível: TimeoutException", failure.Message, StringComparison.Ordinal);
+        Assert.True(Stopwatch.GetElapsedTime(started) < InventoryHangBound, $"{Stopwatch.GetElapsedTime(started)}");
+    }
+
+    /// <summary>Teto curto do inventário nos testes; o do fixture é de 30 s.</summary>
+    private static readonly TimeSpan ShortInventoryCeiling = TimeSpan.FromMilliseconds(200);
+
+    /// <summary>Folga ampla sobre o teto curto: o inventário travado nunca segura a remoção por perto disso.</summary>
+    private static readonly TimeSpan InventoryHangBound = TimeSpan.FromSeconds(10);
 
     [Theory]
     [InlineData(0L, "1234\n", "1234")]
