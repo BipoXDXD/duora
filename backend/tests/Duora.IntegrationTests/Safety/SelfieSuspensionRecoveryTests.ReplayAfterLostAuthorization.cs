@@ -42,6 +42,7 @@ public sealed partial class SelfieSuspensionRecoveryTests
         Assert.DoesNotContain(user.ToString(), body, StringComparison.OrdinalIgnoreCase);
         Assert.DoesNotContain(delivery.ToString(), body, StringComparison.OrdinalIgnoreCase);
         Assert.False(replay.Headers.Contains("Location"));
+        Assert.Null(replay.Headers.ETag);
         await AssertSingleRecoveryAsync(user, delivery, Guid.Parse(measure));
     }
 
