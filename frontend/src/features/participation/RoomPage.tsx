@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { PrivateAudioPlayer } from './PrivateAudioPlayer'
 import { usePrivateOperation } from '@/features/session/private-operation'
 import { usePrivateMutation } from '@/features/session/private-mutation'
@@ -11,6 +11,7 @@ import { paths } from '@/shared/paths'
 import { Alert, RequestFailureAlert } from '@/shared/ui/alert'
 import { Button } from '@/shared/ui/button'
 import { Page, TextLink } from '@/shared/ui/page'
+import { useFailureNotices } from './use-failure-notices'
 import { useGameFocus } from './use-game-focus'
 import { ExperienceDeadline } from './ExperienceDeadline'
 import { RoutesGamePanel } from './RoutesGamePanel'
@@ -25,6 +26,9 @@ import {
 } from './participation-api'
 
 const NOT_FOUND = 404
+
+/** Mutações da sala cujas falhas viram aviso, cada uma com a própria validade. */
+type FailureSource = 'command' | 'action' | 'routes'
 
 export function RoomPage(): React.JSX.Element {
   const privateOperation = usePrivateOperation()
@@ -41,8 +45,10 @@ export function RoomPage(): React.JSX.Element {
     refetchInterval: 2000,
     enabled: !exited,
   })
-  const refresh = async () => {
+  const reread = async (): Promise<string | undefined> => {
     await client.invalidateQueries({ queryKey: key })
+    const fresh = client.getQueryData<RoomRead>(key)
+    return fresh?.kind === 'room' ? fresh.room.state : undefined
   }
   if (exited) {
     return (
@@ -62,7 +68,7 @@ export function RoomPage(): React.JSX.Element {
       ) : read.kind === 'failed' ? (
         <RoomFailure failure={read.failure} />
       ) : (
-        <RoomBody room={read.room} refresh={refresh} />
+        <RoomBody room={read.room} reread={reread} />
       )}
       {read?.kind === 'failed' ? (
         <ExitAfterForbiddenRead
@@ -86,28 +92,76 @@ function RoomFailure({ failure }: { readonly failure: RequestFailure }): React.J
   return <RequestFailureAlert failure={failure} />
 }
 
+/**
+ * Aceite ou recusa recusados com 404: o convite expirou ou a sala acabou, por qualquer motivo. Uma só mensagem, sem
+ * motivo, no lugar dos botões que sumiram; outras falhas seguem como alerta.
+ */
+function InvitationFailure({ error }: { readonly error: Error | null }): React.JSX.Element {
+  const { t } = useI18n()
+  const failure = classifyRequestFailure(error)
+  if (failure.kind === 'problem' && failure.status === NOT_FOUND) {
+    return <FocusWhenLostStatus>{t('participation.invitationUnavailable')}</FocusWhenLostStatus>
+  }
+  return <RequestFailureAlert failure={failure} />
+}
+
+/** Aviso que substitui o controle focado: recebe o foco só se ele caiu no body, sem tirar quem lê em outro lugar. */
+function FocusWhenLostStatus({ children }: { readonly children: React.ReactNode }): React.JSX.Element {
+  const ref = useRef<HTMLParagraphElement>(null)
+  useEffect(() => {
+    if (document.activeElement === null || document.activeElement === document.body) {
+      ref.current?.focus()
+    }
+  }, [])
+  return (
+    <p ref={ref} role="status" tabIndex={-1}>
+      {children}
+    </p>
+  )
+}
+
+/**
+ * Ação de jogo recusada com 404: a sala já não aceita escolhas (`Expired` por qualquer motivo). O aviso diz só o que
+ * aconteceu com a escolha, sem afirmar o motivo; a releitura mostra o estado da sala.
+ */
+function ChoiceFailure({ error }: { readonly error: Error | null }): React.JSX.Element {
+  const { t } = useI18n()
+  const failure = classifyRequestFailure(error)
+  if (failure.kind === 'problem' && failure.status === NOT_FOUND) {
+    return <FocusWhenLostStatus>{t('participation.choiceNotSaved')}</FocusWhenLostStatus>
+  }
+  return <RequestFailureAlert failure={failure} />
+}
+
 function RoomBody({
   room,
-  refresh,
+  reread,
 }: {
   readonly room: Room
-  readonly refresh: () => Promise<void>
+  /** Relê a sala e devolve o estado do cache, ou `undefined` se a releitura falhou. */
+  readonly reread: () => Promise<string | undefined>
 }): React.JSX.Element {
   const { t, formatDateTime } = useI18n()
+  const notices = useFailureNotices<FailureSource>(room.state)
+  const recordAfterReread = (source: FailureSource) => async (failure: Error) => {
+    const stateAtFailure = await reread()
+    if (stateAtFailure !== undefined) notices.record(source, failure, stateAtFailure)
+  }
   const command = usePrivateMutation({
     mutationFn: (operation, action: 'accept' | 'reject' | 'exit') => roomCommand(operation, room.roomId, action),
-    onSuccess: refresh,
+    onSuccess: reread,
+    onError: recordAfterReread('command'),
   })
   const action = usePrivateMutation({
     mutationFn: (operation, choice: { type: 'choose-option' | 'skip-card'; cardId: string; optionId?: string }) =>
       act(operation, room, choice),
-    onSuccess: refresh,
-    onError: refresh,
+    onSuccess: reread,
+    onError: recordAfterReread('action'),
   })
   const routesAction = usePrivateMutation({
     mutationFn: (operation, choice: RoutesAction) => actOnRoutes(operation, room, choice),
-    onSuccess: refresh,
-    onError: refresh,
+    onSuccess: reread,
+    onError: recordAfterReread('routes'),
   })
   const state = room.state.toLowerCase()
   const invited = state === 'invited' || state === 'ready'
@@ -115,7 +169,14 @@ function RoomBody({
   const gamePanel = useGameFocus(active)
   const completed = state === 'completed'
   const expiredGame = state === 'expired' && (room.game !== null || room.routesGame !== null)
-  const closed = !invited && !active && !completed && !expiredGame
+  const answeringInvitation = command.variables === 'accept' || command.variables === 'reject'
+  // A resposta ao convite só vale enquanto a sala não começou nem terminou com jogo: depois disso a tela já explica.
+  const invitationFailed =
+    answeringInvitation && notices.shows('command', command) && !active && !completed && !expiredGame
+  const exitFailed = command.variables === 'exit' && notices.shows('command', command)
+  // Uma só mensagem: enquanto a resposta ao convite está em curso ou falhou, ela ocupa o lugar de "encerrada".
+  const answerExplainsRoom = answeringInvitation && (command.isPending || invitationFailed)
+  const closed = !invited && !active && !completed && !expiredGame && !answerExplainsRoom
   const deadline = room.game?.deadline ?? room.routesGame?.deadline
   const busy = command.isPending || action.isPending || routesAction.isPending
   const card = room.game?.currentCard
@@ -128,9 +189,10 @@ function RoomBody({
       </Alert>
       <p>{t('preferences.noTranslation')}</p>
       <p>{t('preferences.voiceOptional')}</p>
-      {command.isError ? <RequestFailureAlert failure={classifyRequestFailure(command.error)} /> : null}
-      {action.isError ? <RequestFailureAlert failure={classifyRequestFailure(action.error)} /> : null}
-      {routesAction.isError ? <RequestFailureAlert failure={classifyRequestFailure(routesAction.error)} /> : null}
+      {invitationFailed ? <InvitationFailure error={command.error} /> : null}
+      {exitFailed ? <RoomFailure failure={classifyRequestFailure(command.error)} /> : null}
+      {notices.shows('action', action) ? <ChoiceFailure error={action.error} /> : null}
+      {notices.shows('routes', routesAction) ? <ChoiceFailure error={routesAction.error} /> : null}
       {invited ? (
         <section className="flex flex-col gap-4">
           <p>
