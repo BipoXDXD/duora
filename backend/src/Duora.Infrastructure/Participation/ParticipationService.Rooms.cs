@@ -219,6 +219,12 @@ public sealed partial class ParticipationService
             return ParticipationOutcome.Conflict;
         }
 
+        // Prazo vencido responde como a sala já expirada: a mesma 404 antes e depois do job, sem revelar quando ele rodou.
+        if (result is ActionValidation<ConstellationState, ConstellationAction>.Rejected { Reason: RejectionReason.DeadlineReached })
+        {
+            return ParticipationOutcome.Unavailable;
+        }
+
         if (result is not ActionValidation<ConstellationState, ConstellationAction>.Accepted accepted)
         {
             return ParticipationOutcome.Invalid;

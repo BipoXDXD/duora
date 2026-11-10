@@ -1,6 +1,7 @@
 using System.Globalization;
 using System.Net;
 using System.Text.Json;
+using System.Text.Json.Nodes;
 using Duora.Contracts.Participation;
 using Duora.Infrastructure.Participation;
 using Duora.IntegrationTests.Identity;
@@ -68,9 +69,8 @@ public sealed class GameDeadlineTests(PostgresFixture postgres)
 
     /// <summary>
     /// Entre o prazo e o job a sala segue <c>Active</c> no banco. Quem decide é o relógio do servidor (spec 10.4, "Timeout
-    /// vs ação"; T-18): a ação é recusada sem gravar nada e o job, quando roda, ainda expira a sala. Os status são o
-    /// comportamento atual; o status está pendente de decisão (400 antes do job, 404 depois). Os asserts de status ficam
-    /// para qualquer mudança aparecer, não porque a spec os exija.
+    /// vs ação"; T-18): a ação é recusada sem gravar nada e o job, quando roda, ainda expira a sala. A resposta é a mesma
+    /// <c>404</c> antes e depois do job, em status, <c>code</c> e corpo, para não revelar quando o job rodou.
     /// </summary>
     [Theory]
     [InlineData(0)]
@@ -84,8 +84,9 @@ public sealed class GameDeadlineTests(PostgresFixture postgres)
 
         using var late = await ChooseOptionAsync(alice, scene.Room, active.Version);
 
-        Assert.Equal(HttpStatusCode.BadRequest, late.StatusCode);
-        Assert.Equal("VALIDATION_FAILED", await ProblemCodeAsync(late));
+        Assert.Equal(HttpStatusCode.NotFound, late.StatusCode);
+        var lateProblem = await ProblemWithoutTraceAsync(late);
+        Assert.Equal("NOT_FOUND", lateProblem.GetProperty("code").GetString());
         Assert.Equal(active, await scene.RoomFactsAsync());
         Assert.Equal("Pending|0", await scene.GameDeadlineJobAsync());
 
@@ -97,7 +98,26 @@ public sealed class GameDeadlineTests(PostgresFixture postgres)
 
         using var afterTheJob = await ChooseOptionAsync(alice, scene.Room, active.Version);
         Assert.Equal(HttpStatusCode.NotFound, afterTheJob.StatusCode);
+        Assert.Equal(lateProblem.ToString(), (await ProblemWithoutTraceAsync(afterTheJob)).ToString());
+        Assert.Equal(late.Content.Headers.ContentType, afterTheJob.Content.Headers.ContentType);
         Assert.Equal(expired, await scene.RoomFactsAsync());
+    }
+
+    /// <summary>Só o prazo virou <c>404</c>: uma ação inválida antes do prazo continua <c>400 VALIDATION_FAILED</c>, sem gravar.</summary>
+    [Fact]
+    public async Task AnInvalidActionBeforeTheDeadlineIsStillAValidationFailure()
+    {
+        await using var scene = await ActiveRoomAsync();
+        using var alice = await scene.SignInAliceAsync();
+        var active = await scene.RoomFactsAsync();
+        scene.Clock.SetUtcNow(scene.Deadline - OneTick);
+
+        using var invalid = await alice.PostJsonAsync($"/api/v1/rooms/{scene.Room}/actions",
+            new RoomActionRequest(Guid.NewGuid(), active.Version.ToString(CultureInfo.InvariantCulture), "choose-option", "morning", "no-such-option"));
+
+        Assert.Equal(HttpStatusCode.BadRequest, invalid.StatusCode);
+        Assert.Equal("VALIDATION_FAILED", await ProblemCodeAsync(invalid));
+        Assert.Equal(active, await scene.RoomFactsAsync());
     }
 
     [Fact]
@@ -112,6 +132,14 @@ public sealed class GameDeadlineTests(PostgresFixture postgres)
 
         Assert.Equal(HttpStatusCode.NoContent, inTime.StatusCode);
         Assert.Equal(new RoomFacts("Active", active.Version + 1, ActiveReservations: 2, Actions: 1), await scene.RoomFactsAsync());
+    }
+
+    /// <summary>O corpo do problema sem <c>traceId</c>, o único campo que muda de uma requisição para outra.</summary>
+    private static async Task<JsonElement> ProblemWithoutTraceAsync(HttpResponseMessage response)
+    {
+        var body = Assert.IsType<JsonObject>(JsonNode.Parse(await response.Content.ReadAsStringAsync(Ct)));
+        Assert.True(body.Remove("traceId"));
+        return JsonSerializer.SerializeToElement(body);
     }
 
     private static async Task<string?> ProblemCodeAsync(HttpResponseMessage response)
