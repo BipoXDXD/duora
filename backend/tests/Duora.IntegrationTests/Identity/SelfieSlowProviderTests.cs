@@ -41,8 +41,11 @@ public sealed class SelfieSlowProviderTests(PostgresFixture postgres)
     /// </summary>
     private static readonly TimeSpan WholeTestCeiling = TimeSpan.FromSeconds(90);
 
-    /// <summary>Acima do teto do teste: uma leitura vencida nunca chega antes da falha e não se passa pelo corte do worker.</summary>
-    private static readonly TimeSpan StalledReadCeiling = WholeTestCeiling + CallCeiling;
+    /// <summary>
+    /// Abaixo do teto do teste, para a leitura presa soltar a thread antes dele. A leitura solta vira erro do SDK, que o
+    /// worker trata como o corte; por isso ela deixa de contar como presa e o teste nunca a toma pelo corpo parado.
+    /// </summary>
+    private static readonly TimeSpan StalledReadCeiling = CallCeiling;
 
     /// <summary>Maior que a espera de 5 s até a próxima tentativa.</summary>
     private static readonly TimeSpan UntilNextTry = TimeSpan.FromSeconds(6);
@@ -1165,7 +1168,9 @@ public sealed class SelfieSlowProviderTests(PostgresFixture postgres)
 
     /// <summary>
     /// Lote cuja chamada fica presa: espera a chamada chegar ao fornecedor, leva o relógio do teste até o corte e devolve
-    /// o lote encerrado. Falha em vez de pendurar a suíte se o corte não vier.
+    /// o lote encerrado. Falha em vez de pendurar a suíte se o corte não vier. O lote começa em outra thread porque o SDK
+    /// lê o corpo de forma síncrona antes de devolver a tarefa: quando todo await anterior termina na hora, a leitura
+    /// prenderia a thread do teste, a única que avança o relógio até o corte que a solta.
     /// </summary>
     private Task CutDispatchAsync(DuoraWebFactory host, Func<bool> called) =>
         CutDispatchAsync(() => SelfieConcurrencyHarness.DispatchAsync(host, Ct), called);
@@ -1173,7 +1178,7 @@ public sealed class SelfieSlowProviderTests(PostgresFixture postgres)
     private async Task CutDispatchAsync(Func<Task> dispatch, Func<bool> called)
     {
         _step = "esperando a chamada chegar ao fornecedor";
-        var batch = dispatch();
+        var batch = Task.Run(dispatch, Ct);
         await WaitUntilAsync(called, batch);
         _step = "avançando o relógio até o corte, com os timers disparando nesta thread";
         _time.Advance(CallTimeout);
@@ -1354,18 +1359,20 @@ public sealed class SelfieSlowProviderTests(PostgresFixture postgres)
 
     /// <summary>
     /// Corpo de resposta que nunca entrega um byte, como um socket parado: a leitura assíncrona só termina pelo
-    /// cancelamento, e a síncrona só quando o corpo é descartado ou, sem descarte, pelo teto que solta a thread.
+    /// cancelamento, e a síncrona só quando o corpo é descartado ou, sem descarte, pelo teto que solta a thread. A leitura
+    /// que o teto soltou não está mais presa.
     /// </summary>
     private sealed class StalledStream(TimeSpan readCeiling) : Stream
     {
         private readonly TaskCompletionSource _closed = new(TaskCreationOptions.RunContinuationsAsynchronously);
         private volatile bool _syncReadStarted;
         private volatile bool _asyncReadStarted;
+        private volatile bool _syncReadReleasedByCeiling;
 
-        public bool IsStalled => (_syncReadStarted || _asyncReadStarted) && !_closed.Task.IsCompleted;
+        public bool IsStalled => (_syncReadStarted || _asyncReadStarted) && !_syncReadReleasedByCeiling && !_closed.Task.IsCompleted;
 
         public string State =>
-            $"leitura síncrona iniciada: {_syncReadStarted}; assíncrona iniciada: {_asyncReadStarted}; corpo descartado: {_closed.Task.IsCompleted}";
+            $"leitura síncrona iniciada: {_syncReadStarted}; solta pelo teto: {_syncReadReleasedByCeiling}; assíncrona iniciada: {_asyncReadStarted}; corpo descartado: {_closed.Task.IsCompleted}";
 
         public override bool CanRead => true;
 
@@ -1386,6 +1393,7 @@ public sealed class SelfieSlowProviderTests(PostgresFixture postgres)
             _syncReadStarted = true;
             if (!_closed.Task.Wait(readCeiling))
             {
+                _syncReadReleasedByCeiling = true;
                 throw new TimeoutException("O corpo parado não foi descartado dentro do teto.");
             }
 
