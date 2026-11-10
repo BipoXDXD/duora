@@ -58,6 +58,9 @@ public sealed class PostgresFixture : IAsyncLifetime
     // Explicit test-only POSIX DSM capacity within the existing hosted runner's RAM; no production profile change.
     public const long SharedMemoryBytes = 256L * 1024 * 1024;
 
+    /// <summary>Teto do inventário feito antes da remoção; ele só informa e não pode segurar a limpeza.</summary>
+    private static readonly TimeSpan InventoryCeiling = TimeSpan.FromSeconds(30);
+
     private readonly PostgreSqlContainer _container;
     private readonly ConcurrentDictionary<string, ScratchDatabase> _scratchDatabases = new(StringComparer.Ordinal);
 
@@ -146,7 +149,8 @@ public sealed class PostgresFixture : IAsyncLifetime
     {
         try
         {
-            await _container.DisposeAsync();
+            var inventory = await InventoryBeforeRemovalAsync();
+            await FixtureCleanup.RunAsync("remover o container do PostgreSQL", _container.DisposeAsync, inventory);
         }
         finally
         {
@@ -155,6 +159,40 @@ public sealed class PostgresFixture : IAsyncLifetime
                 database.Lifetime?.Dispose();
             }
             _scratchDatabases.Clear();
+        }
+    }
+
+    /// <summary>
+    /// Quanto o servidor guarda no fim da suíte, para a falha da remoção do container dizer o tamanho do que estava sendo
+    /// apagado. Bancos avulsos pedidos só pela connection string nunca são removidos e se acumulam até aqui.
+    /// </summary>
+    internal async Task<string> DescribeForCleanupAsync(CancellationToken cancellationToken)
+    {
+        await using var connection = new NpgsqlConnection(_container.GetConnectionString());
+        await connection.OpenAsync(cancellationToken);
+        await using var command = new NpgsqlCommand(
+            "select count(*), coalesce(sum(pg_database_size(oid)), 0)::bigint from pg_database", connection);
+        await using var reader = await command.ExecuteReaderAsync(cancellationToken);
+        await reader.ReadAsync(cancellationToken);
+        var databases = reader.GetInt64(0);
+        var bytes = reader.GetInt64(1);
+        var files = await _container.ExecAsync(["sh", "-c", "find \"$PGDATA\" -type f | wc -l"], cancellationToken);
+        var fileCount = files.ExitCode == 0 ? files.Stdout.Trim() : $"indisponível (saída {files.ExitCode})";
+        return $"bancos no servidor: {databases}; tamanho somado: {bytes} bytes; " +
+            $"bancos avulsos ainda registrados: {_scratchDatabases.Count}; arquivos no diretório de dados: {fileCount}";
+    }
+
+    private async Task<string> InventoryBeforeRemovalAsync()
+    {
+        using var ceiling = new CancellationTokenSource(InventoryCeiling);
+        try
+        {
+            return await DescribeForCleanupAsync(ceiling.Token);
+        }
+        catch (Exception failure)
+        {
+            // Diagnóstico apenas: sem inventário a remoção ainda precisa rodar, e a falha dele vai na mensagem final.
+            return $"inventário indisponível: {failure.GetType().Name}: {failure.Message}";
         }
     }
 
