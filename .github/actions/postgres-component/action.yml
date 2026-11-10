@@ -90,6 +90,8 @@ runs:
           echo "::endgroup::"
           return 1
         }
+        # SABOTAGEM, NÃO MESCLAR: estoura o StartLimitBurst do docker.service antes do restart real.
+        for _ in 1 2 3 4 5 6; do sudo systemctl restart docker || true; done
         if ! restart_docker; then
           sudo systemctl reset-failed docker.service docker.socket
           containerd_deadline=$((SECONDS + 60))
