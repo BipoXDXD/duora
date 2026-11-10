@@ -1,4 +1,5 @@
 using System.Net;
+using Duora.Infrastructure.Identity;
 using Microsoft.Extensions.Time.Testing;
 using Npgsql;
 
@@ -248,6 +249,46 @@ public sealed class AccountLockTimeoutTests : IAsyncDisposable
         command.Parameters.AddWithValue(userId);
         await command.ExecuteNonQueryAsync(TestContext.Current.CancellationToken);
         return new AccountHolder(connection, transaction);
+    }
+
+    /// <summary>
+    /// O 55P03 pode chegar cru, embrulhado pelo EF ou com a <see cref="NpgsqlException"/> no meio. Em qualquer
+    /// profundidade é a espera que passou do teto; não reconhecido, cairia no handler global com outro
+    /// <c>Retry-After</c> e reabriria o oráculo da issue #468.
+    /// </summary>
+    [Theory]
+    [InlineData(0)]
+    [InlineData(1)]
+    [InlineData(2)]
+    [InlineData(3)]
+    public void ALockTimeoutIsRecognizedAtAnyDepth(int wrappers)
+    {
+        var timeout = new PostgresException("lock", "ERROR", "ERROR", PostgresErrorCodes.LockNotAvailable);
+
+        Assert.Same(timeout, AccountSecurityService.LockTimeoutIn(Wrap(timeout, wrappers)));
+    }
+
+    [Fact]
+    public void AnotherDatabaseErrorIsNotALockTimeout()
+    {
+        var other = new PostgresException("outro", "ERROR", "ERROR", PostgresErrorCodes.UniqueViolation);
+
+        Assert.Null(AccountSecurityService.LockTimeoutIn(Wrap(other, 2)));
+        Assert.Null(AccountSecurityService.LockTimeoutIn(new InvalidOperationException("sem banco")));
+    }
+
+    /// <summary>Embrulha como o EF e o Npgsql: a mais externa é a do EF, as do meio são do Npgsql.</summary>
+    private static Exception Wrap(PostgresException error, int wrappers)
+    {
+        Exception wrapped = error;
+        for (var level = 1; level <= wrappers; level++)
+        {
+            wrapped = level == wrappers
+                ? new InvalidOperationException("transient", wrapped)
+                : new NpgsqlException("npgsql", wrapped);
+        }
+
+        return wrapped;
     }
 
     private static async Task AssertTemporarilyUnavailableAsync(HttpResponseMessage response)

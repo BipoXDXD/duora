@@ -752,7 +752,7 @@ public sealed class AccountSecurityService
     /// O 55P03 chega cru de um comando e embrulhado pelo EF (falha transitória) de uma query; os dois são a espera
     /// que passou do teto.
     /// </summary>
-    private static PostgresException? LockTimeoutIn(Exception error) =>
+    internal static PostgresException? LockTimeoutIn(Exception error) =>
         (error as PostgresException ?? error.InnerException as PostgresException) is
         { SqlState: PostgresErrorCodes.LockNotAvailable } timeout
             ? timeout
