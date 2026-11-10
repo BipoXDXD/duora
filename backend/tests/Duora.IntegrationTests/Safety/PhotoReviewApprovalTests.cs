@@ -1097,14 +1097,21 @@ public sealed partial class PhotoReviewApprovalTests(PostgresFixture postgres) :
         }
     }
 
-    private async Task<(PhotoReviewActor Reviewer, CaseData Item)> PreparedAsync(Guid? reviewerId = null, Guid? ownerId = null,
-        IObjectStore? storage = null)
+    private Task<(PhotoReviewActor Reviewer, CaseData Item)> PreparedAsync(Guid? reviewerId = null, Guid? ownerId = null,
+        IObjectStore? storage = null) => PreparedWithAsync(reviewerId, () => CaseAsync(ownerId, storage));
+
+    /// <summary>Mais um caso pronto para decisão, de um dono que já existe: o mesmo dono com duas fotos.</summary>
+    private Task<(PhotoReviewActor Reviewer, CaseData Item)> PreparedForAsync(Guid ownerId) =>
+        PreparedWithAsync(null, () => CaseForAsync(ownerId));
+
+    private async Task<(PhotoReviewActor Reviewer, CaseData Item)> PreparedWithAsync(Guid? reviewerId,
+        Func<Task<CaseData>> createCase)
     {
         var assigner = await ModeratorAsync(PhotoReviewCapability.Assign);
         var reviewer = await ActorAsync(AccountRoles.Moderator, reviewerId);
         await GrantAsync(reviewer.UserId, PhotoReviewCapability.Evidence, enabled: true);
         await GrantAsync(reviewer.UserId, PhotoReviewCapability.Decide, enabled: true);
-        var item = await CaseAsync(ownerId, storage);
+        var item = await createCase();
         await using var db = Context();
         Assert.IsType<PhotoReviewAssignmentResult.Assigned>(await new PhotoReviewAssignments(db, _time)
             .AssignAsync(assigner, item.CaseId, reviewer.UserId, 1, Key(), Ct));
@@ -1186,9 +1193,14 @@ public sealed partial class PhotoReviewApprovalTests(PostgresFixture postgres) :
     private async Task<CaseData> CaseAsync(Guid? ownerId = null, IObjectStore? storage = null)
     {
         var owner = await ActorAsync(AccountRoles.Participant, ownerId);
+        return await CaseForAsync(owner.UserId, storage);
+    }
+
+    private async Task<CaseData> CaseForAsync(Guid ownerId, IObjectStore? storage = null)
+    {
         var original = TestImages.Jpeg(64, 32);
         var store = storage ?? new FileSystemObjectStore(_root.FullName);
-        var upload = Upload.Reserve(owner.UserId, Key(), PhotoFormat.Jpeg, original.Length, _time.GetUtcNow());
+        var upload = Upload.Reserve(ownerId, Key(), PhotoFormat.Jpeg, original.Length, _time.GetUtcNow());
         await using (var db = Context())
         {
             db.Add(upload);

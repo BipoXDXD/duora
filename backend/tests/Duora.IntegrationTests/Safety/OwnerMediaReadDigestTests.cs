@@ -214,6 +214,35 @@ public sealed partial class PhotoReviewApprovalTests
         Assert.NotNull(others);
     }
 
+    /// <summary>O limite é da conta, não da foto: duas leituras abertas em fotos diferentes já esgotam a conta.</summary>
+    [Fact]
+    public async Task TwoOpenReadsOfDifferentAssetsExhaustTheAccount()
+    {
+        var budget = new OwnerMediaReadBudget(OwnerMediaReadBudget.DefaultCapacityBytes);
+        var firstPhoto = await PromotedReadAsync(budget: budget);
+        var secondPhoto = await PromotedReadAsync(budget: budget, ownerId: firstPhoto.Owner.UserId);
+        Assert.NotEqual(firstPhoto.AssetId, secondPhoto.AssetId);
+        await using var first = await OpenFullAsync(firstPhoto);
+        await using var second = await OpenFullAsync(secondPhoto);
+        Assert.NotNull(first);
+        Assert.NotNull(second);
+
+        await Assert.ThrowsAsync<OwnerMediaReadBudgetExhaustedException>(() => OpenFullAsync(firstPhoto));
+    }
+
+    /// <summary>Descartar devolve a vaga da conta: leituras em sequência nunca se acumulam contra o limite de duas.</summary>
+    [Fact]
+    public async Task AnAccountCanReadAgainAndAgainOnceEachReadIsDisposed()
+    {
+        var read = await PromotedReadAsync(budget: new OwnerMediaReadBudget(OwnerMediaReadBudget.DefaultCapacityBytes));
+
+        for (var attempt = 0; attempt < 3; attempt++)
+        {
+            await using var media = await OpenFullAsync(read);
+            Assert.NotNull(media);
+        }
+    }
+
     /// <summary>
     /// Um cliente lento não segura a reserva além do prazo de 60 s: vencido, a reserva volta, a cópia em andamento é
     /// cancelada e a próxima leitura passa. Um tick antes, a reserva ainda está presa.
@@ -241,9 +270,10 @@ public sealed partial class PhotoReviewApprovalTests
     private static Task<AuthorizedMedia?> OpenFullAsync(PromotedRead read) =>
         read.Reads.OpenAsync(read.Owner.UserId, read.Owner.SessionId, read.AssetId, PhotoVariant.Full, Ct);
 
-    private async Task<PromotedRead> PromotedReadAsync(IObjectStore? store = null, OwnerMediaReadBudget? budget = null)
+    private async Task<PromotedRead> PromotedReadAsync(IObjectStore? store = null, OwnerMediaReadBudget? budget = null,
+        Guid? ownerId = null)
     {
-        var (reviewer, item) = await PreparedAsync();
+        var (reviewer, item) = ownerId is { } existing ? await PreparedForAsync(existing) : await PreparedAsync();
         var approved = Assert.IsType<PhotoReviewApprovalResult.Approved>(await ApproveAsync(reviewer, item, Key()));
         var owner = await SessionAsync(item.OwnerId, "Normal");
         await using var db = Context();
