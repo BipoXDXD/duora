@@ -305,10 +305,21 @@ public sealed class PhotoUploadTests : IAsyncDisposable
             return await MediaScenario.UploadAsync(browser, MediaScenario.JpegLike(fill: (byte)i));
         }).ToList();
         start.SetResult();
-        var responses = await Task.WhenAll(uploads).WaitAsync(ConcurrentUploadsTimeout, TestContext.Current.CancellationToken);
 
         try
         {
+            var all = Task.WhenAll(uploads);
+            try
+            {
+                await all.WaitAsync(ConcurrentUploadsTimeout, TestContext.Current.CancellationToken);
+            }
+            catch (TimeoutException)
+            {
+                Assert.Fail(
+                    $"{uploads.Count(u => !u.IsCompleted)} dos {Attempts} envios não terminaram em {ConcurrentUploadsTimeout.TotalSeconds:0} s.");
+            }
+
+            var responses = await all;
             Assert.Equal(3, responses.Count(r => r.StatusCode == HttpStatusCode.Accepted));
             var refused = responses.Where(r => r.StatusCode != HttpStatusCode.Accepted).ToList();
             Assert.Equal(3, refused.Count);
@@ -322,9 +333,10 @@ public sealed class PhotoUploadTests : IAsyncDisposable
         }
         finally
         {
-            foreach (var response in responses)
+            // Também no estouro do teto: descarta as respostas que chegaram.
+            foreach (var upload in uploads.Where(u => u.IsCompletedSuccessfully))
             {
-                response.Dispose();
+                (await upload).Dispose();
             }
         }
     }

@@ -83,10 +83,21 @@ public sealed class UploadQueueLimitTests(PostgresFixture postgres) : IAsyncLife
             return await MediaScenario.UploadAsync(browser, MediaScenario.JpegLike(fill: (byte)i));
         }).ToList();
         start.SetResult();
-        var responses = await Task.WhenAll(uploads).WaitAsync(ConcurrentUploadsTimeout, TestContext.Current.CancellationToken);
 
         try
         {
+            var all = Task.WhenAll(uploads);
+            try
+            {
+                await all.WaitAsync(ConcurrentUploadsTimeout, TestContext.Current.CancellationToken);
+            }
+            catch (TimeoutException)
+            {
+                Assert.Fail(
+                    $"{uploads.Count(u => !u.IsCompleted)} dos {Attempts} envios não terminaram em {ConcurrentUploadsTimeout.TotalSeconds:0} s.");
+            }
+
+            var responses = await all;
             Assert.Equal(QueueCap, responses.Count(r => r.StatusCode == HttpStatusCode.Accepted));
             Assert.All(responses, r => Assert.True(
                 r.StatusCode is HttpStatusCode.Accepted or HttpStatusCode.ServiceUnavailable,
@@ -95,7 +106,12 @@ public sealed class UploadQueueLimitTests(PostgresFixture postgres) : IAsyncLife
         }
         finally
         {
-            Array.ForEach(responses, r => r.Dispose());
+            // Também no estouro do teto: descarta as respostas que chegaram e os navegadores.
+            foreach (var upload in uploads.Where(u => u.IsCompletedSuccessfully))
+            {
+                (await upload).Dispose();
+            }
+
             browsers.ForEach(b => b.Dispose());
         }
     }
