@@ -120,7 +120,8 @@ uvx --from ansible-lint==26.10.1 --with ansible-core==2.21.5 ansible-lint
 uvx --from ansible-core==2.21.5 ansible-playbook -i inventory/example.yml site.yml --syntax-check
 ```
 
-- `base`: pacotes, UTC, `unattended-upgrades` com reinício automático às 04:30 UTC (`duora_unattended_reboot`).
+- `base`: pacotes, UTC, `unattended-upgrades` com reinício automático às 05:40 UTC (`duora_unattended_reboot`),
+  depois dos timers de backup.
   `/proc` com `hidepid=invisible`: quem não é root não vê processos (e linhas de comando) de outros usuários.
   O repositório do Docker fica fora das atualizações automáticas: atualizar o daemon é mudança planejada.
 - `ssh`: drop-in `00-duora.conf` (só chave, sem root, sem senha, `AllowUsers`); recusa aplicar se o operador não

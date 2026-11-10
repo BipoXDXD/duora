@@ -243,7 +243,12 @@ ou de outros.
 ## Retenção: janela recuperável de 14 dias
 
 Agenda (timers do host, UTC, em horário fixo, sem jitter): **full aos domingos 03:00**, **diferencial de segunda a
-sábado 03:00**, WAL contínuo (`archive_timeout=60`). Retenção no `pgbackrest-repo.conf`:
+sábado 03:00**, WAL contínuo (`archive_timeout=60`). O reinício automático do `unattended-upgrades` fica às **05:40**
+(`duora_unattended_reboot_time`, role `base`), 95 min depois do último timer longo (`verify-repo-full` de quarta e
+`media-check` de quinta, 04:05) e entre dois `verify` de 15 min: o `Persistent=true` não refaz um disparo já contado,
+então um reinício no meio de um timer perderia a execução da semana. `test_automatic_reboot_*` (em
+`scripts/deploy/test_duora_backup.py`) falha se um timer novo ou movido começar a menos de 60 min do reinício.
+Retenção no `pgbackrest-repo.conf`:
 
 - `repo1-retention-full-type=time` + `repo1-retention-full=14`: depois de cada backup o `expire` só remove um full
   se **outro full mais novo já tiver pelo menos 14 dias**;
