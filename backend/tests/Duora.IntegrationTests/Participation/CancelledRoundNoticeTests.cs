@@ -1,4 +1,5 @@
 using Duora.Infrastructure.Participation;
+using Microsoft.Extensions.Options;
 using Microsoft.Extensions.Time.Testing;
 using Npgsql;
 using static Duora.Infrastructure.Participation.ParticipationSql;
@@ -139,6 +140,22 @@ public sealed class CancelledRoundNoticeTests(PostgresFixture postgres)
 
         Assert.Equal("Completed", await scene.EventStateAsync());
         Assert.Equal(new ParticipationStatus("Waiting", null, RoundCancelled: false), await scene.StatusAsync(scene.Seed.Alice));
+    }
+
+    [Fact]
+    public async Task ARoundCancelledByItsCloseJobWhileStillScheduledIsShownToo()
+    {
+        await using var scene = await CreateSceneAsync();
+        await scene.CheckInAsync(scene.Seed.Alice);
+        await scene.ScheduleSecondRoundAsync();
+        var paused = new ParticipationService(scene.Source, scene.Clock, Options.Create(new ParticipationOptions { MatchingEnabled = false }));
+
+        scene.Clock.SetUtcNow(scene.FirstRoundDeadline);
+        await Scene.RunDueJobsAsync(paused);
+
+        Assert.Equal("Cancelled", await scene.RoundStateAsync(scene.Seed.Rounds[0]));
+        Assert.Equal("Published", await scene.EventStateAsync());
+        Assert.Equal(new ParticipationStatus("Waiting", null, RoundCancelled: true), await scene.StatusAsync(scene.Seed.Alice));
     }
 
     private async Task<Scene> CreateSceneAsync()

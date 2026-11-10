@@ -138,3 +138,15 @@ describe('events after a cancelled round', () => {
     expect(screen.queryByText(ROUND_CANCELLED_PT)).not.toBeInTheDocument()
   })
 })
+
+describe('events with a room from an earlier round', () => {
+  // Comportamento atual, fixado de propósito: com sala na leitura, a tela mostra o link e não o aviso. Mostrar o aviso
+  // também nesse caso é decisão de produto pendente (ressalva C da revisão do #434).
+  it('keeps the room link and shows no cancellation notice even when the latest round was cancelled', async () => {
+    serveEventWithParticipation(() => ({ state: 'Completed', roomId, roundCancelled: true }))
+    await renderApp('/events')
+
+    expect(await screen.findByRole('link', { name: 'Abrir convite ou sala' })).toBeInTheDocument()
+    expect(screen.queryByText(ROUND_CANCELLED_PT)).not.toBeInTheDocument()
+  })
+})
