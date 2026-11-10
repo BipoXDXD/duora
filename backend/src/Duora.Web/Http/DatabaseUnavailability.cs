@@ -34,9 +34,20 @@ internal static class DatabaseUnavailability
         return null;
     }
 
-    // O IsTransient da NpgsqlException vem só da interna imediata. Se ela é o erro do servidor, o SqlState dele decide;
-    // se é outra (um timeout do cliente, por exemplo), um PostgresException mais fundo não muda o diagnóstico.
-    private static bool WrapsServerError(NpgsqlException client) => client.InnerException is PostgresException;
+    // O IsTransient da NpgsqlException vem da interna imediata e, se ela também é NpgsqlException, desce por ela até a
+    // primeira interna de outro tipo (comportamento observado no Npgsql 10.0.3). Se essa interna é o erro do servidor, o
+    // SqlState dele decide; se é outra (um timeout do cliente, por exemplo), um PostgresException mais fundo não muda o
+    // diagnóstico.
+    private static bool WrapsServerError(NpgsqlException client)
+    {
+        var inner = client.InnerException;
+        while (inner is NpgsqlException and not PostgresException)
+        {
+            inner = inner.InnerException;
+        }
+
+        return inner is PostgresException;
+    }
 
     private static bool IsUnavailableState(string sqlState) =>
         sqlState is PostgresErrorCodes.TooManyConnections

@@ -134,8 +134,9 @@ public sealed class ServerErrorTests(PostgresFixture postgres)
         Assert.Same(error, DatabaseUnavailability.TemporaryCause(wrapped));
     }
 
-    // O Npgsql herda IsTransient só da interna imediata: aqui ela é o timeout do cliente, não o erro do servidor,
-    // então o 57014 mais fundo não pode transformar a falha em 500.
+    // Caso defensivo, montado à mão: numa sonda real, o Npgsql 10.0.3 não produziu Npgsql -> Timeout -> PG 57014. Se
+    // acontecer, o IsTransient vem da interna imediata, que é o timeout do cliente, não o erro do servidor, então o
+    // 57014 mais fundo não pode transformar a falha em 500.
     [Fact]
     public void AClientTimeoutIsUnavailabilityEvenWithAServerErrorDeeperInTheChain()
     {
@@ -150,6 +151,7 @@ public sealed class ServerErrorTests(PostgresFixture postgres)
     [InlineData("23505")]
     [InlineData("42P01")]
     [InlineData("40001")]
+    [InlineData("40P01")]
     public void OrdinaryDatabaseErrorsAreNotUnavailability(string sqlState)
     {
         var error = new PostgresException("erro comum", "ERROR", "ERROR", sqlState);
@@ -157,6 +159,20 @@ public sealed class ServerErrorTests(PostgresFixture postgres)
         Assert.False(DatabaseUnavailability.IsTemporary(new InvalidOperationException("wrapped", error)));
         Assert.False(DatabaseUnavailability.IsTemporary(new NpgsqlException("driver", error)));
         Assert.False(DatabaseUnavailability.IsTemporary(new InvalidOperationException("sem banco")));
+    }
+
+    // O IsTransient do Npgsql desce por NpgsqlException aninhadas até o erro do servidor (sonda com o 10.0.3): uma
+    // serialização, um deadlock ou um lock_timeout embrulhado duas vezes continua sendo erro de SQL comum, não 503.
+    [Theory]
+    [InlineData("40001")]
+    [InlineData("40P01")]
+    [InlineData("55P03")]
+    public void AnOrdinaryServerErrorWrappedTwiceByNpgsqlIsNotUnavailability(string sqlState)
+    {
+        var error = new PostgresException("erro comum", "ERROR", "ERROR", sqlState);
+        var wrapped = new NpgsqlException("driver", new NpgsqlException("driver", error));
+
+        Assert.False(DatabaseUnavailability.IsTemporary(wrapped));
     }
 
     private static async Task AssertNoInternalsAsync(HttpResponseMessage response, string password)
