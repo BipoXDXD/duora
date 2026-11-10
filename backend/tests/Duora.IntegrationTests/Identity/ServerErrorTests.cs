@@ -112,8 +112,13 @@ public sealed class ServerErrorTests(PostgresFixture postgres)
     public void ServerSideUnavailabilityIsRecognizedEvenWhenWrapped(string sqlState)
     {
         var error = new PostgresException("indisponível", "FATAL", "FATAL", sqlState);
+        var wrapped = new InvalidOperationException("transient", error);
+        // Uma NpgsqlException do driver por fora não pode esconder o SqlState do servidor.
+        var wrappedByTheDriver = new InvalidOperationException("transient", new NpgsqlException("driver", error));
 
-        Assert.True(DatabaseUnavailability.IsTemporary(new InvalidOperationException("transient", error)));
+        Assert.True(DatabaseUnavailability.IsTemporary(wrapped));
+        Assert.Same(error, DatabaseUnavailability.TemporaryCause(wrapped));
+        Assert.Same(error, DatabaseUnavailability.TemporaryCause(wrappedByTheDriver));
     }
 
     [Theory]
@@ -125,6 +130,7 @@ public sealed class ServerErrorTests(PostgresFixture postgres)
         var error = new PostgresException("erro comum", "ERROR", "ERROR", sqlState);
 
         Assert.False(DatabaseUnavailability.IsTemporary(new InvalidOperationException("wrapped", error)));
+        Assert.False(DatabaseUnavailability.IsTemporary(new NpgsqlException("driver", error)));
         Assert.False(DatabaseUnavailability.IsTemporary(new InvalidOperationException("sem banco")));
     }
 
