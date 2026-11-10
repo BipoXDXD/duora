@@ -12,7 +12,12 @@ namespace Duora.Infrastructure.Persistence.Migrations;
 [Migration("20261109120000_VoluntaryRegistrationWithdrawal")]
 public sealed class VoluntaryRegistrationWithdrawal : Migration
 {
+    /// <summary>
+    /// A troca valida a tabela sob <c>ACCESS EXCLUSIVE</c>. Falha rápido em vez de enfileirar o tráfego atrás dela
+    /// enquanto o web anterior segura a tabela; o migrator pode repetir.
+    /// </summary>
     protected override void Up(MigrationBuilder migrationBuilder) => migrationBuilder.Sql("""
+        set local lock_timeout = '5s';
         alter table events.registrations drop constraint ck_registrations_withdrawal;
         alter table events.registrations add constraint ck_registrations_withdrawal check (
           (withdrawn_by_suspension_id is null and withdrawn_at is null
