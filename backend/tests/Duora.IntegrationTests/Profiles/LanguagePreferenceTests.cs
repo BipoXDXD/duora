@@ -74,6 +74,8 @@ public sealed class LanguagePreferenceTests(PostgresFixture postgres) : IAsyncDi
 
         Assert.Equal(HttpStatusCode.OK, first.StatusCode);
         Assert.Equal(HttpStatusCode.PreconditionFailed, stale.StatusCode);
+        var problem = JsonNode.Parse(await stale.Content.ReadAsStringAsync(TestContext.Current.CancellationToken))!;
+        Assert.Equal("PRECONDITION_FAILED", (string?)problem["code"]);
         Assert.Equal(expectedRow, await StoredPreferencesAsync(account.UserId));
         using var reread = await browser.GetAsync("/api/v1/me/preferences");
         Assert.Equal(first.Headers.ETag!.Tag, reread.Headers.ETag!.Tag);

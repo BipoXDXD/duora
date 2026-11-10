@@ -26,7 +26,7 @@ public sealed class GameDeadlineTests(PostgresFixture postgres)
     {
         await using var scene = await ActiveRoomAsync();
         var active = await scene.RoomFactsAsync();
-        Assert.Equal(new RoomFacts("Active", active.Version, ActiveReservations: 2, Actions: 0), active);
+        Assert.Equal(("Active", 2L, 0L), (active.State, active.ActiveReservations, active.Actions));
 
         scene.Clock.SetUtcNow(scene.Deadline - OneTick);
 
