@@ -193,6 +193,51 @@ public sealed partial class PhotoReviewApprovalTests
         Assert.NotNull(media);
     }
 
+    /// <summary>
+    /// Uma conta não prende o orçamento das outras: com duas leituras abertas, a terceira dela recebe 503, e outra conta
+    /// continua lendo do mesmo orçamento.
+    /// </summary>
+    [Fact]
+    public async Task AThirdOpenReadOfOneAccountIsRefusedWhileAnotherAccountStillReads()
+    {
+        var budget = new OwnerMediaReadBudget(OwnerMediaReadBudget.DefaultCapacityBytes);
+        var greedy = await PromotedReadAsync(budget: budget);
+        var other = await PromotedReadAsync(budget: budget);
+        await using var first = await OpenFullAsync(greedy);
+        await using var second = await OpenFullAsync(greedy);
+        Assert.NotNull(first);
+        Assert.NotNull(second);
+
+        await Assert.ThrowsAsync<OwnerMediaReadBudgetExhaustedException>(() => OpenFullAsync(greedy));
+        await using var others = await OpenFullAsync(other);
+
+        Assert.NotNull(others);
+    }
+
+    /// <summary>
+    /// Um cliente lento não segura a reserva além do prazo de 60 s: vencido, a reserva volta, a cópia em andamento é
+    /// cancelada e a próxima leitura passa. Um tick antes, a reserva ainda está presa.
+    /// </summary>
+    [Theory]
+    [InlineData(0, true)]
+    [InlineData(1, false)]
+    public async Task AReservationPastItsDeadlineIsReleasedAndCancelsTheCopy(long ticksShort, bool released)
+    {
+        var read = await PromotedReadAsync(budget: new OwnerMediaReadBudget(TestImages.WebP(64, 32).Length));
+        await using var slow = await OpenFullAsync(read);
+        Assert.NotNull(slow);
+
+        _time.Advance(TimeSpan.FromSeconds(60) - TimeSpan.FromTicks(ticksShort));
+
+        Assert.Equal(released, slow.Expired.IsCancellationRequested);
+        var next = await Record.ExceptionAsync(async () =>
+        {
+            await using var media = await OpenFullAsync(read);
+            Assert.NotNull(media);
+        });
+        Assert.Equal(released ? null : typeof(OwnerMediaReadBudgetExhaustedException), next?.GetType());
+    }
+
     private static Task<AuthorizedMedia?> OpenFullAsync(PromotedRead read) =>
         read.Reads.OpenAsync(read.Owner.UserId, read.Owner.SessionId, read.AssetId, PhotoVariant.Full, Ct);
 

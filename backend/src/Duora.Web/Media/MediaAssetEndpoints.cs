@@ -98,9 +98,11 @@ internal static class MediaAssetEndpoints
             http.Response.Headers.ContentSecurityPolicy = "default-src 'none'; sandbox";
             http.Response.Headers.ContentDisposition = "inline";
             http.Response.ContentType = "image/webp";
+            // O prazo da reserva corta um cliente lento que seguraria o orçamento de memória dos outros donos.
+            using var copy = CancellationTokenSource.CreateLinkedTokenSource(http.RequestAborted, owned.Expired);
             try
             {
-                await owned.Content.CopyToAsync(http.Response.Body, CopyBufferBytes, http.RequestAborted);
+                await owned.Content.CopyToAsync(http.Response.Body, CopyBufferBytes, copy.Token);
             }
             catch (Exception error) when (error is IOException or OperationCanceledException)
             {

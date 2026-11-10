@@ -10,19 +10,31 @@ namespace Duora.Infrastructure.Media;
 
 /// <summary>
 /// Bytes de um derivado aprovado já autorizado; quem recebe transmite e descarta. Descartar devolve a reserva de
-/// memória da leitura, então quem transmite descarta também quando a resposta é abortada.
+/// memória da leitura, então quem transmite descarta também quando a resposta é abortada. Com reserva, a leitura tem
+/// prazo: quando <see cref="Expired"/> dispara, a reserva já voltou e quem transmite deve parar.
 /// </summary>
 public sealed class AuthorizedMedia : IAsyncDisposable
 {
     private readonly IDisposable? _reservation;
+    private readonly CancellationTokenSource? _deadline;
 
-    internal AuthorizedMedia(Stream content, IDisposable? reservation = null)
+    internal AuthorizedMedia(Stream content)
+    {
+        Content = content;
+    }
+
+    internal AuthorizedMedia(Stream content, IDisposable reservation, TimeSpan lifetime, TimeProvider time)
     {
         Content = content;
         _reservation = reservation;
+        _deadline = new CancellationTokenSource(lifetime, time);
+        _deadline.Token.Register(reservation.Dispose);
     }
 
     public Stream Content { get; }
+
+    /// <summary>Cancela quando o prazo da reserva vence; nunca cancela para derivado sem reserva.</summary>
+    public CancellationToken Expired => _deadline?.Token ?? CancellationToken.None;
 
     public async ValueTask DisposeAsync()
     {
@@ -33,6 +45,7 @@ public sealed class AuthorizedMedia : IAsyncDisposable
         finally
         {
             _reservation?.Dispose();
+            _deadline?.Dispose();
         }
     }
 }
@@ -84,7 +97,7 @@ public sealed partial class OwnerMediaReads
             return null;
         }
 
-        if (await VerifiedAsync(opened, stored, assetId, PhotoVariants.Name(variant), cancellationToken)
+        if (await VerifiedAsync(opened, stored, ownerId, assetId, PhotoVariants.Name(variant), cancellationToken)
             is not { } media)
         {
             return null;
@@ -115,14 +128,14 @@ public sealed partial class OwnerMediaReads
     /// <see cref="EndOfStreamException"/> sobe e a admissão de mídia responde 503. O legado nunca teve digest
     /// persistido e segue entregue, com registro para ser contado.
     /// </summary>
-    private async Task<AuthorizedMedia?> VerifiedAsync(Stream opened, StoredVariant stored, Guid assetId,
-        string variant, CancellationToken cancellationToken)
+    private async Task<AuthorizedMedia?> VerifiedAsync(Stream opened, StoredVariant stored, Guid ownerId,
+        Guid assetId, string variant, CancellationToken cancellationToken)
     {
         if (stored is { Sha256: { } expected, SizeBytes: { } length })
         {
             await using (opened)
             {
-                var reservation = _budget.TryReserve(length);
+                var reservation = _budget.TryReserve(ownerId, length);
                 if (reservation is null)
                 {
                     LogBudgetExhausted(_logger, assetId, variant);
@@ -133,7 +146,8 @@ public sealed partial class OwnerMediaReads
                 {
                     if (await ReadMatchingAsync(opened, length, expected, cancellationToken) is { } verified)
                     {
-                        return new AuthorizedMedia(verified, reservation);
+                        return new AuthorizedMedia(verified, reservation, OwnerMediaReadBudget.ReservationLifetime,
+                            _time);
                     }
                 }
                 catch
@@ -245,7 +259,7 @@ public sealed partial class OwnerMediaReads
     [LoggerMessage(Level = LogLevel.Information, Message = "Derivado legado {Variant} do asset aprovado {AssetId} entregue sem digest")]
     private static partial void LogServedWithoutDigest(ILogger logger, Guid assetId, string variant);
 
-    [LoggerMessage(Level = LogLevel.Warning, Message = "Leitura do derivado {Variant} do asset {AssetId} recusada: orçamento de memória cheio")]
+    [LoggerMessage(Level = LogLevel.Warning, Message = "Leitura do derivado {Variant} do asset {AssetId} recusada: orçamento de memória cheio ou conta no limite de leituras")]
     private static partial void LogBudgetExhausted(ILogger logger, Guid assetId, string variant);
 
     private sealed record StoredVariant(string ObjectKey, long? SizeBytes, byte[]? Sha256, bool RequiresDigest);
