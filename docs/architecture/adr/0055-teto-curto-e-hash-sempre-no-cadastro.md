@@ -6,7 +6,9 @@
 - **Relaciona:** [ADR-0009](0009-uma-instancia-web-no-piloto.md) (uma instância web); a seção de concorrência na
   autenticação de [concurrency.md](../../data/concurrency.md#concorrência-na-autenticação-issue-65)
 - **Revisar quando:** o cadastro desistir com frequência em produção (o Warning do log), entrar uma segunda réplica
-  web, o cadastro pelo Google mudar de transação, ou uma medida em produção mostrar resíduo acima do ruído
+  web (ADR-0009: o rate limit de cadastro é por instância, e com N réplicas um atacante soma N vezes mais amostras,
+  o que derruba o argumento de que não dá para somá-las), o cadastro pelo Google mudar de transação, ou uma medida em
+  produção mostrar resíduo acima do ruído
 
 ## Contexto
 
@@ -52,7 +54,9 @@ na hora e o teto não entra em jogo.
 - Trade-off: sobra um resíduo de poucos ms, que não é tempo constante. Medido (mediana das diferenças pareadas, N = 31,
   PBKDF2 real, Mac local): conta travada +2,5 ms, orçamento esgotado −3,8 a −4,5 ms, contra um desvio por amostra de
   2,2–3,9 ms. Fica na ordem do ruído de uma amostra local, e abaixo do jitter de rede de produção; com o rate limit de
-  3 cadastros por hora por conta e a trava durando só a janela de outra operação, não dá para somar amostras. Por isso o
+  3 cadastros por hora por conta e a trava durando só a janela de outra operação, não dá para somar amostras. Isso vale
+  com uma instância web: o limitador é por instância, e uma segunda réplica (ADR-0009) multiplica as amostras (veja
+  "Revisar quando"). Por isso o
   piso de ~15 ms não entrou. Se uma medida em produção mostrar resíduo acima do ruído, o piso é a próxima etapa.
 
 ## Segurança e operação
@@ -64,7 +68,8 @@ uma réplica web (ADR-0009), o teto continua por transação no PostgreSQL e val
 ## Compliance
 
 - `RegistrationTimingTests` mede o tempo do cadastro para e-mail novo, conta travada e orçamento esgotado, com hash de
-  custo fixo, e falha se a mediana das diferenças pareadas passar de ±20 ms. Na base respondia +262 ms e −46,6 ms.
+  custo fixo, e falha se a mediana das diferenças pareadas passar de ±25 ms. Na base respondia +262 ms e −46,6 ms; sob loadavg ~30 o orçamento
+  esgotado chegou a −12,2 ms, e as sabotagens deram −53 ms e +294 ms.
 - `StartupConfigurationTests` cobre a faixa (0, 0,9 ms, 51 ms e 5 s recusados; 1 ms e 50 ms aceitos) e o padrão de 5 ms
   separado do teto do login.
 - `RegistrationLockTimeoutTests` cobre a desistência: mesmo `202`, nada gravado, Warning sem PII.

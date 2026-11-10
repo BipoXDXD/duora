@@ -42,11 +42,12 @@ public sealed class RegistrationTimingTests : IAsyncDisposable
 
     /// <summary>
     /// Limite da mediana das diferenças pareadas. Cobre o resíduo esperado (o SQL que a desistência não roda, ~5–7 ms
-    /// medidos na #466, e o teto curto do cadastro) mais o erro da mediana numa máquina carregada (desvio de até ~15 ms
-    /// por amostra, ~3 ms na mediana de 31). Fica na metade de <see cref="HashCost"/> e muito abaixo do teto do login,
-    /// as duas diferenças que o teste tem de pegar.
+    /// medidos na #466, e o teto curto do cadastro) mais o erro da mediana numa máquina carregada: com loadavg ~30, o
+    /// desvio por amostra chegou a 36–39 ms e o orçamento esgotado deu −12,2 ms (revisão do #475). Mesmo assim fica
+    /// abaixo do que o teste tem de pegar: um hash pulado custa ao menos <see cref="HashCost"/>, e as sabotagens deram
+    /// −53 ms (hash do código só no caminho que emite) e +294 ms (cadastro de volta ao teto do login).
     /// </summary>
-    private static readonly TimeSpan MedianDifferenceLimit = TimeSpan.FromMilliseconds(20);
+    private static readonly TimeSpan MedianDifferenceLimit = TimeSpan.FromMilliseconds(25);
 
     private static readonly TimeSpan LoginLockTimeout = TimeSpan.FromMilliseconds(300);
 

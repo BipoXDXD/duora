@@ -729,11 +729,11 @@ public sealed class AccountSecurityService
 
     /// <summary>
     /// Como o outro, com um teto que quem chama escolhe: o cadastro usa o seu, curto, para a espera não aparecer no
-    /// tempo de resposta (#466). <paramref name="ceiling"/> precisa ter ao menos 1 ms, porque <c>0</c> desliga o teto.
+    /// tempo de resposta (#466). <paramref name="ceiling"/> precisa ter ao menos <see cref="RegistrationLockOptions.Minimum"/>, porque <c>0</c> desliga o teto.
     /// </summary>
     internal async Task<T> WithLockCeilingAsync<T>(TimeSpan ceiling, Func<Task<T>> takeLock, CancellationToken cancellationToken)
     {
-        ArgumentOutOfRangeException.ThrowIfLessThan(ceiling, TimeSpan.FromMilliseconds(1));
+        ArgumentOutOfRangeException.ThrowIfLessThan(ceiling, RegistrationLockOptions.Minimum);
         await SetLockTimeoutAsync($"{(long)ceiling.TotalMilliseconds}ms", cancellationToken);
         T locked;
         try

@@ -579,7 +579,7 @@ emissão (3 por hora, cadastro e reenvio) pagam os dois hashes, que são quase t
 
 Sobra um resíduo de poucos ms, do SQL que a desistência não roda e do próprio teto. Medido com PBKDF2 real (Mac local,
 mediana das diferenças pareadas, N = 31): conta travada +2,5 ms e orçamento esgotado −3,8 a −4,5 ms, contra um desvio
-por amostra de 2,2–3,9 ms. `RegistrationTimingTests` mantém esse resíduo dentro de ±20 ms, com hash de custo fixo de
+por amostra de 2,2–3,9 ms. `RegistrationTimingTests` mantém esse resíduo dentro de ±25 ms, com hash de custo fixo de
 40 ms (como o `LoginConcurrencyTests`, que injeta atraso sobre o hasher), numa coleção que roda sem paralelismo.
 
 O custo é um cadastro legítimo que coincide com login, confirmação, reset ou outro cadastro do mesmo e-mail desistir mais
