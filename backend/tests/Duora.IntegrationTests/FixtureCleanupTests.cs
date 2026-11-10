@@ -42,6 +42,16 @@ public sealed partial class FixtureCleanupTests(PostgresFixture postgres)
         Assert.DoesNotContain("indisponível", inventory, StringComparison.Ordinal);
     }
 
+    [Theory]
+    [InlineData(0L, "1234\n", "1234")]
+    [InlineData(1L, "0\n", "indisponível (saída 1)")]
+    [InlineData(141L, "", "indisponível (saída 141)")]
+    [InlineData(0L, "", "indisponível (saída 0, contagem ilegível)")]
+    [InlineData(0L, "find: erro\n", "indisponível (saída 0, contagem ilegível)")]
+    [InlineData(null, "12\n", "indisponível (saída desconhecida)")]
+    public void AFailedFileCountIsReportedAsUnavailableInsteadOfAsZero(long? exitCode, string stdout, string expected) =>
+        Assert.Equal(expected, FixtureCleanup.DescribeFileCount(exitCode, stdout));
+
     [GeneratedRegex("""^Limpeza "remover o container" falhou depois de \d+\.\d s \(estado-antes-da-etapa\)\.$""")]
     private static partial Regex FailureMessage();
 

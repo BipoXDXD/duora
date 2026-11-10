@@ -176,8 +176,10 @@ public sealed class PostgresFixture : IAsyncLifetime
         await reader.ReadAsync(cancellationToken);
         var databases = reader.GetInt64(0);
         var bytes = reader.GetInt64(1);
-        var files = await _container.ExecAsync(["sh", "-c", "find \"$PGDATA\" -type f | wc -l"], cancellationToken);
-        var fileCount = files.ExitCode == 0 ? files.Stdout.Trim() : $"indisponível (saída {files.ExitCode})";
+        // bash com pipefail: sem ele o pipe devolveria a saída do wc, e um find que falha viraria uma contagem.
+        var files = await _container.ExecAsync(
+            ["bash", "-c", "set -o pipefail; find \"$PGDATA\" -type f | wc -l"], cancellationToken);
+        var fileCount = FixtureCleanup.DescribeFileCount(files.ExitCode, files.Stdout);
         return $"bancos no servidor: {databases}; tamanho somado: {bytes} bytes; " +
             $"bancos avulsos ainda registrados: {_scratchDatabases.Count}; arquivos no diretório de dados: {fileCount}";
     }

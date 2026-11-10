@@ -24,6 +24,22 @@ internal static class FixtureCleanup
     }
 
     /// <summary>
+    /// A contagem de arquivos só vale com saída zero e um número: o <c>find</c> que falha no meio do pipe não pode virar
+    /// uma contagem de zero ou parcial.
+    /// </summary>
+    internal static string DescribeFileCount(long? exitCode, string stdout)
+    {
+        if (exitCode is not 0)
+        {
+            return $"indisponível (saída {exitCode?.ToString(CultureInfo.InvariantCulture) ?? "desconhecida"})";
+        }
+
+        return long.TryParse(stdout.Trim(), NumberStyles.None, CultureInfo.InvariantCulture, out var count)
+            ? count.ToString(CultureInfo.InvariantCulture)
+            : "indisponível (saída 0, contagem ilegível)";
+    }
+
+    /// <summary>
     /// O inventário dentro de um teto rígido: o token avisa quem respeita cancelamento, e o <c>WaitAsync</c> solta a
     /// limpeza mesmo que algo ignore o token. Rodar em <c>Task.Run</c> cobre também um bloqueio síncrono antes da
     /// primeira espera. Falha ou estouro viram texto: sem inventário a remoção ainda precisa rodar.
