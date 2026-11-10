@@ -175,6 +175,19 @@ public sealed class ServerErrorTests(PostgresFixture postgres)
         Assert.False(DatabaseUnavailability.IsTemporary(wrapped));
     }
 
+    // A outra direção da descida: ela passa só por NpgsqlException. Um timeout do cliente sob dois embrulhos encerra
+    // a descida, e o 57014 mais fundo não faz a falha virar erro de SQL comum: a causa é o embrulho de fora.
+    [Fact]
+    public void AClientTimeoutWrappedTwiceByNpgsqlIsUnavailability()
+    {
+        var canceled = new PostgresException("cancelado", "ERROR", "ERROR", PostgresErrorCodes.QueryCanceled);
+        var timeout = new TimeoutException("timeout", canceled);
+        var wrapped = new NpgsqlException("driver", new NpgsqlException("driver", timeout));
+
+        Assert.True(DatabaseUnavailability.IsTemporary(wrapped));
+        Assert.Same(wrapped, DatabaseUnavailability.TemporaryCause(wrapped));
+    }
+
     private static async Task AssertNoInternalsAsync(HttpResponseMessage response, string password)
     {
         var body = await response.Content.ReadAsStringAsync(TestContext.Current.CancellationToken);
