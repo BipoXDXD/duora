@@ -248,6 +248,30 @@ public sealed class LoginConcurrencyTests(PostgresFixture postgres)
         await using var next = await gate.EnterAsync(key, timeout, TestContext.Current.CancellationToken);
     }
 
+    /// <summary>
+    /// Issue #468: o <c>Retry-After</c> da conta ocupada não depende do teto que o chamador passou ao gate. Se dependesse,
+    /// um teto novo numa rota que só conta existente alcança voltaria a revelar a existência da conta.
+    /// </summary>
+    [Fact]
+    public async Task TheGateAnswersTheSingleBusyRetryAfterWhateverCeilingItWasGiven()
+    {
+        await using var factory = new DuoraWebFactory(postgres.ConnectionString)
+        {
+            Settings = new Dictionary<string, string?> { ["Identity:AccountQueueTimeout"] = "00:00:02" },
+        };
+        var gate = factory.Services.GetRequiredService<AccountCheckGate>();
+        var ct = TestContext.Current.CancellationToken;
+        var userId = Guid.NewGuid();
+        var otherCeiling = TimeSpan.FromMilliseconds(100);
+
+        await using (await gate.EnterAsync(userId, otherCeiling, ct))
+        {
+            var busy = await Assert.ThrowsAsync<AccountBusyException>(() => gate.EnterAsync(userId, otherCeiling, ct));
+
+            Assert.Equal(TimeSpan.FromSeconds(2), busy.RetryAfter);
+        }
+    }
+
     [Fact]
     public async Task AReauthenticationWaitingForTheAccountTurnGivesUpAtTheQueueTimeout()
     {

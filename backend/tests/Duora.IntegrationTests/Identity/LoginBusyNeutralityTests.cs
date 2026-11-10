@@ -68,6 +68,38 @@ public sealed partial class LoginBusyNeutralityTests(PostgresFixture postgres)
         Assert.Equal(missingEmail, lockedAccount);
     }
 
+    /// <summary>
+    /// Banco indisponível (pool esgotado) é outro contrato, com <c>Retry-After: 5</c>, mas também não pode depender da
+    /// existência da conta.
+    /// </summary>
+    [Fact]
+    public async Task AnUnavailableDatabaseAnswersTheSameForAnExistingAndAMissingEmail()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        await using var factory = new DuoraWebFactory(postgres.ConnectionString)
+        {
+            Settings = new Dictionary<string, string?>
+            {
+                ["Database:MaxPoolSize"] = "1",
+                ["Database:PoolTimeout"] = "00:00:01",
+            },
+        };
+        var account = await new IdentityScenario(postgres, factory).CreateConfirmedAccountAsync();
+        using var existingBrowser = new Browser(factory);
+        await existingBrowser.FetchCsrfTokenAsync();
+        using var missingBrowser = new Browser(factory);
+        await missingBrowser.FetchCsrfTokenAsync();
+
+        await using var onlyConnection = await factory.Services.GetRequiredService<NpgsqlDataSource>().OpenConnectionAsync(ct);
+        using var existing = await IdentityScenario.LoginAsync(existingBrowser, account.Email, WrongPassword);
+        using var missing = await IdentityScenario.LoginAsync(missingBrowser, IdentityScenario.NewEmail(), WrongPassword);
+        var existingEmail = await DescribeAsync(existing, ct);
+
+        Assert.StartsWith("503|", existingEmail, StringComparison.Ordinal);
+        Assert.EndsWith("Retry-After=5", existingEmail, StringComparison.Ordinal);
+        Assert.Equal(await DescribeAsync(missing, ct), existingEmail);
+    }
+
     /// <summary>Status, tipo, corpo sem <c>traceId</c> e todos os headers, exceto <c>Date</c> e <c>Set-Cookie</c>.</summary>
     private static async Task<string> DescribeAsync(HttpResponseMessage response, CancellationToken ct)
     {
