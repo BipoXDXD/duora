@@ -11,6 +11,7 @@ import { paths } from '@/shared/paths'
 import { Alert, RequestFailureAlert } from '@/shared/ui/alert'
 import { Button } from '@/shared/ui/button'
 import { Page, TextLink } from '@/shared/ui/page'
+import { useFailureNotices } from './use-failure-notices'
 import { useGameFocus } from './use-game-focus'
 import { ExperienceDeadline } from './ExperienceDeadline'
 import { RoutesGamePanel } from './RoutesGamePanel'
@@ -25,6 +26,9 @@ import {
 } from './participation-api'
 
 const NOT_FOUND = 404
+
+/** Mutações da sala cujas falhas viram aviso, cada uma com a própria validade. */
+type FailureSource = 'command' | 'action' | 'routes'
 
 export function RoomPage(): React.JSX.Element {
   const privateOperation = usePrivateOperation()
@@ -41,8 +45,10 @@ export function RoomPage(): React.JSX.Element {
     refetchInterval: 2000,
     enabled: !exited,
   })
-  const refresh = async () => {
+  const reread = async (): Promise<string | undefined> => {
     await client.invalidateQueries({ queryKey: key })
+    const fresh = client.getQueryData<RoomRead>(key)
+    return fresh?.kind === 'room' ? fresh.room.state : undefined
   }
   if (exited) {
     return (
@@ -62,7 +68,7 @@ export function RoomPage(): React.JSX.Element {
       ) : read.kind === 'failed' ? (
         <RoomFailure failure={read.failure} />
       ) : (
-        <RoomBody room={read.room} refresh={refresh} />
+        <RoomBody room={read.room} reread={reread} />
       )}
       {read?.kind === 'failed' ? (
         <ExitAfterForbiddenRead
@@ -122,58 +128,41 @@ function ChoiceFailure({ error }: { readonly error: Error | null }): React.JSX.E
   const { t } = useI18n()
   const failure = classifyRequestFailure(error)
   if (failure.kind === 'problem' && failure.status === NOT_FOUND) {
-    return <p role="status">{t('participation.choiceNotSaved')}</p>
+    return <FocusWhenLostStatus>{t('participation.choiceNotSaved')}</FocusWhenLostStatus>
   }
   return <RequestFailureAlert failure={failure} />
 }
 
-interface SettledMutation {
-  readonly isError: boolean
-  readonly submittedAt: number
-}
-
-/**
- * A falha de uma mutação descreve a sala em que apareceu: vale enquanto o estado da sala for o do render em que ela
- * surgiu. O React Query pode entregar no mesmo render a falha e a releitura que ela disparou (o 404 que já traz a sala
- * `Expired`), então a referência é o estado visto junto da falha, não o de antes.
- */
-function useFailuresOfCurrentState(
-  state: string,
-  mutations: readonly SettledMutation[],
-): (mutation: SettledMutation) => boolean {
-  const [stateAtFailure, setStateAtFailure] = useState<ReadonlyMap<number, string>>(new Map())
-  const unseen = mutations.filter((mutation) => mutation.isError && !stateAtFailure.has(mutation.submittedAt))
-  if (unseen.length > 0) {
-    setStateAtFailure(new Map([...stateAtFailure, ...unseen.map((mutation) => [mutation.submittedAt, state] as const)]))
-  }
-  return (mutation) => mutation.isError && (stateAtFailure.get(mutation.submittedAt) ?? state) === state
-}
-
 function RoomBody({
   room,
-  refresh,
+  reread,
 }: {
   readonly room: Room
-  readonly refresh: () => Promise<void>
+  /** Relê a sala e devolve o estado do cache, ou `undefined` se a releitura falhou. */
+  readonly reread: () => Promise<string | undefined>
 }): React.JSX.Element {
   const { t, formatDateTime } = useI18n()
+  const notices = useFailureNotices<FailureSource>(room.state)
+  const recordAfterReread = (source: FailureSource) => async () => {
+    const stateAtFailure = await reread()
+    if (stateAtFailure !== undefined) notices.record(source, stateAtFailure)
+  }
   const command = usePrivateMutation({
     mutationFn: (operation, action: 'accept' | 'reject' | 'exit') => roomCommand(operation, room.roomId, action),
-    onSuccess: refresh,
-    onError: refresh,
+    onSuccess: reread,
+    onError: recordAfterReread('command'),
   })
   const action = usePrivateMutation({
     mutationFn: (operation, choice: { type: 'choose-option' | 'skip-card'; cardId: string; optionId?: string }) =>
       act(operation, room, choice),
-    onSuccess: refresh,
-    onError: refresh,
+    onSuccess: reread,
+    onError: recordAfterReread('action'),
   })
   const routesAction = usePrivateMutation({
     mutationFn: (operation, choice: RoutesAction) => actOnRoutes(operation, room, choice),
-    onSuccess: refresh,
-    onError: refresh,
+    onSuccess: reread,
+    onError: recordAfterReread('routes'),
   })
-  const failedNow = useFailuresOfCurrentState(room.state, [command, action, routesAction])
   const state = room.state.toLowerCase()
   const invited = state === 'invited' || state === 'ready'
   const active = state === 'active'
@@ -182,8 +171,9 @@ function RoomBody({
   const expiredGame = state === 'expired' && (room.game !== null || room.routesGame !== null)
   const answeringInvitation = command.variables === 'accept' || command.variables === 'reject'
   // A resposta ao convite só vale enquanto a sala não começou nem terminou com jogo: depois disso a tela já explica.
-  const invitationFailed = answeringInvitation && failedNow(command) && !active && !completed && !expiredGame
-  const exitFailed = command.variables === 'exit' && failedNow(command)
+  const invitationFailed =
+    answeringInvitation && command.isError && notices.isCurrent('command') && !active && !completed && !expiredGame
+  const exitFailed = command.variables === 'exit' && command.isError && notices.isCurrent('command')
   // Uma só mensagem: enquanto a resposta ao convite está em curso ou falhou, ela ocupa o lugar de "encerrada".
   const answerExplainsRoom = answeringInvitation && (command.isPending || invitationFailed)
   const closed = !invited && !active && !completed && !expiredGame && !answerExplainsRoom
@@ -201,8 +191,8 @@ function RoomBody({
       <p>{t('preferences.voiceOptional')}</p>
       {invitationFailed ? <InvitationFailure error={command.error} /> : null}
       {exitFailed ? <RoomFailure failure={classifyRequestFailure(command.error)} /> : null}
-      {failedNow(action) ? <ChoiceFailure error={action.error} /> : null}
-      {failedNow(routesAction) ? <ChoiceFailure error={routesAction.error} /> : null}
+      {action.isError && notices.isCurrent('action') ? <ChoiceFailure error={action.error} /> : null}
+      {routesAction.isError && notices.isCurrent('routes') ? <ChoiceFailure error={routesAction.error} /> : null}
       {invited ? (
         <section className="flex flex-col gap-4">
           <p>
