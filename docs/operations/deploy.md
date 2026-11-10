@@ -418,6 +418,10 @@ sem `WHERE`, troca de tipo de coluna e `RENAME`. O critério completo fica em `D
 `Up` conta, porque o `Down` nunca roda. Um contract revisado entra com uma linha nova na allowlist, no mesmo PR e com
 justificativa; a allowlist fica sob `CODEOWNERS`, e a linha que não corresponde mais a nenhuma operação também
 reprova. O check não decide se a operação é segura: ele torna a decisão visível no review.
+Fora do critério, e portanto a cargo do review: `UPDATE` e `UpdateData`, que sobrescrevem dado (backfill é
+comum); `DELETE` com qualquer `WHERE`, mesmo `WHERE true`; SQL montado em tempo de execução por concatenação; e
+`--` ou `/*` dentro de texto entre aspas, que o filtro de comentários não distingue. A allowlist vale por migration e
+tipo de operação, então editar uma migration já listada pode acrescentar outra operação do mesmo tipo sem reprovar.
 
 **Releases anteriores ao adendo do ADR-0010** (fotos no disco da VPS, 2026-10-16). O `compose.prod.yml` é um só,
 instalado pelo Ansible, e passa sempre `Media__Storage__Provider: FileSystem` ao web e ao worker. O web das releases
