@@ -25,13 +25,27 @@ internal static class DatabaseUnavailability
                 case PostgresException:
                     // Erro de SQL comum (constraint, sintaxe, serialização): não é indisponibilidade.
                     return null;
-                case NpgsqlException client when client.IsTransient:
+                case NpgsqlException client when client.IsTransient && !WrapsServerError(client):
                     // Falha de rede, conexão recusada ou pool esgotado: o servidor nem respondeu.
                     return client;
             }
         }
 
         return null;
+    }
+
+    // A NpgsqlException herda IsTransient da interna; se o servidor respondeu, quem decide é o SqlState dele.
+    private static bool WrapsServerError(NpgsqlException client)
+    {
+        for (var inner = client.InnerException; inner is not null; inner = inner.InnerException)
+        {
+            if (inner is PostgresException)
+            {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     private static bool IsUnavailableState(string sqlState) =>
