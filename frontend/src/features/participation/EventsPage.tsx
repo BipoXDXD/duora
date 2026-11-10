@@ -35,6 +35,16 @@ export function EventsPage(): React.JSX.Element {
     </Page>
   )
 }
+/** O aviso de rodada cancelada ocupa o lugar do "aguardando" na mesma região `status`: anuncia sem tirar o foco. */
+function statusMessage(
+  state: string | undefined,
+  roundCancelled: boolean,
+): 'participation.roundCancelled' | 'participation.waiting' | 'participation.joinInstructions' {
+  if (roundCancelled) {
+    return 'participation.roundCancelled'
+  }
+  return state === 'waiting' || state === 'checkedin' ? 'participation.waiting' : 'participation.joinInstructions'
+}
 function EventEntry({ event, userId }: { readonly event: Event; readonly userId: string }): React.JSX.Element {
   const privateOperation = usePrivateOperation()
   const { t, formatEventDateTime } = useI18n()
@@ -66,11 +76,7 @@ function EventEntry({ event, userId }: { readonly event: Event; readonly userId:
       {command.isError ? <RequestFailureAlert failure={classifyRequestFailure(command.error)} /> : null}
       {participation.data?.roomId === null || participation.data?.roomId === undefined ? (
         <>
-          <p role="status">
-            {t(
-              state === 'waiting' || state === 'checkedin' ? 'participation.waiting' : 'participation.joinInstructions',
-            )}
-          </p>
+          <p role="status">{t(statusMessage(state, participation.data?.roundCancelled === true))}</p>
           <Button
             disabled={command.isPending}
             onClick={() => {

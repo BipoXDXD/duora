@@ -12,7 +12,11 @@ const eventSchema = z.object({
   checkInOpensAt: z.string(),
   state: z.string(),
 }) satisfies z.ZodType<components['schemas']['EventResponse']>
-const participationSchema = z.object({ state: z.string(), roomId: z.string().nullable() })
+const participationSchema = z.object({
+  state: z.string(),
+  roomId: z.string().nullable(),
+  roundCancelled: z.boolean().default(false),
+}) satisfies z.ZodType<components['schemas']['ParticipationResponse']>
 const cardSchema = z.object({
   cardId: z.string(),
   position: z.number(),
