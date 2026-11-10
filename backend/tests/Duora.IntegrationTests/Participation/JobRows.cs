@@ -12,9 +12,9 @@ internal static class JobRows
         await using var connection = await source.OpenConnectionAsync(ct);
         await using var query = Command(connection, "select completed_at from ops.jobs where kind=$1 and aggregate_id=$2", kind, aggregate);
         await using var reader = await query.ExecuteReaderAsync(ct);
-        Assert.True(await reader.ReadAsync(ct));
+        Assert.True(await reader.ReadAsync(ct), $"Faltou a linha de ops.jobs com kind={kind} e aggregate_id={aggregate}.");
         DateTimeOffset? completedAt = await reader.IsDBNullAsync(0, ct) ? null : reader.GetFieldValue<DateTimeOffset>(0);
-        Assert.False(await reader.ReadAsync(ct));
+        Assert.False(await reader.ReadAsync(ct), $"Sobraram linhas de ops.jobs com kind={kind} e aggregate_id={aggregate}: era esperada uma só.");
         return completedAt;
     }
 }

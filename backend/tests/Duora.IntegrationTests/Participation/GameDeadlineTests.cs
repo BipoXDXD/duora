@@ -7,6 +7,7 @@ using Duora.IntegrationTests.Identity;
 using Microsoft.Extensions.Time.Testing;
 using Npgsql;
 using static Duora.Infrastructure.Participation.ParticipationSql;
+using static Duora.IntegrationTests.TestTime;
 
 namespace Duora.IntegrationTests.Participation;
 
@@ -17,8 +18,6 @@ namespace Duora.IntegrationTests.Participation;
 /// </summary>
 public sealed class GameDeadlineTests(PostgresFixture postgres)
 {
-    private static readonly TimeSpan OneTick = TimeSpan.FromTicks(1);
-
     private static CancellationToken Ct => TestContext.Current.CancellationToken;
 
     [Fact]

@@ -7,13 +7,12 @@ using Duora.IntegrationTests.Identity;
 using Microsoft.Extensions.Time.Testing;
 using Npgsql;
 using static Duora.Infrastructure.Participation.ParticipationSql;
+using static Duora.IntegrationTests.TestTime;
 
 namespace Duora.IntegrationTests.Participation;
 
 public sealed class RoutesParticipationTests(PostgresFixture postgres)
 {
-    private static readonly TimeSpan OneTick = TimeSpan.FromTicks(1);
-
     [Fact]
     public async Task BilingualCluesTurnsReplayRevisionAndCompletionSurviveRestart()
     {

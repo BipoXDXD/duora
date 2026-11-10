@@ -5,13 +5,13 @@ using Duora.IntegrationTests.Identity;
 using Microsoft.Extensions.Time.Testing;
 using Npgsql;
 using static Duora.Infrastructure.Participation.ParticipationSql;
+using static Duora.IntegrationTests.TestTime;
 
 namespace Duora.IntegrationTests.Participation;
 
 /// <summary>Os prazos de API-R01 e API-E05 pelo HTTP e pelo PostgreSQL reais, com relógio falso.</summary>
 public sealed class InviteAndCheckInDeadlineTests(PostgresFixture postgres)
 {
-    private static readonly TimeSpan OneTick = TimeSpan.FromTicks(1);
     private static readonly TimeSpan CheckInWindow = TimeSpan.FromMinutes(10);
 
     [Fact]

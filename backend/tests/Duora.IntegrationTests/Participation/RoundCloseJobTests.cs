@@ -2,6 +2,7 @@ using Duora.Infrastructure.Participation;
 using Microsoft.Extensions.Time.Testing;
 using Npgsql;
 using static Duora.Infrastructure.Participation.ParticipationSql;
+using static Duora.IntegrationTests.TestTime;
 
 namespace Duora.IntegrationTests.Participation;
 
@@ -16,8 +17,6 @@ public sealed class RoundCloseJobTests(PostgresFixture postgres)
     private const int MaximumDueJobs = 40;
 
     private static readonly TimeSpan LeaseDuration = TimeSpan.FromSeconds(60);
-
-    private static readonly TimeSpan OneTick = TimeSpan.FromTicks(1);
 
     private static CancellationToken Ct => TestContext.Current.CancellationToken;
 
