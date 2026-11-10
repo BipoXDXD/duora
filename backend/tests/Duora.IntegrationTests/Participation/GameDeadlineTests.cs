@@ -1,7 +1,6 @@
 using System.Globalization;
 using System.Net;
 using System.Text.Json;
-using System.Text.Json.Nodes;
 using Duora.Contracts.Participation;
 using Duora.Infrastructure.Participation;
 using Duora.IntegrationTests.Identity;
@@ -129,9 +128,9 @@ public sealed class GameDeadlineTests(PostgresFixture postgres)
 
     /// <summary>
     /// Entre o prazo e o job a sala segue <c>Active</c> no banco. Quem decide é o relógio do servidor (spec 10.4, "Timeout
-    /// vs ação"; T-18): a ação é recusada sem gravar nada e o job, quando roda, ainda expira a sala. A resposta é a mesma
-    /// <c>404</c> para uma ação nova antes e depois do job, em status, <c>code</c> e corpo. A leitura da sala continua
-    /// mostrando o estado do job (<c>Active</c> antes, <c>Expired</c> depois).
+    /// vs ação"; T-18): a ação é recusada sem gravar nada e o job, quando roda, ainda expira a sala. Uma ação nova recebe,
+    /// antes e depois do job, a mesma <c>404</c> de uma sala inexistente, em status, corpo sem <c>traceId</c> e headers. A
+    /// leitura da sala continua mostrando o estado do job (<c>Active</c> antes, <c>Expired</c> depois).
     /// </summary>
     [Theory]
     [InlineData(0)]
@@ -146,8 +145,9 @@ public sealed class GameDeadlineTests(PostgresFixture postgres)
         using var late = await ChooseOptionAsync(alice, scene.Room, active.Version);
 
         Assert.Equal(HttpStatusCode.NotFound, late.StatusCode);
-        var lateProblem = await ProblemWithoutTraceAsync(late);
-        Assert.Equal("NOT_FOUND", lateProblem.GetProperty("code").GetString());
+        Assert.Equal("NOT_FOUND", await ProblemCodeAsync(late));
+        var unknownRoom = await UnknownRoomAsync(alice, active.Version);
+        Assert.Equal(unknownRoom, await NeutralResponse.DescribeAsync(late, Ct));
         Assert.Equal(active, await scene.RoomFactsAsync());
         Assert.Equal("Pending|0", await scene.GameDeadlineJobAsync());
 
@@ -158,15 +158,13 @@ public sealed class GameDeadlineTests(PostgresFixture postgres)
         Assert.Equal(expired, await scene.RoomFactsAsync());
 
         using var afterTheJob = await ChooseOptionAsync(alice, scene.Room, active.Version);
-        Assert.Equal(HttpStatusCode.NotFound, afterTheJob.StatusCode);
-        Assert.Equal(lateProblem.ToString(), (await ProblemWithoutTraceAsync(afterTheJob)).ToString());
-        Assert.Equal(late.Content.Headers.ContentType, afterTheJob.Content.Headers.ContentType);
+        Assert.Equal(unknownRoom, await NeutralResponse.DescribeAsync(afterTheJob, Ct));
         Assert.Equal(expired, await scene.RoomFactsAsync());
     }
 
     /// <summary>
     /// Uma ação nova com <c>expectedVersion</c> desatualizado, no prazo e antes do job, recebe a mesma <c>404</c> da ação
-    /// atrasada, não o <c>409</c> de conflito: o prazo é checado antes da versão. Nada é gravado.
+    /// atrasada e de uma sala inexistente, não o <c>409</c> de conflito: o prazo é checado antes da versão. Nada é gravado.
     /// </summary>
     [Fact]
     public async Task ANewActionWithAStaleVersionAtTheDeadlineGetsTheSame404()
@@ -187,6 +185,7 @@ public sealed class GameDeadlineTests(PostgresFixture postgres)
 
         Assert.Equal(HttpStatusCode.NotFound, stale.StatusCode);
         Assert.Equal("NOT_FOUND", await ProblemCodeAsync(stale));
+        Assert.Equal(await UnknownRoomAsync(alice, active.Version), await NeutralResponse.DescribeAsync(stale, Ct));
         Assert.Equal(afterTheAction, await scene.RoomFactsAsync());
         Assert.Equal("Pending|0", await scene.GameDeadlineJobAsync());
     }
@@ -279,6 +278,37 @@ public sealed class GameDeadlineTests(PostgresFixture postgres)
         Assert.Equal(active, await scene.RoomFactsAsync());
     }
 
+    /// <summary>
+    /// O prazo só vale para a ação bem formada. Um payload malformado no prazo é recusado antes de a sala ser lida: a
+    /// resposta é igual à do mesmo payload numa sala inexistente, e nada é gravado. O handler recusa a versão inválida com
+    /// <c>400 VALIDATION_FAILED</c>, assim como o <c>actionId</c> ausente, que chega ao serviço como GUID vazio; JSON inválido
+    /// (aqui truncado em <c>{"actionId":</c>), GUID malformado e <c>actionId</c> como string vazia ou <c>null</c> falham no
+    /// model binding com <c>400 INVALID_REQUEST</c>.
+    /// </summary>
+    [Theory]
+    [InlineData("""{"actionId":"6f1c2a4e-0000-4000-8000-000000000001","expectedVersion":"0","type":"choose-option","cardId":"morning","optionId":"tea"}""", "VALIDATION_FAILED")]
+    [InlineData("""{"actionId":"not-a-guid","expectedVersion":"1","type":"choose-option","cardId":"morning","optionId":"tea"}""", "INVALID_REQUEST")]
+    [InlineData("""{"actionId":"","expectedVersion":"1","type":"choose-option","cardId":"morning","optionId":"tea"}""", "INVALID_REQUEST")]
+    [InlineData("""{"actionId":null,"expectedVersion":"1","type":"choose-option","cardId":"morning","optionId":"tea"}""", "INVALID_REQUEST")]
+    [InlineData("""{"expectedVersion":"1","type":"choose-option","cardId":"morning","optionId":"tea"}""", "VALIDATION_FAILED")]
+    // JSON truncado: o literal bruto termina em {"actionId": e não envia valor algum.
+    [InlineData("""{"actionId":""", "INVALID_REQUEST")]
+    public async Task AMalformedActionAtTheDeadlineIsRejectedBeforeTheRoomIsRead(string json, string code)
+    {
+        await using var scene = await ActiveRoomAsync();
+        using var alice = await scene.SignInAliceAsync();
+        var active = await scene.RoomFactsAsync();
+        scene.Clock.SetUtcNow(scene.Deadline);
+
+        using var malformed = await alice.PostRawJsonAsync($"/api/v1/rooms/{scene.Room}/actions", json);
+
+        Assert.Equal(HttpStatusCode.BadRequest, malformed.StatusCode);
+        Assert.Equal(code, await ProblemCodeAsync(malformed));
+        using var unknown = await alice.PostRawJsonAsync($"/api/v1/rooms/{Guid.NewGuid()}/actions", json);
+        Assert.Equal(await NeutralResponse.DescribeAsync(unknown, Ct), await NeutralResponse.DescribeAsync(malformed, Ct));
+        Assert.Equal(active, await scene.RoomFactsAsync());
+    }
+
     [Fact]
     public async Task AnActionOneTickBeforeTheDeadlineIsApplied()
     {
@@ -293,12 +323,11 @@ public sealed class GameDeadlineTests(PostgresFixture postgres)
         Assert.Equal(new RoomFacts("Active", active.Version + 1, ActiveReservations: 2, Actions: 1), await scene.RoomFactsAsync());
     }
 
-    /// <summary>O corpo do problema sem <c>traceId</c>, o único campo que muda de uma requisição para outra.</summary>
-    private static async Task<JsonElement> ProblemWithoutTraceAsync(HttpResponseMessage response)
+    /// <summary>A mesma ação numa sala que não existe: a resposta que a sala vencida não pode distinguir.</summary>
+    private static async Task<string> UnknownRoomAsync(Browser browser, long version)
     {
-        var body = Assert.IsType<JsonObject>(JsonNode.Parse(await response.Content.ReadAsStringAsync(Ct)));
-        Assert.True(body.Remove("traceId"));
-        return JsonSerializer.SerializeToElement(body);
+        using var unknown = await ChooseOptionAsync(browser, Guid.NewGuid(), version);
+        return await NeutralResponse.DescribeAsync(unknown, Ct);
     }
 
     private static async Task<string?> ProblemCodeAsync(HttpResponseMessage response)
