@@ -39,7 +39,7 @@ internal static class PhotoReviewEndpoints
             .RequireRecentMfa().Produces<PhotoReviewDecisionResponse>();
     }
 
-    private static RouteHandlerBuilder Read(RouteHandlerBuilder route) => route
+    internal static RouteHandlerBuilder Read(RouteHandlerBuilder route) => route
         .ProducesProblem(400).ProducesProblem(401).ProducesProblem(403).ProducesProblem(404).ProducesProblem(503)
         .AddEndpointFilter(async (invocation, next) =>
         {

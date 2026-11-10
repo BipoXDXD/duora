@@ -52,7 +52,7 @@ internal static class ParticipationEndpoints
             .RequireProductAdministrator().RequireRecentMfa().ProducesProblem(401).ProducesProblem(403);
     }
 
-    private static async ValueTask<object?> AnswerLockContentionAsUnavailableAsync(EndpointFilterInvocationContext context, EndpointFilterDelegate next)
+    internal static async ValueTask<object?> AnswerLockContentionAsUnavailableAsync(EndpointFilterInvocationContext context, EndpointFilterDelegate next)
     {
         try
         { return await next(context); }
