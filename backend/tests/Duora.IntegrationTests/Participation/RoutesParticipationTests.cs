@@ -250,6 +250,41 @@ public sealed class RoutesParticipationTests(PostgresFixture postgres)
         Assert.Equal(expired, await StateAndVersionAsync(connection, room, ct));
     }
 
+    /// <summary>
+    /// Uma ação nova com <c>expectedVersion</c> desatualizado, no prazo e antes do job, recebe a mesma <c>404</c> da ação
+    /// atrasada, não o <c>409</c> de conflito. Nada é gravado.
+    /// </summary>
+    [Fact]
+    public async Task ANewActionWithAStaleVersionAtTheDeadlineGetsTheSame404()
+    {
+        var (source, clock, service, seed, room, connectionString) = await Active();
+        await using var owned = source;
+        var ct = TestContext.Current.CancellationToken;
+        await using var factory = new DuoraWebFactory(connectionString) { Time = clock };
+        var identity = new IdentityScenario(connectionString, factory);
+        using var alice = await identity.SignedInBrowserAsync(new(seed.Alice, "alice@example.com", IdentityScenario.ValidPassword));
+        using var bob = await identity.SignedInBrowserAsync(new(seed.Bob, "bob@example.com", IdentityScenario.ValidPassword));
+        var before = (await service.RoomAsync(room, seed.Alice, ct))!;
+        await using var connection = await source.OpenConnectionAsync(ct);
+        var deadline = await DeadlineAsync(connection, room, ct);
+        var endpoint = $"/api/v1/rooms/{room}/routes-actions";
+        clock.SetUtcNow(deadline.AddTicks(-1));
+        using (var applied = await alice.PostJsonAsync(endpoint, AcknowledgeIntroduction(before.Version)))
+        {
+            Assert.Equal(HttpStatusCode.NoContent, applied.StatusCode);
+        }
+
+        var afterTheAction = await StateAndVersionAsync(connection, room, ct);
+        clock.SetUtcNow(deadline);
+
+        using var stale = await bob.PostJsonAsync(endpoint, AcknowledgeIntroduction(before.Version));
+
+        Assert.Equal(HttpStatusCode.NotFound, stale.StatusCode);
+        Assert.Equal("NOT_FOUND", (await ProblemWithoutTraceAsync(stale, ct)).GetProperty("code").GetString());
+        Assert.Equal(("Active", before.Version + 1), afterTheAction);
+        Assert.Equal(afterTheAction, await StateAndVersionAsync(connection, room, ct));
+    }
+
     [Theory]
     [InlineData(false)]
     [InlineData(true)]
@@ -326,6 +361,17 @@ public sealed class RoutesParticipationTests(PostgresFixture postgres)
     {
         var current = (await service.RoomAsync(room, user, ct))!;
         Assert.Equal(ParticipationOutcome.Done, await service.RoutesActionAsync(room, user, Guid.NewGuid(), current.Version, type, stage, step, option, ct));
+    }
+
+    private static RoutesActionRequest AcknowledgeIntroduction(long version) =>
+        new(Guid.NewGuid(), version.ToString(CultureInfo.InvariantCulture), "acknowledge", "Introduction", null, null);
+
+    private static async Task<DateTimeOffset> DeadlineAsync(NpgsqlConnection connection, Guid room, CancellationToken ct)
+    {
+        await using var query = Command(connection, "select active_deadline_at from experiences.game_sessions where id=$1", room);
+        await using var reader = await query.ExecuteReaderAsync(ct);
+        Assert.True(await reader.ReadAsync(ct));
+        return reader.GetFieldValue<DateTimeOffset>(0);
     }
 
     private static async Task<(string State, long Version)> StateAndVersionAsync(NpgsqlConnection connection, Guid room, CancellationToken ct)

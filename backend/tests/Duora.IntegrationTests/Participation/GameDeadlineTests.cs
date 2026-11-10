@@ -104,6 +104,33 @@ public sealed class GameDeadlineTests(PostgresFixture postgres)
         Assert.Equal(expired, await scene.RoomFactsAsync());
     }
 
+    /// <summary>
+    /// Uma ação nova com <c>expectedVersion</c> desatualizado, no prazo e antes do job, recebe a mesma <c>404</c> da ação
+    /// atrasada, não o <c>409</c> de conflito: o prazo é checado antes da versão. Nada é gravado.
+    /// </summary>
+    [Fact]
+    public async Task ANewActionWithAStaleVersionAtTheDeadlineGetsTheSame404()
+    {
+        await using var scene = await ActiveRoomAsync();
+        using var alice = await scene.SignInAliceAsync();
+        var active = await scene.RoomFactsAsync();
+        scene.Clock.SetUtcNow(scene.Deadline - OneTick);
+        using (var applied = await PostActionAsync(alice, scene.Room, ChooseOption(active.Version)))
+        {
+            Assert.Equal(HttpStatusCode.NoContent, applied.StatusCode);
+        }
+
+        var afterTheAction = await scene.RoomFactsAsync();
+        scene.Clock.SetUtcNow(scene.Deadline);
+
+        using var stale = await PostActionAsync(alice, scene.Room, ChooseOption(active.Version));
+
+        Assert.Equal(HttpStatusCode.NotFound, stale.StatusCode);
+        Assert.Equal("NOT_FOUND", await ProblemCodeAsync(stale));
+        Assert.Equal(afterTheAction, await scene.RoomFactsAsync());
+        Assert.Equal("Pending|0", await scene.GameDeadlineJobAsync());
+    }
+
     /// <summary>Reutilizar um <c>actionId</c> já aplicado com outro corpo, antes do prazo, continua <c>400 VALIDATION_FAILED</c>.</summary>
     [Fact]
     public async Task AReusedActionIdBeforeTheDeadlineIsStillAValidationFailure()
