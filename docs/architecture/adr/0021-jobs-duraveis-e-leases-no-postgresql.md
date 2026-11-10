@@ -389,3 +389,21 @@ revisada `compose.prod.yml`, e `ShutdownMarginTests` barra divergência com ela.
 `/opt/duora/compose.coolify.json`, fora desse teste; lido na VPS, `StopTimeout` é 30 em `duora-web-1` e
 `duora-worker-1`. O prazo é teto, não tempo de drenagem: em 21 paradas reais o máximo foi 0,9 s, sem SIGKILL.
 Implementar a drenagem do item 12 é mudança de comportamento e fica para decisão própria.
+
+## Adendo (2026-11-10): job de participação entregue antes do `due_at` volta à fila
+
+Em `ops.jobs` passa a existir a transição `InFlight → Pending` sem falha. Se `CompleteJobAsync` recebe um job com
+`due_at` ainda no futuro, ele não conclui o job. Um só `UPDATE`, com o fencing do claim (`id`, `fencing_token`,
+`status='InFlight'`, lease vigente e `due_at>now`), devolve o job a `Pending` com `available_at=due_at`,
+`attempts=attempts-1` (a tentativa do claim é devolvida) e `lease_expires_at` nulo. Um log `Information` registra o
+id e o tipo. Vale para os quatro tipos de participação: `build-round`, `close-round`, `expire-invite` e
+`game-deadline`.
+
+Antes, o job terminava `Done` sem efeito, porque a conclusão via o prazo ainda aberto, e nada o reagendava. Como o
+claim e a conclusão usam o mesmo relógio, isso só acontece com `available_at` mexido à mão ou com o relógio do
+processo recuando entre o claim e a conclusão. Só o dono do token devolve o job, uma vez: uma conclusão atrasada,
+cercada por um claim novo, não muda a linha (`GameDeadlineTests.AStaleCompletionOfAnEarlyGameDeadlineJobDoesNotRequeueTheNewClaim`).
+
+Consequência: `attempts` não tem `CHECK (attempts >= 0)`. O fencing garante que cada claim é devolvido no máximo uma
+vez, então o valor não fica negativo, mas a garantia está no código, não no esquema. A constraint exige migração e
+fica para mudança própria.
