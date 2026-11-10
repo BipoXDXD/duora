@@ -78,7 +78,10 @@ public sealed partial class OwnerMediaReads
     /// <summary>
     /// O derivado promovido é lido inteiro e conferido contra o tamanho e o SHA-256 de
     /// <c>media.review_promotion_variants</c> antes do primeiro byte; o teto de 16 MiB por variante vem do CHECK
-    /// dessa tabela. O legado nunca teve digest persistido e segue entregue, com registro para ser contado.
+    /// dessa tabela. Objeto maior que o gravado ou com outro hash é integridade (404). Corpo que acaba antes do tamanho
+    /// é tratado como falha transitória do storage, como um corpo cortado pela rede: a
+    /// <see cref="EndOfStreamException"/> sobe e a admissão de mídia responde 503. O legado nunca teve digest
+    /// persistido e segue entregue, com registro para ser contado.
     /// </summary>
     private async Task<Stream?> VerifiedAsync(Stream opened, StoredVariant stored, Guid assetId, string variant,
         CancellationToken cancellationToken)
@@ -119,7 +122,7 @@ public sealed partial class OwnerMediaReads
                 await exact.CopyToAsync(buffer, cancellationToken);
             }
         }
-        catch (Exception exception) when (exception is EndOfStreamException or InvalidDataException)
+        catch (InvalidDataException)
         {
             await buffer.DisposeAsync();
             return null;

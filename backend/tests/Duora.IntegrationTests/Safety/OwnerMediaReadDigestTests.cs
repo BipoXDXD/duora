@@ -30,19 +30,13 @@ public sealed partial class PhotoReviewApprovalTests
 
     [Theory]
     [InlineData("flipped")]
-    [InlineData("truncated")]
     [InlineData("extended")]
     public async Task APromotedDerivativeWhoseBytesNoLongerMatchItsDigestIsRefusedAndRecorded(string tampering)
     {
         var read = await PromotedReadAsync();
         var path = Path.Combine(_root.FullName, read.Key.Value);
         var original = await File.ReadAllBytesAsync(path, Ct);
-        byte[] tampered = tampering switch
-        {
-            "flipped" => [.. original[..^1], (byte)(original[^1] ^ 1)],
-            "truncated" => original[..^1],
-            _ => [.. original, 0],
-        };
+        byte[] tampered = tampering == "flipped" ? [.. original[..^1], (byte)(original[^1] ^ 1)] : [.. original, 0];
         await File.WriteAllBytesAsync(path, tampered, Ct);
 
         var media = await read.Reads.OpenAsync(read.Owner.UserId, read.Owner.SessionId, read.AssetId,
@@ -54,6 +48,25 @@ public sealed partial class PhotoReviewApprovalTests
         Assert.Contains(read.AssetId.ToString(), entry.Text, StringComparison.Ordinal);
         Assert.DoesNotContain(read.Key.Value, entry.Text, StringComparison.Ordinal);
         Assert.DoesNotContain(read.Owner.UserId.ToString(), entry.Text, StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// Um corpo que termina antes do tamanho gravado é o que o S3 entrega quando a rede corta a leitura: falha
+    /// transitória, que sobe como <see cref="IOException"/> para a admissão de mídia responder 503, sem log de
+    /// integridade e sem bytes.
+    /// </summary>
+    [Fact]
+    public async Task ABodyThatEndsBeforeItsRecordedSizeIsATransientFailureNotA404()
+    {
+        var read = await PromotedReadAsync();
+        var path = Path.Combine(_root.FullName, read.Key.Value);
+        var original = await File.ReadAllBytesAsync(path, Ct);
+        await File.WriteAllBytesAsync(path, original[..^1], Ct);
+
+        await Assert.ThrowsAsync<EndOfStreamException>(() => read.Reads.OpenAsync(read.Owner.UserId,
+            read.Owner.SessionId, read.AssetId, PhotoVariant.Full, Ct));
+
+        Assert.DoesNotContain(read.Logs.Entries, entry => entry.Level >= LogLevel.Information);
     }
 
     /// <summary>
