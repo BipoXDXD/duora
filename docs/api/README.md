@@ -114,9 +114,10 @@ Prazo de jogo, em `actions` e `routes-actions`: uma ação nova **bem formada** 
 mesmo com `expectedVersion` desatualizado. Payload malformado é recusado antes de a sala ser lida, no prazo ou
 depois dele, com a mesma resposta de uma sala inexistente. JSON inválido ou campo de tipo errado (como `actionId`
 que não é GUID) falha no model binding e recebe `400 INVALID_REQUEST`. Os demais casos recebem
-`400 VALIDATION_FAILED`: `actionId` vazio, `expectedVersion` que não é inteiro positivo, `type` desconhecido, ou
-campos ausentes ou incoerentes com o `type`. Até o job rodar, o reenvio com o mesmo `actionId` segue a regra de replay acima
-(`204` ou `400`); depois, `404`.
+`400 VALIDATION_FAILED`: `actionId` ausente ou GUID nulo, `expectedVersion` que não é inteiro positivo, `type`
+desconhecido, ou campos ausentes ou incoerentes com o `type` (`"actionId":""` não é GUID e recebe
+`INVALID_REQUEST`). Até o job rodar, o reenvio com o mesmo `actionId` segue a regra de replay acima (`204` ou
+`400`); depois, `404`.
 
 ## Idioma do documento aceito (issue #103)
 
