@@ -186,6 +186,7 @@ public sealed class InviteAndCheckInDeadlineTests(PostgresFixture postgres)
         Assert.Equal(new RoomFacts("Expired", AliceAccepted: false, BobAccepted: false, ActiveReservations: 0, HasGame: false, GameDeadlineJobs: 0),
             await ReadRoomFactsAsync(scene, room, ct));
         Assert.Equal(("Done", 1, deadline), await ReadExpireInviteJobAsync(scene, room, ct));
+        Assert.Equal(deadline, await JobRows.CompletedAtAsync(scene.Source, "expire-invite", room, ct));
     }
 
     /// <summary>
@@ -221,6 +222,7 @@ public sealed class InviteAndCheckInDeadlineTests(PostgresFixture postgres)
 
         Assert.NotNull((await scene.Service.StatusAsync(eventId, scene.Seed.Alice, ct))!.RoomId);
         Assert.Equal(("Done", 1, starts), await ReadJobAsync(scene, "build-round", round, ct));
+        Assert.Equal(starts, await JobRows.CompletedAtAsync(scene.Source, "build-round", round, ct));
     }
 
     [Fact]

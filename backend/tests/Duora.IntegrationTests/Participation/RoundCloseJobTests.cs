@@ -17,6 +17,8 @@ public sealed class RoundCloseJobTests(PostgresFixture postgres)
 
     private static readonly TimeSpan LeaseDuration = TimeSpan.FromSeconds(60);
 
+    private static readonly TimeSpan OneTick = TimeSpan.FromTicks(1);
+
     private static CancellationToken Ct => TestContext.Current.CancellationToken;
 
     [Fact]
@@ -123,7 +125,7 @@ public sealed class RoundCloseJobTests(PostgresFixture postgres)
         var active = await round.RoomAsync(round.ActiveRoom);
         var inviting = await round.RoundRowAsync();
 
-        round.Clock.SetUtcNow(round.Deadline.AddTicks(-1));
+        round.Clock.SetUtcNow(round.Deadline - OneTick);
         var early = await RunDueJobsAsync(round.Service);
 
         Assert.DoesNotContain(early, job => job.AggregateId == round.Round && job.Kind == "close-round");
@@ -154,7 +156,7 @@ public sealed class RoundCloseJobTests(PostgresFixture postgres)
         var inviting = await round.RoundRowAsync();
         var running = await round.EventRowAsync();
         await round.ExecuteAsync("update ops.jobs set available_at=$2 where kind='close-round' and aggregate_id=$1", round.Round, round.Deadline.AddMinutes(-1));
-        round.Clock.SetUtcNow(round.Deadline.AddTicks(-1));
+        round.Clock.SetUtcNow(round.Deadline - OneTick);
 
         var early = await ClaimCloseJobAsync(round);
 
@@ -189,7 +191,7 @@ public sealed class RoundCloseJobTests(PostgresFixture postgres)
         var running = await round.EventRowAsync();
         round.Clock.SetUtcNow(round.Deadline);
         var job = await ClaimCloseJobAsync(round);
-        var rewinding = new ParticipationService(round.Source, new RewindingClock(round.Clock, round.Deadline.AddTicks(-1)));
+        var rewinding = new ParticipationService(round.Source, new RewindingClock(round.Clock, round.Deadline - OneTick));
 
         Assert.True(await rewinding.CompleteJobAsync(job, Ct));
 
@@ -199,6 +201,7 @@ public sealed class RoundCloseJobTests(PostgresFixture postgres)
         Assert.Equal(("Closed", inviting.Version + 1), await round.RoundRowAsync());
         Assert.Equal(("Completed", running.Version + 1), await round.EventRowAsync());
         Assert.Equal(("Done", 1), await round.CloseJobRowAsync());
+        Assert.Equal(round.Deadline, await JobRows.CompletedAtAsync(round.Source, "close-round", round.Round, Ct));
     }
 
     [Fact]

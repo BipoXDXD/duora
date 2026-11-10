@@ -12,6 +12,8 @@ namespace Duora.IntegrationTests.Participation;
 
 public sealed class RoutesParticipationTests(PostgresFixture postgres)
 {
+    private static readonly TimeSpan OneTick = TimeSpan.FromTicks(1);
+
     [Fact]
     public async Task BilingualCluesTurnsReplayRevisionAndCompletionSurviveRestart()
     {
@@ -228,7 +230,7 @@ public sealed class RoutesParticipationTests(PostgresFixture postgres)
         var job = await service.ClaimJobAsync(ct);
         Assert.NotNull(job);
         Assert.Equal(("game-deadline", room), (job.Kind, job.AggregateId));
-        var rewinding = new ParticipationService(source, new RewindingClock(clock, deadline.AddTicks(-1)));
+        var rewinding = new ParticipationService(source, new RewindingClock(clock, deadline - OneTick));
 
         Assert.True(await rewinding.CompleteJobAsync(job, ct));
 
@@ -239,6 +241,7 @@ public sealed class RoutesParticipationTests(PostgresFixture postgres)
             where s.id=$1
             """, room);
         Assert.Equal("Expired|Done|1", await state.ExecuteScalarAsync(ct));
+        Assert.Equal(deadline, await JobRows.CompletedAtAsync(source, "game-deadline", room, ct));
     }
 
     [Theory]

@@ -96,6 +96,7 @@ public sealed class GameDeadlineTests(PostgresFixture postgres)
 
         Assert.Equal(new RoomFacts("Expired", active.Version + 1, ActiveReservations: 0, Actions: 0), await scene.RoomFactsAsync());
         Assert.Equal("Done|1", await scene.GameDeadlineJobAsync());
+        Assert.Equal(scene.Deadline, await JobRows.CompletedAtAsync(scene.Source, "game-deadline", scene.Room, Ct));
     }
 
     /// <summary>
