@@ -336,11 +336,14 @@ public sealed class RoutesParticipationTests(PostgresFixture postgres)
     /// <summary>
     /// O prazo só vale para a ação bem formada. Um payload malformado no prazo é recusado antes de a sala ser lida: a
     /// resposta é igual à do mesmo payload numa sala inexistente, e nada é gravado. O handler recusa a versão inválida com
-    /// <c>400 VALIDATION_FAILED</c>; JSON inválido e GUID malformado falham no model binding com <c>400 INVALID_REQUEST</c>.
+    /// <c>400 VALIDATION_FAILED</c>; JSON inválido (aqui truncado em <c>{"actionId":</c>), GUID malformado e <c>actionId</c>
+    /// como string vazia falham no model binding com <c>400 INVALID_REQUEST</c>.
     /// </summary>
     [Theory]
     [InlineData("""{"actionId":"6f1c2a4e-0000-4000-8000-000000000002","expectedVersion":"0","type":"acknowledge","stage":"Introduction"}""", "VALIDATION_FAILED")]
     [InlineData("""{"actionId":"not-a-guid","expectedVersion":"1","type":"acknowledge","stage":"Introduction"}""", "INVALID_REQUEST")]
+    [InlineData("""{"actionId":"","expectedVersion":"1","type":"acknowledge","stage":"Introduction"}""", "INVALID_REQUEST")]
+    // JSON truncado: o literal bruto termina em {"actionId": e não envia valor algum.
     [InlineData("""{"actionId":""", "INVALID_REQUEST")]
     public async Task AMalformedActionAtTheDeadlineIsRejectedBeforeTheRoomIsRead(string json, string code)
     {
