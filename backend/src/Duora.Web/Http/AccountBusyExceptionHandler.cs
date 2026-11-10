@@ -17,11 +17,7 @@ internal sealed class AccountBusyExceptionHandler : IExceptionHandler
             return false;
         }
 
-        ApiProblems.SetRetryAfter(httpContext, busy.RetryAfter);
-        await ApiProblems.Problem(
-                StatusCodes.Status503ServiceUnavailable,
-                ApiProblems.TemporarilyUnavailable)
-            .ExecuteAsync(httpContext);
+        await ApiProblems.Unavailable(httpContext, busy.RetryAfter).ExecuteAsync(httpContext);
         return true;
     }
 }

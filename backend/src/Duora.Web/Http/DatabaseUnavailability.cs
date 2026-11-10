@@ -93,27 +93,54 @@ internal sealed partial class DatabaseUnavailableExceptionHandler(ILogger<Databa
 
     public async ValueTask<bool> TryHandleAsync(HttpContext httpContext, Exception exception, CancellationToken cancellationToken)
     {
-        if (DatabaseUnavailability.TemporaryCause(exception) is not { } cause)
+        if (CauseFor(httpContext, exception) is not { } cause)
         {
             return false;
         }
 
-        LogDatabaseUnavailable(
-            logger,
-            (cause as PostgresException)?.SqlState ?? NoSqlState,
-            cause.GetType().Name,
-            RouteOf(httpContext),
-            Activity.Current?.Id ?? httpContext.TraceIdentifier);
-        ApiProblems.SetRetryAfter(httpContext, RetryAfterFor(cause));
-        await ApiProblems.Problem(
-                StatusCodes.Status503ServiceUnavailable,
-                ApiProblems.TemporarilyUnavailable)
+        var contention = DatabaseUnavailability.IsContention(cause);
+        Log(contention, cause, httpContext);
+        await ApiProblems.Unavailable(httpContext, contention ? ContentionRetryAfter : UnreachableRetryAfter)
             .ExecuteAsync(httpContext);
         return true;
     }
 
-    private static TimeSpan RetryAfterFor(NpgsqlException cause) =>
-        DatabaseUnavailability.IsContention(cause) ? ContentionRetryAfter : UnreachableRetryAfter;
+    // Nas rotas de indisponibilidade neutra, o timeout de comando (57014) também é indisponibilidade: lá todo 503 é
+    // igual, e um 500 nesse caso destoaria das outras causas. Fora delas, 57014 continua com quem o espera (filtros de
+    // mídia e revisão de foto) ou vira 500.
+    private static NpgsqlException? CauseFor(HttpContext httpContext, Exception exception) =>
+        DatabaseUnavailability.TemporaryCause(exception)
+        ?? (ApiProblems.IsNeutralUnavailability(httpContext) ? QueryCanceledIn(exception) : null);
+
+    private static PostgresException? QueryCanceledIn(Exception exception)
+    {
+        for (var current = exception; current is not null; current = current.InnerException)
+        {
+            if (current is PostgresException { SqlState: PostgresErrorCodes.QueryCanceled } canceled)
+            {
+                return canceled;
+            }
+        }
+
+        return null;
+    }
+
+    /// <summary>O Warning separa contenção de banco fora pelo mesmo critério do <c>Retry-After</c>.</summary>
+    private void Log(bool contention, NpgsqlException cause, HttpContext httpContext)
+    {
+        var sqlState = (cause as PostgresException)?.SqlState ?? NoSqlState;
+        var errorType = cause.GetType().Name;
+        var route = RouteOf(httpContext);
+        var traceId = Activity.Current?.Id ?? httpContext.TraceIdentifier;
+        if (contention)
+        {
+            LogDatabaseContention(logger, sqlState, errorType, route, traceId);
+        }
+        else
+        {
+            LogDatabaseUnavailable(logger, sqlState, errorType, route, traceId);
+        }
+    }
 
     /// <summary>O padrão da rota (sem ids); o middleware de exceção já limpou o endpoint do contexto.</summary>
     private static string RouteOf(HttpContext httpContext)
@@ -122,8 +149,13 @@ internal sealed partial class DatabaseUnavailableExceptionHandler(ILogger<Databa
         return (failure?.Endpoint as RouteEndpoint)?.RoutePattern.RawText ?? NoEndpoint;
     }
 
-    [LoggerMessage(Level = LogLevel.Warning,
+    [LoggerMessage(EventId = 1, EventName = "DatabaseUnavailable", Level = LogLevel.Warning,
         Message = "Database unavailable ({SqlState}, {ErrorType}) on {Route}, trace {TraceId}")]
     private static partial void LogDatabaseUnavailable(
+        ILogger logger, string sqlState, string errorType, string route, string traceId);
+
+    [LoggerMessage(EventId = 2, EventName = "DatabaseContention", Level = LogLevel.Warning,
+        Message = "Database contention ({SqlState}, {ErrorType}) on {Route}, trace {TraceId}")]
+    private static partial void LogDatabaseContention(
         ILogger logger, string sqlState, string errorType, string route, string traceId);
 }
