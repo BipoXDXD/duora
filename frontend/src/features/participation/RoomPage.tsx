@@ -133,19 +133,20 @@ interface SettledMutation {
 }
 
 /**
- * A falha de uma mutação descreve a sala em que apareceu. Quando o estado da sala muda de novo, as falhas já assentadas
- * deixam de valer. A mutação ainda pendente fica de fora: é a releitura dela que muda o estado.
+ * A falha de uma mutação descreve a sala em que apareceu: vale enquanto o estado da sala for o do render em que ela
+ * surgiu. O React Query pode entregar no mesmo render a falha e a releitura que ela disparou (o 404 que já traz a sala
+ * `Expired`), então a referência é o estado visto junto da falha, não o de antes.
  */
 function useFailuresOfCurrentState(
   state: string,
   mutations: readonly SettledMutation[],
 ): (mutation: SettledMutation) => boolean {
-  const [seen, setSeen] = useState({ state, staleUntil: 0 })
-  if (seen.state !== state) {
-    const settled = mutations.filter((mutation) => mutation.isError).map((mutation) => mutation.submittedAt)
-    setSeen({ state, staleUntil: Math.max(seen.staleUntil, ...settled) })
+  const [stateAtFailure, setStateAtFailure] = useState<ReadonlyMap<number, string>>(new Map())
+  const unseen = mutations.filter((mutation) => mutation.isError && !stateAtFailure.has(mutation.submittedAt))
+  if (unseen.length > 0) {
+    setStateAtFailure(new Map([...stateAtFailure, ...unseen.map((mutation) => [mutation.submittedAt, state] as const)]))
   }
-  return (mutation) => mutation.isError && mutation.submittedAt > seen.staleUntil
+  return (mutation) => mutation.isError && (stateAtFailure.get(mutation.submittedAt) ?? state) === state
 }
 
 function RoomBody({
