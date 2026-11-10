@@ -1,7 +1,7 @@
 import { usePrivateOperation } from '@/features/session/private-operation'
 import { usePrivateMutation } from '@/features/session/private-mutation'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useId, useRef, useState } from 'react'
 import { useAccount } from '@/features/session/account-context'
 import { classifyRequestFailure } from '@/shared/api'
 import { useI18n } from '@/shared/i18n/i18n-context'
@@ -10,6 +10,7 @@ import { RequestFailureAlert } from '@/shared/ui/alert'
 import { Button } from '@/shared/ui/button'
 import { Page, TextLink } from '@/shared/ui/page'
 import { checkIn, fetchEvents, fetchParticipation, register, withdraw, type Event } from './participation-api'
+import { canWithdrawRegistration } from './withdrawal'
 
 export function EventsPage(): React.JSX.Element {
   const privateOperation = usePrivateOperation()
@@ -38,9 +39,6 @@ export function EventsPage(): React.JSX.Element {
 }
 type EntryCommand = 'register' | 'checkIn' | 'withdraw'
 
-/** Estados de `GET /participation` em que a pessoa ainda tem inscrição ativa e pode retirá-la (API-E04). */
-const WITHDRAWABLE_STATES: ReadonlySet<string> = new Set(['confirmed', 'waitlisted', 'checkedin', 'waiting'])
-
 function sendCommand(operation: Parameters<typeof register>[0], eventId: string, action: EntryCommand): Promise<void> {
   switch (action) {
     case 'register':
@@ -52,19 +50,19 @@ function sendCommand(operation: Parameters<typeof register>[0], eventId: string,
   }
 }
 
+/** Onde o foco vai depois da próxima renderização da retirada: o botão, o aviso da confirmação ou o resultado. */
+type WithdrawalFocus = 'button' | 'warning' | 'outcome'
+
 function EventEntry({ event, userId }: { readonly event: Event; readonly userId: string }): React.JSX.Element {
   const privateOperation = usePrivateOperation()
   const { t, formatEventDateTime } = useI18n()
   const client = useQueryClient()
+  const warningId = useId()
   const [confirmingWithdrawal, setConfirmingWithdrawal] = useState(false)
   const withdrawButton = useRef<HTMLButtonElement>(null)
-  const returnFocus = useRef(false)
-  useEffect(() => {
-    if (!confirmingWithdrawal && returnFocus.current) {
-      returnFocus.current = false
-      withdrawButton.current?.focus()
-    }
-  }, [confirmingWithdrawal])
+  const warning = useRef<HTMLParagraphElement>(null)
+  const outcome = useRef<HTMLParagraphElement>(null)
+  const pendingFocus = useRef<WithdrawalFocus | null>(null)
   const key = ['account', userId, 'participation', event.eventId]
   const participation = useQuery({
     queryKey: key,
@@ -74,14 +72,30 @@ function EventEntry({ event, userId }: { readonly event: Event; readonly userId:
   })
   const command = usePrivateMutation({
     mutationFn: (operation, action: EntryCommand) => sendCommand(operation, event.eventId, action),
-    onSuccess: async () => {
+    onSuccess: async (_, action) => {
+      if (action === 'withdraw') {
+        pendingFocus.current = 'outcome'
+      }
       setConfirmingWithdrawal(false)
       await client.invalidateQueries({ queryKey: key })
     },
   })
   const state = participation.data?.state.toLowerCase()
   const withdrawn = state === 'withdrawn'
-  const canWithdraw = state !== undefined && WITHDRAWABLE_STATES.has(state)
+  // O instante da última leitura do estado: puro na renderização e renovado pelo polling de 3 s.
+  const canWithdraw = canWithdrawRegistration(state, event.startsAt, participation.dataUpdatedAt)
+  const withdrawLabel = t(state === 'waitlisted' ? 'participation.leaveWaitlist' : 'participation.withdraw')
+  useEffect(() => {
+    const focus = pendingFocus.current
+    if (focus === null) {
+      return
+    }
+    const target = { button: withdrawButton, warning, outcome }[focus].current
+    if (target !== null) {
+      pendingFocus.current = null
+      target.focus()
+    }
+  })
   return (
     <section className="flex flex-col gap-4 rounded-lg border border-border p-5">
       <h2 className="text-xl font-semibold">{event.title}</h2>
@@ -94,7 +108,9 @@ function EventEntry({ event, userId }: { readonly event: Event; readonly userId:
       {command.isError ? <RequestFailureAlert failure={classifyRequestFailure(command.error)} /> : null}
       {participation.data?.roomId === null || participation.data?.roomId === undefined ? (
         withdrawn ? (
-          <p role="status">{t('participation.withdrawn')}</p>
+          <p ref={outcome} role="status" tabIndex={-1}>
+            {t('participation.withdrawn')}
+          </p>
         ) : (
           <>
             <p role="status">
@@ -126,21 +142,21 @@ function EventEntry({ event, userId }: { readonly event: Event; readonly userId:
                 variant="secondary"
                 disabled={command.isPending}
                 onClick={() => {
+                  pendingFocus.current = 'warning'
                   setConfirmingWithdrawal(true)
                 }}
               >
-                {t(state === 'waitlisted' ? 'participation.leaveWaitlist' : 'participation.withdraw')}
+                {withdrawLabel}
               </Button>
             ) : null}
             {canWithdraw && confirmingWithdrawal ? (
-              <div
-                role="group"
-                aria-label={t(state === 'waitlisted' ? 'participation.leaveWaitlist' : 'participation.withdraw')}
-                className="flex flex-col gap-3"
-              >
-                <p>{t('participation.withdrawWarning')}</p>
+              <div role="group" aria-label={withdrawLabel} className="flex flex-col gap-3">
+                <p id={warningId} ref={warning} tabIndex={-1}>
+                  {t('participation.withdrawWarning')}
+                </p>
                 <Button
                   variant="destructive"
+                  aria-describedby={warningId}
                   disabled={command.isPending}
                   onClick={() => {
                     command.mutate('withdraw')
@@ -152,7 +168,7 @@ function EventEntry({ event, userId }: { readonly event: Event; readonly userId:
                   variant="neutral"
                   disabled={command.isPending}
                   onClick={() => {
-                    returnFocus.current = true
+                    pendingFocus.current = 'button'
                     setConfirmingWithdrawal(false)
                   }}
                 >

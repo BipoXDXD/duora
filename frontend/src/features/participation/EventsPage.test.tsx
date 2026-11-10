@@ -1,10 +1,11 @@
 import { withSessionContext } from '@/test/private-context'
-import { screen } from '@testing-library/react'
+import { screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { http, HttpResponse } from 'msw'
 import { describe, expect, it } from 'vitest'
 import { API, server } from '@/test/msw'
 import { renderApp } from '@/test/render'
+import { canWithdrawRegistration } from './withdrawal'
 
 const me = {
   id: '0199f1a2-3b4c-7d5e-8f60-718293a4b5c6',
@@ -98,7 +99,9 @@ describe('withdrawing from an event (API-E04)', () => {
     await renderApp('/events')
     await user.click(await screen.findByRole('button', { name: 'Cancelar inscrição' }))
 
-    expect(screen.getByText(/não poderá se inscrever de novo neste encontro/)).toBeInTheDocument()
+    const warning = screen.getByText(/não poderá se inscrever de novo neste encontro/)
+    expect(warning).toHaveFocus()
+    expect(screen.getByRole('button', { name: 'Confirmar saída' })).toHaveAccessibleDescription(warning.textContent)
     expect(deletes).toHaveLength(0)
     await user.click(screen.getByRole('button', { name: 'Manter inscrição' }))
 
@@ -114,7 +117,10 @@ describe('withdrawing from an event (API-E04)', () => {
     await user.click(await screen.findByRole('button', { name: 'Sair da lista de espera' }))
     await user.click(screen.getByRole('button', { name: 'Confirmar saída' }))
 
-    expect(await screen.findByText('Você saiu deste encontro.')).toBeInTheDocument()
+    const outcome = await screen.findByText('Você saiu deste encontro.')
+    await waitFor(() => {
+      expect(outcome).toHaveFocus()
+    })
     expect(deletes).toHaveLength(1)
     expect(await deletes[0]?.text()).toBe('')
     expect(screen.queryByRole('button', { name: 'Inscrever-se' })).not.toBeInTheDocument()
@@ -136,5 +142,48 @@ describe('withdrawing from an event (API-E04)', () => {
 
     expect(await screen.findByRole('alert')).toBeInTheDocument()
     expect(screen.queryByText('Você saiu deste encontro.')).not.toBeInTheDocument()
+  })
+
+  it('offers no withdrawal once the event has started, as the server would refuse it', async () => {
+    const past = '0199f1a2-3b4c-7d5e-8f60-718293a4b5c8'
+    const served = new Set<string>()
+    const event = (id: string, startsAt: string) => ({
+      eventId: id,
+      title: `Evento ${id}`,
+      startsAt,
+      timeZone: 'UTC',
+      checkInOpensAt: startsAt,
+      state: 'Published',
+    })
+    server.use(
+      http.get(`${API}/me`, () => HttpResponse.json(withSessionContext(me))),
+      http.get(`${API}/events`, () =>
+        HttpResponse.json([event(past, '2020-01-01T00:00:00Z'), event(eventId, '2099-01-01T00:00:00Z')]),
+      ),
+      http.get(`${API}/events/:id/participation`, ({ params }) => {
+        served.add(String(params.id))
+        return HttpResponse.json({ state: 'Confirmed', roomId: null })
+      }),
+    )
+    await renderApp('/events')
+    expect(await screen.findByRole('button', { name: 'Cancelar inscrição' })).toBeInTheDocument()
+    await waitFor(() => {
+      expect(served).toEqual(new Set([past, eventId]))
+    })
+    const pastEntry = screen.getByRole('heading', { name: `Evento ${past}` }).closest('section')
+    if (!(pastEntry instanceof HTMLElement)) {
+      throw new Error('Evento passado sem seção.')
+    }
+    expect(within(pastEntry).queryByRole('button', { name: 'Cancelar inscrição' })).not.toBeInTheDocument()
+  })
+
+  it.each([
+    ['confirmed', '2026-11-10T00:00:00.001Z', true],
+    ['confirmed', '2026-11-10T00:00:00.000Z', false],
+    ['waitlisted', '2026-11-10T00:00:01Z', true],
+    ['withdrawn', '2026-11-10T00:00:01Z', false],
+    [undefined, '2026-11-10T00:00:01Z', false],
+  ])('decides withdrawal for %s with startsAt %s', (state, startsAt, expected) => {
+    expect(canWithdrawRegistration(state, startsAt, Date.parse('2026-11-10T00:00:00Z'))).toBe(expected)
   })
 })
