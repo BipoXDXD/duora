@@ -77,9 +77,10 @@ public sealed partial class ParticipationService
         using var linked = CancellationTokenSource.CreateLinkedTokenSource(ct, deadline.Token);
         ct = linked.Token;
         await using var connection = await source.OpenConnectionAsync(ct);
-        if (job.Kind is "game-deadline" or "expire-invite" && job.DueAt > Now)
+        var now = Now;
+        if (job.Kind is "game-deadline" or "expire-invite" && job.DueAt > now)
         {
-            await RequeueEarlyJobAsync(connection, job, ct);
+            await RequeueEarlyJobAsync(connection, job, now, ct);
             return false;
         }
 
@@ -141,11 +142,11 @@ public sealed partial class ParticipationService
     /// <c>Pending</c> no próprio <c>due_at</c>, devolvendo a tentativa do claim. Um só comando com o fencing do claim: só o
     /// dono do token o devolve, uma vez.
     /// </summary>
-    private Task<int> RequeueEarlyJobAsync(NpgsqlConnection connection, ParticipationJob job, CancellationToken ct) =>
+    private static Task<int> RequeueEarlyJobAsync(NpgsqlConnection connection, ParticipationJob job, DateTimeOffset now, CancellationToken ct) =>
         Execute(connection, """
             update ops.jobs set status='Pending',available_at=due_at,attempts=attempts-1,lease_expires_at=null
             where id=$1 and fencing_token=$2 and status='InFlight' and lease_expires_at>$3 and due_at>$3
-            """, ct, job.Id, job.Token, Now);
+            """, ct, job.Id, job.Token, now);
 
     private async Task CloseRoundAsync(NpgsqlConnection connection, Guid round, CancellationToken ct)
     {
