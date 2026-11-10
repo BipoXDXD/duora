@@ -39,7 +39,7 @@ function notFound(traceId: string): Response {
 const INVITATION_UNAVAILABLE = 'Este convite não está mais disponível.'
 
 /** Sala em convite cujo estado o teste muda dentro do handler do comando, como o servidor faria. */
-function serveInvitation(roomId: string): { state: string } {
+function useInvitationRoom(roomId: string): { state: string } {
   const snapshot = { state: 'Invited' }
   server.use(
     http.get(`${API}/me`, () => HttpResponse.json(withSessionContext(me))),
@@ -133,7 +133,7 @@ describe('localized room', () => {
     ['accept', 'Aceitar convite'],
     ['reject', 'Recusar convite'],
   ])('shows a single notice after a late %s', async (command, button) => {
-    const snapshot = serveInvitation('room-late')
+    const snapshot = useInvitationRoom('room-late')
     server.use(
       http.post(`${API}/rooms/room-late/${command}`, () => {
         snapshot.state = 'Expired'
@@ -152,7 +152,7 @@ describe('localized room', () => {
   })
   // Os botões somem com o foco dentro; o aviso que os substitui recebe o foco (WCAG 2.4.3).
   it('moves focus to the notice when the invitation buttons go away', async () => {
-    const snapshot = serveInvitation('room-late')
+    const snapshot = useInvitationRoom('room-late')
     server.use(
       http.post(`${API}/rooms/room-late/accept`, () => {
         snapshot.state = 'Expired'
@@ -168,7 +168,7 @@ describe('localized room', () => {
     })
   })
   it('shows the late invitation notice in English', async () => {
-    const snapshot = serveInvitation('room-late')
+    const snapshot = useInvitationRoom('room-late')
     server.use(
       http.post(`${API}/rooms/room-late/accept`, () => {
         snapshot.state = 'Expired'
@@ -183,7 +183,7 @@ describe('localized room', () => {
   })
   // Aba antiga: a sala já começou por outro caminho; a falha do convite não descreve mais a tela.
   it('drops the invitation failure once the room is active', async () => {
-    const snapshot = serveInvitation('room-late')
+    const snapshot = useInvitationRoom('room-late')
     server.use(
       http.post(`${API}/rooms/room-late/reject`, () => {
         snapshot.state = 'Active'
@@ -199,7 +199,7 @@ describe('localized room', () => {
   })
   // A resposta se perdeu, mas o servidor aceitou: o alerta de conexão não pode ficar preso durante o jogo.
   it('drops a network failure once the accepted room is active', async () => {
-    const snapshot = serveInvitation('room-late')
+    const snapshot = useInvitationRoom('room-late')
     server.use(
       http.post(`${API}/rooms/room-late/accept`, () => {
         snapshot.state = 'Active'

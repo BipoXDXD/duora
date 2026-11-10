@@ -63,7 +63,7 @@ function notFound(): Response {
 }
 
 /** A sala responde com o estado do momento; a ação depois do prazo recebe 404 e a sala passa a `Expired`. */
-function serveRoom(kind: 'constellation' | 'routes', reply: () => Response = notFound) {
+function useLateActionRoom(kind: 'constellation' | 'routes', reply: () => Response = notFound) {
   const snapshot = { state: 'Active' }
   server.use(
     http.get(`${API}/me`, () => HttpResponse.json(withSessionContext(me))),
@@ -98,7 +98,7 @@ const actionButton = { constellation: 'Parque', routes: 'Entendi' } as const
 describe.each(['constellation', 'routes'] as const)('late %s action', (kind) => {
   // O 404 vale para sala Expired por qualquer motivo: o aviso diz só o que aconteceu com a escolha.
   it('shows a neutral status instead of the generic alert', async () => {
-    serveRoom(kind)
+    useLateActionRoom(kind)
     const { user } = await renderApp('/rooms/late')
     await user.click(await screen.findByRole('button', { name: actionButton[kind] }))
 
@@ -110,7 +110,7 @@ describe.each(['constellation', 'routes'] as const)('late %s action', (kind) => 
 
 describe('late action notice', () => {
   it('is translated to English', async () => {
-    serveRoom('constellation')
+    useLateActionRoom('constellation')
     const { user } = await renderApp('/rooms/late', undefined, 'en-US')
     await user.click(await screen.findByRole('button', { name: 'Parque' }))
 
@@ -119,7 +119,7 @@ describe('late action notice', () => {
   })
 
   it('goes away when the room state changes again', async () => {
-    const snapshot = serveRoom('constellation')
+    const snapshot = useLateActionRoom('constellation')
     const { user, queryClient } = await renderApp('/rooms/late')
     await user.click(await screen.findByRole('button', { name: 'Parque' }))
     await screen.findByText(NOT_SAVED['pt-BR'])
@@ -132,7 +132,7 @@ describe('late action notice', () => {
   })
 
   it('keeps the error alert for failures other than 404', async () => {
-    serveRoom('constellation', () =>
+    useLateActionRoom('constellation', () =>
       HttpResponse.json(
         { type: 'urn:duora:problem:internal', title: 'Internal', status: 500, traceId: '00-boom' },
         { status: 500, headers: { 'Content-Type': 'application/problem+json' } },
