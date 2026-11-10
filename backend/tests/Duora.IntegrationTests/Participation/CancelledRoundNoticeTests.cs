@@ -127,6 +127,20 @@ public sealed class CancelledRoundNoticeTests(PostgresFixture postgres)
         Assert.Equal(new ParticipationStatus("Waiting", null, RoundCancelled: true), await scene.StatusAsync(scene.Seed.Alice));
     }
 
+    [Fact]
+    public async Task TheNoticeGoesAwayWhenTheEventEndsAfterItsLastRoundWasCancelled()
+    {
+        await using var scene = await CreateSceneAsync();
+        await scene.CheckInAsync(scene.Seed.Alice);
+        await scene.CancelFirstRoundAsync();
+
+        scene.Clock.SetUtcNow(scene.FirstRoundDeadline);
+        await Scene.RunDueJobsAsync(scene.Service);
+
+        Assert.Equal("Completed", await scene.EventStateAsync());
+        Assert.Equal(new ParticipationStatus("Waiting", null, RoundCancelled: false), await scene.StatusAsync(scene.Seed.Alice));
+    }
+
     private async Task<Scene> CreateSceneAsync()
     {
         var connectionString = await postgres.CreateMigratedDatabaseAsync(Ct);
@@ -147,6 +161,8 @@ public sealed class CancelledRoundNoticeTests(PostgresFixture postgres)
         private readonly Guid _secondRound = Guid.NewGuid();
 
         public Guid EventId => Seed.Events[0];
+
+        public DateTimeOffset FirstRoundDeadline => StartsAt.AddMinutes(12);
 
         private DateTimeOffset SecondRoundStartsAt => StartsAt.AddMinutes(2);
 
@@ -187,14 +203,21 @@ public sealed class CancelledRoundNoticeTests(PostgresFixture postgres)
                 Ct, EventId, user, checkedInAt));
         }
 
-        private async Task<string> RoundStateAsync(Guid round)
+        public async Task<string> EventStateAsync()
+        {
+            await using var connection = await Source.OpenConnectionAsync(Ct);
+            await using var query = Command(connection, "select state from events.events where id=$1", EventId);
+            return (string)(await query.ExecuteScalarAsync(Ct))!;
+        }
+
+        public async Task<string> RoundStateAsync(Guid round)
         {
             await using var connection = await Source.OpenConnectionAsync(Ct);
             await using var query = Command(connection, "select state from events.rounds where id=$1", round);
             return (string)(await query.ExecuteScalarAsync(Ct))!;
         }
 
-        private static async Task RunDueJobsAsync(ParticipationService service)
+        public static async Task RunDueJobsAsync(ParticipationService service)
         {
             for (var attempt = 0; attempt < MaximumDueJobs; attempt++)
             {
