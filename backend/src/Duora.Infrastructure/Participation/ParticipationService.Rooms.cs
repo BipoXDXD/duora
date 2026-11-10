@@ -221,7 +221,7 @@ public sealed partial class ParticipationService
 
         // Ação nova depois do prazo recebe a mesma 404 da sala expirada, antes e depois do job. Replay e actionId reutilizado
         // são decididos acima pelo motor, como antes do prazo, até o job rodar.
-        if (IsNewActionAfterTheDeadline(result, session.Schedule))
+        if (IsAtOrAfterTheDeadline(result, session.Schedule))
         {
             return ParticipationOutcome.Unavailable;
         }
@@ -244,9 +244,11 @@ public sealed partial class ParticipationService
 
     /// <summary>
     /// O motor checa o fim da sessão antes do prazo: numa sala <c>Completed</c>, a ação nova depois do prazo chega como
-    /// <c>SessionFinished</c>, e recebe a mesma 404 da sala ainda <c>Active</c> (#463, ADR-0054).
+    /// <c>SessionFinished</c>, e recebe a mesma 404 da sala ainda <c>Active</c> (#463, ADR-0054). Quem chama já tratou o
+    /// replay e o <c>actionId</c> reutilizado (<c>AlreadyApplied</c> e <c>ActionIdReused</c> vêm antes no motor), então aqui
+    /// só chega ação nova.
     /// </summary>
-    private bool IsNewActionAfterTheDeadline<TState, TAction>(ActionValidation<TState, TAction> result, GameSchedule schedule)
+    private bool IsAtOrAfterTheDeadline<TState, TAction>(ActionValidation<TState, TAction> result, GameSchedule schedule)
         where TState : class
         where TAction : class, IGameAction =>
         result is ActionValidation<TState, TAction>.Rejected { Reason: RejectionReason.DeadlineReached }

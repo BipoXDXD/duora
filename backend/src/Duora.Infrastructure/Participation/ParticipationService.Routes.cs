@@ -60,7 +60,7 @@ public sealed partial class ParticipationService
             return ParticipationOutcome.Conflict;
         }
         // Mesma regra de ActionAsync: ação nova depois do prazo recebe a 404 da sala expirada, antes e depois do job.
-        if (IsNewActionAfterTheDeadline(result, session.Schedule))
+        if (IsAtOrAfterTheDeadline(result, session.Schedule))
         {
             return ParticipationOutcome.Unavailable;
         }
