@@ -139,7 +139,64 @@ public sealed partial class PhotoReviewApprovalTests
         Assert.False(guarded.Overread, "A leitura passou de size_bytes + 1.");
     }
 
-    private async Task<PromotedRead> PromotedReadAsync(IObjectStore? store = null)
+    /// <summary>
+    /// O buffer de um derivado promovido fica preso enquanto o cliente baixa. Sem espaço no orçamento, a leitura
+    /// falha na hora, antes de alocar, com a <see cref="IOException"/> que a admissão de mídia responde com 503.
+    /// </summary>
+    [Fact]
+    public async Task AFullReadBudgetFailsFastWithoutHandingOutBytes()
+    {
+        var read = await PromotedReadAsync(budget: new OwnerMediaReadBudget(TestImages.WebP(64, 32).Length));
+        await using var held = await OpenFullAsync(read);
+        Assert.NotNull(held);
+
+        var refused = await Assert.ThrowsAsync<OwnerMediaReadBudgetExhaustedException>(() => OpenFullAsync(read));
+
+        Assert.IsAssignableFrom<IOException>(refused);
+        var entry = Assert.Single(read.Logs.Entries, entry => entry.Level >= LogLevel.Information);
+        Assert.Equal(LogLevel.Warning, entry.Level);
+        Assert.DoesNotContain(read.Key.Value, entry.Text, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task TheReadBudgetComesBackWhenTheResponseIsDisposed()
+    {
+        var read = await PromotedReadAsync(budget: new OwnerMediaReadBudget(TestImages.WebP(64, 32).Length));
+        var first = await OpenFullAsync(read);
+        Assert.NotNull(first);
+        await first.DisposeAsync();
+
+        await using var second = await OpenFullAsync(read);
+
+        Assert.NotNull(second);
+    }
+
+    /// <summary>Recusa por integridade e corpo cortado também devolvem a reserva: nenhum caminho de falha a retém.</summary>
+    [Theory]
+    [InlineData("flipped", null)]
+    [InlineData("truncated", typeof(EndOfStreamException))]
+    public async Task TheReadBudgetComesBackWhenTheReadFails(string tampering, Type? failure)
+    {
+        var read = await PromotedReadAsync(budget: new OwnerMediaReadBudget(TestImages.WebP(64, 32).Length));
+        var path = Path.Combine(_root.FullName, read.Key.Value);
+        var original = await File.ReadAllBytesAsync(path, Ct);
+        await File.WriteAllBytesAsync(path,
+            tampering == "flipped" ? [.. original[..^1], (byte)(original[^1] ^ 1)] : original[..^1], Ct);
+        AuthorizedMedia? refused = null;
+        var error = await Record.ExceptionAsync(async () => refused = await OpenFullAsync(read));
+        Assert.Equal(failure, error?.GetType());
+        Assert.Null(refused);
+        await File.WriteAllBytesAsync(path, original, Ct);
+
+        await using var media = await OpenFullAsync(read);
+
+        Assert.NotNull(media);
+    }
+
+    private static Task<AuthorizedMedia?> OpenFullAsync(PromotedRead read) =>
+        read.Reads.OpenAsync(read.Owner.UserId, read.Owner.SessionId, read.AssetId, PhotoVariant.Full, Ct);
+
+    private async Task<PromotedRead> PromotedReadAsync(IObjectStore? store = null, OwnerMediaReadBudget? budget = null)
     {
         var (reviewer, item) = await PreparedAsync();
         var approved = Assert.IsType<PhotoReviewApprovalResult.Approved>(await ApproveAsync(reviewer, item, Key()));
@@ -151,6 +208,7 @@ public sealed partial class PhotoReviewApprovalTests
         var logs = new CapturingLoggerProvider();
         using var factory = LoggerFactory.Create(builder => builder.AddProvider(logs).SetMinimumLevel(LogLevel.Trace));
         var reads = new OwnerMediaReads(Factory(), store ?? new FileSystemObjectStore(_root.FullName), _time,
+            budget ?? new OwnerMediaReadBudget(OwnerMediaReadBudget.DefaultCapacityBytes),
             factory.CreateLogger<OwnerMediaReads>());
         return new PromotedRead(reads, owner, approved.AssetId, ObjectKey.Parse(key), logs);
     }

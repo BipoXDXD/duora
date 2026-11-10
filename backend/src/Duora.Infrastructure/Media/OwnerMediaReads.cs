@@ -8,12 +8,33 @@ using Microsoft.Extensions.Logging;
 
 namespace Duora.Infrastructure.Media;
 
-/// <summary>Bytes de um derivado aprovado já autorizado; quem recebe transmite e descarta.</summary>
-public sealed class AuthorizedMedia(Stream content) : IAsyncDisposable
+/// <summary>
+/// Bytes de um derivado aprovado já autorizado; quem recebe transmite e descarta. Descartar devolve a reserva de
+/// memória da leitura, então quem transmite descarta também quando a resposta é abortada.
+/// </summary>
+public sealed class AuthorizedMedia : IAsyncDisposable
 {
-    public Stream Content { get; } = content;
+    private readonly IDisposable? _reservation;
 
-    public ValueTask DisposeAsync() => Content.DisposeAsync();
+    internal AuthorizedMedia(Stream content, IDisposable? reservation = null)
+    {
+        Content = content;
+        _reservation = reservation;
+    }
+
+    public Stream Content { get; }
+
+    public async ValueTask DisposeAsync()
+    {
+        try
+        {
+            await Content.DisposeAsync();
+        }
+        finally
+        {
+            _reservation?.Dispose();
+        }
+    }
 }
 
 /// <summary>
@@ -28,20 +49,23 @@ public sealed partial class OwnerMediaReads
     private readonly IDbContextFactory<DuoraDbContext> _contexts;
     private readonly IObjectStore _store;
     private readonly TimeProvider _time;
+    private readonly OwnerMediaReadBudget _budget;
     private readonly ILogger<OwnerMediaReads> _logger;
 
     internal OwnerMediaReads(IDbContextFactory<DuoraDbContext> contexts, IObjectStore store, TimeProvider time,
-        ILogger<OwnerMediaReads> logger)
+        OwnerMediaReadBudget budget, ILogger<OwnerMediaReads> logger)
     {
         _contexts = contexts;
         _store = store;
         _time = time;
+        _budget = budget;
         _logger = logger;
     }
 
     /// <summary>
     /// Nulo para alheio, inexistente, não aprovado, excluído, sem arquivo ou com bytes que não conferem com o digest
-    /// gravado: o chamador responde o mesmo 404.
+    /// gravado: o chamador responde o mesmo 404. Falha transitória do storage e orçamento de memória cheio sobem como
+    /// <see cref="IOException"/>, que a admissão de mídia responde com 503.
     /// </summary>
     public async Task<AuthorizedMedia?> OpenAsync(Guid ownerId, Guid sessionId, Guid assetId, PhotoVariant variant,
         CancellationToken cancellationToken)
@@ -61,18 +85,26 @@ public sealed partial class OwnerMediaReads
         }
 
         if (await VerifiedAsync(opened, stored, assetId, PhotoVariants.Name(variant), cancellationToken)
-            is not { } content)
+            is not { } media)
         {
             return null;
         }
 
-        if (!await StillApprovedAsync(ownerId, assetId, key, cancellationToken))
+        try
         {
-            await content.DisposeAsync();
-            return null;
+            if (await StillApprovedAsync(ownerId, assetId, key, cancellationToken))
+            {
+                return media;
+            }
+        }
+        catch
+        {
+            await media.DisposeAsync();
+            throw;
         }
 
-        return new AuthorizedMedia(content);
+        await media.DisposeAsync();
+        return null;
     }
 
     /// <summary>
@@ -83,17 +115,34 @@ public sealed partial class OwnerMediaReads
     /// <see cref="EndOfStreamException"/> sobe e a admissão de mídia responde 503. O legado nunca teve digest
     /// persistido e segue entregue, com registro para ser contado.
     /// </summary>
-    private async Task<Stream?> VerifiedAsync(Stream opened, StoredVariant stored, Guid assetId, string variant,
-        CancellationToken cancellationToken)
+    private async Task<AuthorizedMedia?> VerifiedAsync(Stream opened, StoredVariant stored, Guid assetId,
+        string variant, CancellationToken cancellationToken)
     {
         if (stored is { Sha256: { } expected, SizeBytes: { } length })
         {
             await using (opened)
             {
-                if (await ReadMatchingAsync(opened, length, expected, cancellationToken) is { } verified)
+                var reservation = _budget.TryReserve(length);
+                if (reservation is null)
                 {
-                    return verified;
+                    LogBudgetExhausted(_logger, assetId, variant);
+                    throw new OwnerMediaReadBudgetExhaustedException();
                 }
+
+                try
+                {
+                    if (await ReadMatchingAsync(opened, length, expected, cancellationToken) is { } verified)
+                    {
+                        return new AuthorizedMedia(verified, reservation);
+                    }
+                }
+                catch
+                {
+                    reservation.Dispose();
+                    throw;
+                }
+
+                reservation.Dispose();
             }
 
             LogDigestMismatch(_logger, assetId, variant);
@@ -108,7 +157,7 @@ public sealed partial class OwnerMediaReads
         }
 
         LogServedWithoutDigest(_logger, assetId, variant);
-        return opened;
+        return new AuthorizedMedia(opened);
     }
 
     private static async Task<MemoryStream?> ReadMatchingAsync(Stream source, long length, byte[] expected,
@@ -195,6 +244,9 @@ public sealed partial class OwnerMediaReads
 
     [LoggerMessage(Level = LogLevel.Information, Message = "Derivado legado {Variant} do asset aprovado {AssetId} entregue sem digest")]
     private static partial void LogServedWithoutDigest(ILogger logger, Guid assetId, string variant);
+
+    [LoggerMessage(Level = LogLevel.Warning, Message = "Leitura do derivado {Variant} do asset {AssetId} recusada: orçamento de memória cheio")]
+    private static partial void LogBudgetExhausted(ILogger logger, Guid assetId, string variant);
 
     private sealed record StoredVariant(string ObjectKey, long? SizeBytes, byte[]? Sha256, bool RequiresDigest);
 }

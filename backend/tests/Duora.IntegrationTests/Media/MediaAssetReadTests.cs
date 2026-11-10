@@ -1,6 +1,8 @@
 using System.Net;
 using Duora.Core.Media;
+using Duora.Infrastructure.Media;
 using Duora.IntegrationTests.Identity;
+using Microsoft.Extensions.DependencyInjection;
 
 namespace Duora.IntegrationTests.Media;
 
@@ -228,6 +230,32 @@ public sealed class MediaAssetReadTests : IAsyncDisposable
         await ProblemAssert.IsProblemAsync(response, HttpStatusCode.ServiceUnavailable, "MEDIA_UPLOADS_DISABLED");
     }
 
+    /// <summary>
+    /// Orçamento de memória cheio e corpo cortado sobem de <see cref="Duora.Infrastructure.Media.OwnerMediaReads"/>
+    /// como <see cref="IOException"/>. Este fixture só semeia derivado legado, que não passa pelo orçamento, então o
+    /// storage substituto lança a própria recusa do orçamento no lugar dele: o que se prova aqui é a resposta HTTP.
+    /// </summary>
+    [Fact]
+    public async Task AFullReadBudgetAnswers503WithoutBytes()
+    {
+        var (account, browser, asset) = await ApprovedAsync();
+        using var lifetime = browser;
+        await using var full = new DuoraWebFactory(_postgres.ConnectionString)
+        {
+            TestServices = services => services.AddSingleton<IObjectStore>(new BudgetRefusingStore()),
+        };
+        var identity = new IdentityScenario(_postgres.ConnectionString, full);
+        using var fullBrowser = await identity.SignedInBrowserAsync(account);
+
+        using var response = await fullBrowser.GetAsync($"/api/v1/media/{asset.AssetId}");
+
+        await ProblemAssert.IsProblemAsync(response, HttpStatusCode.ServiceUnavailable, "TEMPORARILY_UNAVAILABLE");
+        Assert.NotNull(response.Headers.RetryAfter);
+        Assert.NotEqual("image/webp", response.Content.Headers.ContentType?.MediaType);
+        var body = await response.Content.ReadAsByteArrayAsync(Ct);
+        Assert.False(body.AsSpan().IndexOf(asset.Variants[PhotoVariant.Full].Bytes.AsSpan(0, 64)) >= 0);
+    }
+
     [Fact]
     public async Task ResponsesNeverCarryStorageKeys()
     {
@@ -253,5 +281,17 @@ public sealed class MediaAssetReadTests : IAsyncDisposable
         Assert.Equal(HttpStatusCode.Accepted, response.StatusCode);
         var upload = Assert.Single(await _media.UploadsOfAsync(account.UserId));
         return (account, browser, await _media.ApproveWithVariantsAsync(upload));
+    }
+
+    private sealed class BudgetRefusingStore : IObjectStore
+    {
+        public Task PutAsync(ObjectKey key, Stream content, long length, string contentType,
+            CancellationToken cancellationToken) => throw new InvalidOperationException("Só leitura neste teste.");
+
+        public Task<Stream?> OpenReadAsync(ObjectKey key, CancellationToken cancellationToken) =>
+            throw new OwnerMediaReadBudgetExhaustedException();
+
+        public Task DeleteAsync(ObjectKey key, CancellationToken cancellationToken) =>
+            throw new InvalidOperationException("Só leitura neste teste.");
     }
 }
