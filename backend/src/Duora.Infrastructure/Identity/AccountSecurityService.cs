@@ -11,7 +11,7 @@ using Npgsql;
 namespace Duora.Infrastructure.Identity;
 
 /// <summary>Tetos da espera pela conta (seção <c>Identity</c>): a fila em memória e o lock no PostgreSQL.</summary>
-internal sealed class AccountLockOptions
+public sealed class AccountLockOptions
 {
     public const string Section = "Identity";
 
@@ -261,12 +261,6 @@ public sealed class AccountSecurityService
         _time = time;
         _lock = accountLock;
     }
-
-    /// <summary>
-    /// <c>Retry-After</c> de quem desiste de esperar a conta, inclusive no prazo total do login
-    /// (<see cref="AccountLockOptions.BusyRetryAfter"/>).
-    /// </summary>
-    public TimeSpan BusyRetryAfter => _lock.BusyRetryAfter;
 
     /// <summary>
     /// Serializa logins antes de procurar a conta, inclusive endereços inexistentes. A chave usa a mesma

@@ -232,7 +232,7 @@ public sealed class LoginConcurrencyTests(PostgresFixture postgres)
     [Fact(Timeout = GateTestTimeoutMs)]
     public async Task CancelledAndTimedOutWaitersDoNotLeakOrReleaseAnotherTurn()
     {
-        var gate = new AccountCheckGate();
+        var gate = new AccountCheckGate(new AccountLockOptions());
         var key = Guid.NewGuid();
         var timeout = TimeSpan.FromMilliseconds(100);
         var holder = await gate.EnterAsync(key, timeout, TestContext.Current.CancellationToken);
@@ -306,7 +306,7 @@ public sealed class LoginConcurrencyTests(PostgresFixture postgres)
     [Fact(Timeout = GateTestTimeoutMs)]
     public async Task AFailingTransactionDisposeStillReleasesTheAccountTurn()
     {
-        var gate = new AccountCheckGate();
+        var gate = new AccountCheckGate(new AccountLockOptions());
         var userId = Guid.NewGuid();
         var timeout = TimeSpan.FromMilliseconds(100);
         var check = new AccountCheck(

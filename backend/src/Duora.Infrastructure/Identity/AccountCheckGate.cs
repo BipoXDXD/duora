@@ -13,13 +13,17 @@ namespace Duora.Infrastructure.Identity;
 /// saem do dicionário quando ninguém mais as usa. A ordem de aquisição é e-mail → UUID: a vez por UUID fica marcada
 /// no fluxo assíncrono de quem a pediu, e <see cref="ThrowIfAccountTurnHeld"/> barra a inversão.
 /// </remarks>
-internal sealed class AccountCheckGate
+internal sealed class AccountCheckGate(AccountLockOptions options)
 {
     private readonly Dictionary<string, Entry> _entries = [];
     private readonly Lock _sync = new();
     private readonly AsyncLocal<AccountTurnMark?> _heldAccountTurn = new();
 
-    /// <summary>Entra na vez da conta (UUID); ocupada por mais que <paramref name="timeout"/>, desiste.</summary>
+    /// <summary>
+    /// Entra na vez da conta (UUID); ocupada por mais que <paramref name="timeout"/>, desiste com o
+    /// <c>Retry-After</c> único da conta ocupada (<see cref="AccountLockOptions.BusyRetryAfter"/>), nunca com o teto
+    /// recebido: um teto próprio de rota que só conta existente alcança revelaria a conta (issue #468).
+    /// </summary>
     /// <remarks>
     /// Não é <c>async</c> de propósito: a marca de vez aberta é gravada no contexto de execução de quem chama, e um
     /// método <c>async</c> descartaria a mudança ao retornar. Pelo mesmo motivo, não encapsule
@@ -73,7 +77,7 @@ internal sealed class AccountCheckGate
         {
             if (!await entry.Semaphore.WaitAsync(timeout, cancellationToken))
             {
-                throw new AccountBusyException(timeout);
+                throw new AccountBusyException(options.BusyRetryAfter);
             }
         }
         catch

@@ -486,9 +486,10 @@ C12 (`ConcurrentModerationDecisionsSecondGets409`) e C13 (T-19). Nomes "a criar"
 
 API-A04 e as operações de credenciais A07, A11–A16 preservam a exclusão por conta e o
 `SELECT ... FOR NO KEY UPDATE`; TM-01 (força bruta) e TM-06 (enumeração) são os riscos afetados.
-INV-12 continua exigindo revisão humana antes do merge. Não há migração. A fila e os prazos não mudam o contrato
-HTTP; os limites que vieram no mesmo PR acrescentam o `429` das revogações de sessão que falham (A10), e os
-demais `429` já estavam no contrato ([limites](../security/auth.md)).
+INV-12 continua exigindo revisão humana antes do merge. Não há migração. A fila e os prazos respondem
+pelo `503 TEMPORARILY_UNAVAILABLE` de conta ocupada da tabela abaixo, que faz parte do contrato HTTP; a issue #468
+mudou o `Retry-After` dele para um valor único. Os limites que vieram no mesmo PR acrescentam o `429` das revogações de sessão que
+falham (A10), e os demais `429` já estavam no contrato ([limites](../security/auth.md)).
 
 | Limite (`Identity`) | Padrão | Recurso durante a espera | Ao exceder |
 |---|---:|---|---|
@@ -498,7 +499,9 @@ demais `429` já estavam no contrato ([limites](../security/auth.md)).
 
 O `Retry-After` de toda conta ocupada é um só: o teto da fila (`AccountQueueTimeout`), arredondado
 para cima em segundos, qualquer que seja o teto que estourou. A regra mora em
-`AccountLockOptions.BusyRetryAfter`. Até a issue #468 o header era o teto que estourou, e o lock SQL
+`AccountLockOptions.BusyRetryAfter`, lida por quem cria a exceção: a fila (`AccountCheckGate`, que recebe as
+opções no construtor e ignora o teto da chamada no header), o lock SQL (`AccountSecurityService`) e o prazo do
+login (`CredentialVerifier`, por `IOptions<AccountLockOptions>`). Até a issue #468 o header era o teto que estourou, e o lock SQL
 respondia `Retry-After: 5`. Como só uma conta existente disputa a linha no PostgreSQL, um e-mail
 inexistente nunca recebia 5, e o header dizia que a conta existia (TM-06). Com o valor único, ele
 depende só da configuração, nunca da conta, e é igual para e-mail existente e inexistente
@@ -506,7 +509,13 @@ depende só da configuração, nunca da conta, e é igual para e-mail existente 
 estourou a fila de 30 s ficou atrás de 30 s de verificações da mesma conta, que não esvaziam em 1 s,
 e voltar logo só entraria de novo no fim da mesma fila. O custo é um cliente legítimo
 esperar 30 s depois de um `503` raro; o frontend não repete o login sozinho (`mutations: { retry: false }`
-em `frontend/src/app/query-client.ts`).
+em `frontend/src/app/query-client.ts`) e não lê o `Retry-After` do `503`: `frontend/src/shared/api/request-failure.ts`
+só extrai `retryAfterSeconds` do `429`, e o `503` vira um problema genérico. O valor vale para clientes HTTP
+que respeitam o header, não para a interface atual.
+
+O valor único alcança toda operação que espera a conta, não só o login: logout (A05), revogação de sessões
+(A10), reset de senha (A07) e MFA (A11–A16) também passam de `Retry-After: 5` para `30` quando o lock SQL
+estoura.
 
 Os dois primeiros aceitam de 100 ms a 1 min e são validados no boot, independentemente. O teto SQL é
 removido após adquirir o lock, como antes. Os dois são tetos de fase; o prazo do pedido inteiro é o
@@ -531,8 +540,9 @@ A07 e A11–A16, e um terceiro valor só para o login seria configuração sem e
 ficar abaixo do prazo. Quem baixar o `AccountQueueTimeout` abaixo do `LoginTimeout` passa a ter a
 fila desistindo primeiro; o `Retry-After` é o mesmo nos dois casos.
 
-O `503` de banco indisponível (`DatabaseUnavailableExceptionHandler`, `Retry-After: 5`) é outro
-contrato e não muda: não depende da conta, e um e-mail inexistente o recebe igual.
+O `503` de banco indisponível (pool esgotado, `DatabaseUnavailableExceptionHandler`, `Retry-After: 5`) é
+outro contrato e não muda: não depende da conta, e um e-mail inexistente o recebe igual
+(`LoginBusyNeutralityTests.AnUnavailableDatabaseAnswersTheSameForAnExistingAndAMissingEmail`).
 
 O login adquire primeiro uma vez por e-mail normalizado pelo Identity, antes de buscar a conta.
 Endereços existentes e inexistentes disputam essa mesma forma de fila. A chave em memória é o endereço
