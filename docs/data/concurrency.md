@@ -581,8 +581,8 @@ registrar e-mail, IP ou UUID como rótulo. O teste controlado não substitui ben
 
 O reenvio da confirmação (API-A03, issue #470) trava a mesma linha, mas não usa esses tetos. A rota responde
 `202` igual exista a conta ou não, e só a conta existente chega à trava; esperar 5 s pelo lock diria pelo tempo que
-ela existe. A fila por UUID e o `lock_timeout` do reenvio esperam `Identity:ShortWait:LockTimeout` (100 ms,
-validado entre 1 ms e 250 ms), dentro do piso de 500 ms da rota. Estourou, o reenvio desiste sem gravar nada e
+ela existe. A fila por UUID e o `lock_timeout` do reenvio esperam `Identity:ShortWait:LockTimeout` cada um (100 ms,
+validado entre 1 ms e 125 ms, porque as duas esperas se somam), dentro do piso de 500 ms da rota. Estourou, o reenvio desiste sem gravar nada e
 responde o mesmo `202`, com o motivo só num Warning (`EmailConfirmationResendBusyTests`,
 `EmailConfirmationResendTimingTests`). O cadastro (#466) segue a mesma decisão e deve usar a mesma configuração.
 

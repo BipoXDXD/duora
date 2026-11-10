@@ -20,11 +20,16 @@ Banco indisponível conserva 503 e o fluxo de segurança existente; não é masc
 e o e-mail inexistente sai antes, então um 503 ali diria que a conta existe (TM-06). O reenvio desiste sem gravar
 código, stamp, orçamento nem outbox, e o motivo fica só num Warning sem e-mail nem id. Quem precisar do código
 repete o pedido. `EmailConfirmationResendBusyTests` compara status, corpo sem `traceId` e headers (menos `Date` e
-`Set-Cookie`) da conta pendente travada com os de um e-mail inexistente, e confere a outbox e o Warning.
+`Set-Cookie`) da conta pendente travada com os de um e-mail inexistente, e confere a outbox e o Warning. A mesma
+comparação cobre a pendente que recebe código, a confirmada e a pendente com orçamento esgotado. Depois de duas
+desistências com a linha travada, solta a linha, um novo reenvio ainda emite o código (outbox + 1): a desistência
+não gasta orçamento, stamp nem código. Quando `AccountBusyMetrics`/`AccountBusyReason` (#467) chegarem à `main`, o
+catch do reenvio passa a registrar também a métrica, com o motivo de conta ocupada; até lá, só o Warning.
 O tempo também não distingue: o reenvio não espera o teto do login (`Identity:AccountLockTimeout`, 5 s), que
 passaria do piso e diria pela demora que a conta existe; o jitter de 100 ms não esconde segundos numa amostra só.
 A fila por conta e o `lock_timeout` esperam só `Identity:ShortWait:LockTimeout` (100 ms; validado entre 1 ms e
-250 ms no boot), e a desistência cai dentro do piso. `EmailConfirmationResendTimingTests` compara a mediana de 11
+125 ms no boot). As duas esperas se somam no pior caso (fila cheia e depois a linha travada): 2 × 125 ms ainda deixam
+metade do piso de 500 ms para o resto do pedido, e a desistência cai dentro dele. `EmailConfirmationResendTimingTests` compara a mediana de 11
 amostras dos dois casos, com limite de 100 ms (medido: +10,8 ms; voltando ao teto longo, +975,8 ms com o teto do
 login em 1,5 s). Pedido cujo trabalho passa do piso (hash lento sob carga) ainda pode diferir; o piso só iguala o
 que fica abaixo dele.
