@@ -80,7 +80,11 @@ public sealed partial class ParticipationService
         var now = Now;
         if (job.Kind is "game-deadline" or "expire-invite" && job.DueAt > now)
         {
-            await RequeueEarlyJobAsync(connection, job, now, ct);
+            if (await RequeueEarlyJobAsync(connection, job, now, ct) == 1 && logger is not null)
+            {
+                LogEarlyJobRequeued(logger, job.Id, job.Kind);
+            }
+
             return false;
         }
 
@@ -282,6 +286,10 @@ public sealed partial class ParticipationService
     /// <summary>Só o tipo: a mensagem da exceção pode citar valores do banco. Este giro não consome tentativa e se repete até liberar.</summary>
     [LoggerMessage(Level = LogLevel.Error, Message = "Participation job {JobId} ({Kind}) exhausted its attempts but could not release its open rooms ({Cause}); it will be tried again.")]
     private static partial void LogReleaseRefused(ILogger logger, Guid jobId, string kind, string cause);
+
+    /// <summary>Só o id e o tipo do job: nada da sala nem de quem participa.</summary>
+    [LoggerMessage(Level = LogLevel.Information, Message = "Participation job {JobId} ({Kind}) was delivered before it was due; it returned to the queue without spending an attempt.")]
+    private static partial void LogEarlyJobRequeued(ILogger logger, Guid jobId, string kind);
 
     [LoggerMessage(Level = LogLevel.Error, Message = "Participation job {JobId} ({Kind}) exhausted its attempts ({Cause}); {RoomsReleased} open rooms were released.")]
     private static partial void LogExhausted(ILogger logger, Guid jobId, string kind, string cause, int roomsReleased);
