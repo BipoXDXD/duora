@@ -77,7 +77,7 @@ public sealed partial class ParticipationService
         using var linked = CancellationTokenSource.CreateLinkedTokenSource(ct, deadline.Token);
         ct = linked.Token;
         await using var connection = await source.OpenConnectionAsync(ct);
-        if (job.Kind == "game-deadline" && job.DueAt > Now)
+        if (job.Kind is "game-deadline" or "expire-invite" && job.DueAt > Now)
         {
             await RequeueEarlyJobAsync(connection, job, ct);
             return false;
@@ -136,10 +136,10 @@ public sealed partial class ParticipationService
     }
 
     /// <summary>
-    /// Um <c>game-deadline</c> entregue antes do prazo (relógio de outra instância adiantado, fila manipulada) não pode ser
-    /// consumido: o motor responderia "ainda não venceu" e nada o reagendaria. Volta a <c>Pending</c> no próprio
-    /// <c>due_at</c>, devolvendo a tentativa do claim. Um só comando com o fencing do claim: só o dono do token o devolve, uma
-    /// vez.
+    /// Um <c>game-deadline</c> ou <c>expire-invite</c> entregue antes do prazo (relógio de outra instância adiantado, fila
+    /// manipulada) não pode ser consumido: a conclusão veria o prazo ainda aberto e nada o reagendaria. Volta a
+    /// <c>Pending</c> no próprio <c>due_at</c>, devolvendo a tentativa do claim. Um só comando com o fencing do claim: só o
+    /// dono do token o devolve, uma vez.
     /// </summary>
     private Task<int> RequeueEarlyJobAsync(NpgsqlConnection connection, ParticipationJob job, CancellationToken ct) =>
         Execute(connection, """
