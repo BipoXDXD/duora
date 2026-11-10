@@ -404,10 +404,13 @@ claim e a conclusão usam o mesmo relógio, isso só acontece com `available_at`
 processo recuando entre o claim e a conclusão. Só o dono do token devolve o job, uma vez: uma conclusão atrasada,
 cercada por um claim novo, não muda a linha (`GameDeadlineTests.AStaleCompletionOfAnEarlyGameDeadlineJobDoesNotRequeueTheNewClaim`).
 
-A decisão de reagendar e o `UPDATE` de devolução usam um único `now`. A conclusão normal, porém, relê o relógio: no
-`UPDATE` para `Done`, no fechamento da rodada, na expiração do convite e em `BuildRoundAsync`. Lacuna conhecida: se
-o relógio do processo recuar para antes do `due_at` nessa janela de microssegundos, o job ainda pode virar `Done` sem
-efeito. Fecha passando o mesmo `now` adiante, num follow-up.
+A decisão de reagendar e o `UPDATE` de devolução usam um único `now`. A conclusão normal usa o mesmo `now`: no
+`UPDATE` para `Done`, no fechamento da rodada, na expiração do convite, em `BuildRoundAsync` e no motor do jogo
+(`HandleDeadline`) do `game-deadline`. Assim, se o relógio do processo recuar para antes do `due_at` depois da decisão,
+o job ainda tem efeito e não vira `Done` vazio. A primeira versão deste adendo registrava essa releitura como lacuna
+conhecida; ela fechou no PR seguinte, com um teste por tipo de job que faz o relógio recuar logo depois da leitura que
+decide (`RewindingClock`). Só os carimbos de `released_at` da liberação de reservas ainda releem o relógio, e eles não
+decidem efeito.
 
 Consequência: `attempts` não tem `CHECK (attempts >= 0)`. O fencing garante que cada claim é devolvido no máximo uma
 vez, então o valor não fica negativo, mas a garantia está no código, não no esquema. A constraint exige migração e
