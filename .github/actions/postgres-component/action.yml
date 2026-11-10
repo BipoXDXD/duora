@@ -92,7 +92,7 @@ runs:
           return 1
         }
         if ! restart_docker; then
-          echo "::warning title=Docker reiniciado na segunda tentativa::o restart do docker.service falhou uma vez; diagnóstico no grupo acima"
+          echo "::warning title=Restart do Docker falhou; tentando uma segunda vez::diagnóstico no grupo acima; se a segunda tentativa falhar, o job falha"
           sudo systemctl reset-failed docker.service docker.socket
           containerd_deadline=$((SECONDS + 60))
           until systemctl is-active --quiet containerd && sudo test -S /run/containerd/containerd.sock; do
