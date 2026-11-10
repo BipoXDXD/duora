@@ -409,6 +409,16 @@ Nesse caso o migrador não roda e o schema fica como está, o que só é seguro 
 expand/contract (spec 17.4). Qualquer outro caso é recusado antes de parar o worker, e nenhuma flag relaxa isso. O migrador não desfaz migrations e nunca roda `Down`;
 restaurar backup para desfazer deploy é decisão humana.
 
+**Guarda de migration destrutiva** (check `backend`). `RepositoryMigrationsTests` expande o `Up` de cada migration
+pelo próprio `MigrationBuilder` e reprova operação destrutiva que não esteja em
+[destructive-migrations.allowlist](../../backend/tests/Duora.ArchitectureTests/Migrations/destructive-migrations.allowlist):
+`Drop*`, `Rename*`, `AlterColumn` e `DeleteData` do EF; no SQL de `Sql(...)`, fora de comentários, `DROP` de
+qualquer objeto (menos `DROP DEFAULT`, `NOT NULL`, `IDENTITY` e `EXPRESSION`), `TRUNCATE` como comando, `DELETE`
+sem `WHERE`, troca de tipo de coluna e `RENAME`. O critério completo fica em `DestructiveMigrationGuard.cs`. Só o
+`Up` conta, porque o `Down` nunca roda. Um contract revisado entra com uma linha nova na allowlist, no mesmo PR e com
+justificativa; a allowlist fica sob `CODEOWNERS`, e a linha que não corresponde mais a nenhuma operação também
+reprova. O check não decide se a operação é segura: ele torna a decisão visível no review.
+
 **Releases anteriores ao adendo do ADR-0010** (fotos no disco da VPS, 2026-10-16). O `compose.prod.yml` é um só,
 instalado pelo Ansible, e passa sempre `Media__Storage__Provider: FileSystem` ao web e ao worker. O web das releases
 entre o upload de fotos (API-M01) e esse adendo recusa o filesystem em Production e não sobe: o deploy só falharia na
