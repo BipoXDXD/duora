@@ -176,7 +176,7 @@ public sealed class AccountLockTimeoutTests : IAsyncDisposable
         var mostWaiting = 0L;
         while (!logins.All(login => login.IsCompleted))
         {
-            mostWaiting = Math.Max(mostWaiting, await CountConnectionsWaitingForTheAccountLockAsync());
+            mostWaiting = Math.Max(mostWaiting, await CountConnectionsWaitingForAsync(holder));
             await Task.Delay(TimeSpan.FromMilliseconds(50), TestContext.Current.CancellationToken);
         }
 
@@ -191,17 +191,28 @@ public sealed class AccountLockTimeoutTests : IAsyncDisposable
         browsers.ForEach(browser => browser.Dispose());
     }
 
-    private async Task<long> CountConnectionsWaitingForTheAccountLockAsync()
+    /// <summary>
+    /// Conexões esperando, direta ou indiretamente, a transação do <paramref name="holder"/>. Da segunda em diante, a
+    /// espera pela mesma linha bloqueia na anterior da fila, não no holder; por isso o fecho de
+    /// <c>pg_blocking_pids</c>. Contar todas as esperas do banco somaria as de outras classes que rodam em paralelo no
+    /// banco compartilhado (#470).
+    /// </summary>
+    private async Task<long> CountConnectionsWaitingForAsync(AccountHolder holder)
     {
         await using var connection = new NpgsqlConnection(_postgres.ConnectionString);
         await connection.OpenAsync(TestContext.Current.CancellationToken);
         await using var command = new NpgsqlCommand(
             """
-            select count(*) from pg_stat_activity
-            where datname = current_database() and wait_event_type = 'Lock'
-              and query like '%from identity.users where id =%for no key update%'
+            with recursive waiting(pid) as (
+                select pid from pg_stat_activity where $1 = any(pg_blocking_pids(pid))
+                union
+                select activity.pid from pg_stat_activity activity
+                join waiting on waiting.pid = any(pg_blocking_pids(activity.pid))
+            )
+            select count(*) from waiting
             """,
             connection);
+        command.Parameters.AddWithValue(holder.ProcessId);
         return Convert.ToInt64(await command.ExecuteScalarAsync(TestContext.Current.CancellationToken), System.Globalization.CultureInfo.InvariantCulture);
     }
 
@@ -315,6 +326,9 @@ public sealed class AccountLockTimeoutTests : IAsyncDisposable
     private sealed class AccountHolder(NpgsqlConnection connection, NpgsqlTransaction transaction) : IAsyncDisposable
     {
         private bool _released;
+
+        /// <summary>Pid do backend PostgreSQL que segura a linha.</summary>
+        public int ProcessId { get; } = connection.ProcessID;
 
         public async ValueTask DisposeAsync()
         {
