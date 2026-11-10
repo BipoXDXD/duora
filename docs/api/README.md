@@ -109,6 +109,25 @@ versão não duplica o efeito; outro corpo é inválido. Conflito de versão ret
 Autorização, elegibilidade, saída e bloqueios são revalidados antes de reconhecer um reenvio. A rota de
 ações de uma experiência não pode operar a outra.
 
+Prazo de jogo, em `actions` e `routes-actions`: numa sala ainda `Active`, uma ação nova **bem formada** no prazo ou
+depois dele recebe `404 NOT_FOUND`, igual ao da sala `Expired` e ao de uma sala inexistente, antes e depois do job
+`game-deadline`, mesmo com `expectedVersion` desatualizado. A sala `Completed` fica fora dessa regra: ação nova nela
+recebe `400 VALIDATION_FAILED`, antes e depois do prazo (lacuna conhecida, ADR-0054). Payload malformado é recusado antes de a sala ser lida, no prazo ou
+depois dele, com a mesma resposta de uma sala inexistente. JSON inválido ou campo de tipo errado (como `actionId`
+que não é GUID) falha no model binding e recebe `400 INVALID_REQUEST` (`"actionId":""` e `"actionId":null` não são
+GUID e também recebem `INVALID_REQUEST`). Os demais casos recebem `400 VALIDATION_FAILED`: `actionId` ausente ou
+GUID vazio (`00000000-0000-0000-0000-000000000000`), `expectedVersion` que não é inteiro positivo, `type`
+desconhecido, ou campos ausentes ou incoerentes com o `type`. Até o job rodar, o reenvio com o mesmo `actionId`
+segue a regra de replay acima (`204` ou `400`); depois, `404`.
+
+Status declarados no OpenAPI: `actions` e `routes-actions` listam `204`, `400`, `401`, `403`, `404`, `409` e
+`503`; `exit`, `accept`, `reject`, `PUT` e `DELETE /events/{eventId}/registration` e
+`POST /events/{eventId}/check-in` listam `204`, `401`, `403`, `404` e `503` (sem corpo nem versão, não têm `400` nem
+`409`). O `503` `TEMPORARILY_UNAVAILABLE` com `Retry-After` vem da contenção de lock (ou, na inscrição, na desistência
+e no check-in, do teto de retentativas quando o plano de locks muda). Antes, as rotas de sala, o `PUT` da
+inscrição e o check-in declaravam só `401` e `403`, e o `DELETE /events/{eventId}/registration` declarava `204`,
+`401`, `403` e `404`; acrescentar respostas é mudança aditiva, sem breaking change no `oasdiff`.
+
 ## Idioma do documento aceito (issue #103)
 
 API-A02 (`POST /api/v1/auth/register`) aceita `acceptedTermsLocale` e `acceptedPrivacyLocale`,

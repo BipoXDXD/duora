@@ -220,6 +220,13 @@ public sealed partial class ParticipationService
             return ParticipationOutcome.Conflict;
         }
 
+        // Ação nova depois do prazo recebe a mesma 404 da sala expirada, antes e depois do job. Replay e actionId reutilizado
+        // são decididos acima pelo motor, como antes do prazo, até o job rodar.
+        if (result is ActionValidation<ConstellationState, ConstellationAction>.Rejected { Reason: RejectionReason.DeadlineReached })
+        {
+            return ParticipationOutcome.Unavailable;
+        }
+
         if (result is not ActionValidation<ConstellationState, ConstellationAction>.Accepted accepted)
         {
             return ParticipationOutcome.Invalid;
