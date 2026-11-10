@@ -28,11 +28,16 @@
           StandardOutputImportance="High" />
   </Target>
   <!-- Diagnóstico da #455 (PR de diagnóstico, nunca mesclado): o console do dotnet test esconde a saída de teste
-       verde, então a classe afetada roda também aqui, com saída ao vivo no log do passo de build. O código de saída
-       e o formato de erro são ignorados para o veredito vir só do passo de testes. -->
+       verde, então a classe afetada roda também aqui, com saída ao vivo no log do passo de build, no mesmo processo
+       e com o paralelismo padrão da suíte, ao lado de classes de Identity que sobem hosts em paralelo e seguram
+       threads (SlowHasher, custo real do PBKDF2). O código de saída e o formato de erro são ignorados para o
+       veredito vir só do passo de testes. -->
+  <ItemGroup>
+    <Diag455LoadClass Include="KeyRingCertificateTests;LoginConcurrencyTests;KeyRingLossTests;KeyRingRecoveryTests;PasswordHashCostTests;ConfirmationAbuseTests;EnumerationTimingTests;MfaLoginTests;AccountLockTimeoutTests;LoginTests" />
+  </ItemGroup>
   <Target Name="RecordDiag455KeyRing" AfterTargets="RecordSyntheticSanitizerBaseline"
           Condition="'$(GITHUB_ACTIONS)' == 'true' and '$(GITHUB_JOB)' == 'backend'">
-    <Exec Command="dotnet &quot;$(TargetPath)&quot; -class Duora.IntegrationTests.Identity.KeyRingCertificateTests -showLiveOutput -reporter verbose"
+    <Exec Command="dotnet &quot;$(TargetPath)&quot; @(Diag455LoadClass->'-class Duora.IntegrationTests.Identity.%(Identity)', ' ') -showLiveOutput -reporter verbose"
           StandardOutputImportance="High" IgnoreExitCode="true" IgnoreStandardErrorWarningFormat="true" />
   </Target>
 </Project>
