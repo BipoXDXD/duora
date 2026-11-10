@@ -9,15 +9,19 @@ namespace Duora.IntegrationTests;
 /// </summary>
 internal static class FixtureCleanup
 {
-    /// <summary>Inventário com teto e, depois dele, a remoção, que roda mesmo quando o inventário falha ou estoura.</summary>
+    /// <summary>
+    /// Inventário com teto e, depois dele, a remoção, que roda mesmo quando o inventário falha ou estoura. A remoção que
+    /// dá certo vai para <paramref name="record"/> com a duração; a que falha leva a duração na exceção.
+    /// </summary>
     internal static async ValueTask RemoveAfterInventoryAsync(string step, Func<CancellationToken, Task<string>> inventory,
-        TimeSpan inventoryCeiling, Func<ValueTask> removal)
+        TimeSpan inventoryCeiling, Func<ValueTask> removal, Action<string> record)
     {
         var stateBefore = await InventoryWithinCeilingAsync(inventory, inventoryCeiling);
-        await RunAsync(step, removal, stateBefore);
+        var elapsed = await RunAsync(step, removal, stateBefore);
+        record($"Limpeza \"{step}\" levou {Seconds(elapsed)} s ({stateBefore}).");
     }
 
-    internal static async ValueTask RunAsync(string step, Func<ValueTask> action, string stateBefore)
+    internal static async ValueTask<TimeSpan> RunAsync(string step, Func<ValueTask> action, string stateBefore)
     {
         var started = Stopwatch.GetTimestamp();
         try
@@ -26,10 +30,14 @@ internal static class FixtureCleanup
         }
         catch (Exception failure)
         {
-            var seconds = Stopwatch.GetElapsedTime(started).TotalSeconds.ToString("F1", CultureInfo.InvariantCulture);
-            throw new InvalidOperationException($"Limpeza \"{step}\" falhou depois de {seconds} s ({stateBefore}).", failure);
+            throw new InvalidOperationException(
+                $"Limpeza \"{step}\" falhou depois de {Seconds(Stopwatch.GetElapsedTime(started))} s ({stateBefore}).", failure);
         }
+
+        return Stopwatch.GetElapsedTime(started);
     }
+
+    private static string Seconds(TimeSpan elapsed) => elapsed.TotalSeconds.ToString("F1", CultureInfo.InvariantCulture);
 
     /// <summary>
     /// A contagem de arquivos só vale com saída zero e um número: o <c>find</c> que falha no meio do pipe não pode virar

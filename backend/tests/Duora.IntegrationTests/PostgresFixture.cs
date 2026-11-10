@@ -4,6 +4,7 @@ using DotNet.Testcontainers.Containers;
 using DotNet.Testcontainers.Networks;
 using Duora.Infrastructure.Persistence;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Logging;
 using Npgsql;
 using Testcontainers.PostgreSql;
 
@@ -150,7 +151,7 @@ public sealed class PostgresFixture : IAsyncLifetime
         try
         {
             await FixtureCleanup.RemoveAfterInventoryAsync("remover o container do PostgreSQL", DescribeForCleanupAsync,
-                InventoryCeiling, _container.DisposeAsync);
+                InventoryCeiling, _container.DisposeAsync, RecordCleanup);
         }
         finally
         {
@@ -183,6 +184,15 @@ public sealed class PostgresFixture : IAsyncLifetime
         return $"bancos no servidor: {databases}; tamanho somado: {bytes} bytes; " +
             $"bancos avulsos ainda registrados: {_scratchDatabases.Count}; arquivos no diretório de dados: {fileCount}";
     }
+
+    /// <summary>
+    /// Pelo logger do Testcontainers, o mesmo que já escreve "[testcontainers.org] Delete Docker container": uma remoção
+    /// que deu certo perto do limite de 100 s do cliente Docker também deixa rastro.
+    /// </summary>
+    private void RecordCleanup(string record) => LogCleanup(_container.Logger, record, null);
+
+    private static readonly Action<ILogger, string, Exception?> LogCleanup =
+        LoggerMessage.Define<string>(LogLevel.Information, new EventId(1, "FixtureCleanup"), "{Record}");
 
     internal static void TrackScratchPool(string? connectionString) => ScratchDatabaseLifetime.TrackPool(connectionString);
 

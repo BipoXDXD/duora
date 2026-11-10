@@ -56,7 +56,7 @@ public sealed partial class FixtureCleanupTests(PostgresFixture postgres)
             {
                 removals++;
                 return ValueTask.FromException(new IOException("remoção sintética falhou"));
-            }).AsTask());
+            }, NoRecord).AsTask());
 
         Assert.Equal(1, removals);
         Assert.Contains("inventário indisponível: InvalidOperationException: inventário sintético quebrou", failure.Message,
@@ -77,12 +77,38 @@ public sealed partial class FixtureCleanupTests(PostgresFixture postgres)
             {
                 removals++;
                 return ValueTask.FromException(new IOException("remoção sintética falhou"));
-            }).AsTask());
+            }, NoRecord).AsTask());
 
         Assert.Equal(1, removals);
         Assert.Contains("inventário indisponível: TimeoutException", failure.Message, StringComparison.Ordinal);
         Assert.True(Stopwatch.GetElapsedTime(started) < InventoryHangBound, $"{Stopwatch.GetElapsedTime(started)}");
     }
+
+    [Fact]
+    public async Task ASuccessfulRemovalRecordsItsDurationAndTheInventoryOnce()
+    {
+        var records = new List<string>();
+
+        await FixtureCleanup.RemoveAfterInventoryAsync("remover o container", _ => Task.FromResult("estado-antes-da-etapa"),
+            ShortInventoryCeiling, () => ValueTask.CompletedTask, records.Add);
+
+        var record = Assert.Single(records);
+        Assert.Matches(SuccessRecord(), record);
+    }
+
+    [Fact]
+    public async Task AFailedRemovalRecordsNothingBecauseItsExceptionCarriesTheDuration()
+    {
+        var records = new List<string>();
+
+        await Assert.ThrowsAsync<InvalidOperationException>(() => FixtureCleanup.RemoveAfterInventoryAsync(
+            "remover o container", _ => Task.FromResult("estado-antes-da-etapa"), ShortInventoryCeiling,
+            () => ValueTask.FromException(new IOException("remoção sintética falhou")), records.Add).AsTask());
+
+        Assert.Empty(records);
+    }
+
+    private static void NoRecord(string record) => _ = record;
 
     /// <summary>Teto curto do inventário nos testes; o do fixture é de 30 s.</summary>
     private static readonly TimeSpan ShortInventoryCeiling = TimeSpan.FromMilliseconds(200);
@@ -102,6 +128,9 @@ public sealed partial class FixtureCleanupTests(PostgresFixture postgres)
 
     [GeneratedRegex("""^Limpeza "remover o container" falhou depois de \d+\.\d s \(estado-antes-da-etapa\)\.$""")]
     private static partial Regex FailureMessage();
+
+    [GeneratedRegex("""^Limpeza "remover o container" levou \d+\.\d s \(estado-antes-da-etapa\)\.$""")]
+    private static partial Regex SuccessRecord();
 
     [GeneratedRegex("""bancos no servidor: (?<databases>\d+); tamanho somado: [1-9]\d* bytes; bancos avulsos ainda registrados: \d+; arquivos no diretório de dados: [1-9]\d*""")]
     private static partial Regex Inventory();
