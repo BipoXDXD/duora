@@ -7,6 +7,7 @@ using Duora.IntegrationTests.Identity;
 using Microsoft.Extensions.Time.Testing;
 using Npgsql;
 using static Duora.Infrastructure.Participation.ParticipationSql;
+using static Duora.IntegrationTests.TestTime;
 
 namespace Duora.IntegrationTests.Participation;
 
@@ -17,8 +18,6 @@ namespace Duora.IntegrationTests.Participation;
 /// </summary>
 public sealed class GameDeadlineTests(PostgresFixture postgres)
 {
-    private static readonly TimeSpan OneTick = TimeSpan.FromTicks(1);
-
     private static CancellationToken Ct => TestContext.Current.CancellationToken;
 
     [Fact]
@@ -74,6 +73,29 @@ public sealed class GameDeadlineTests(PostgresFixture postgres)
         Assert.True(await scene.Service.CompleteJobAsync(onTime, Ct));
         Assert.Equal(new RoomFacts("Expired", active.Version + 1, ActiveReservations: 0, Actions: 0), await scene.RoomFactsAsync());
         Assert.Equal("Done|1", await scene.GameDeadlineJobAsync());
+    }
+
+    /// <summary>
+    /// O relógio do processo recua para antes do prazo logo depois da leitura que decide concluir o job. O motor do jogo
+    /// decide no instante dessa decisão: expira a sala em vez de responder "ainda não venceu" e deixar o job <c>Done</c>
+    /// sem efeito.
+    /// </summary>
+    [Fact]
+    public async Task AGameDeadlineJobDecidedAtTheDeadlineExpiresTheRoomEvenIfTheClockRewindsBeforeItDuringCompletion()
+    {
+        await using var scene = await ActiveRoomAsync();
+        var active = await scene.RoomFactsAsync();
+        scene.Clock.SetUtcNow(scene.Deadline);
+        var job = await scene.Service.ClaimJobAsync(Ct);
+        Assert.NotNull(job);
+        Assert.Equal(("game-deadline", scene.Room), (job.Kind, job.AggregateId));
+        var rewinding = new ParticipationService(scene.Source, new RewindingClock(scene.Clock, scene.Deadline - OneTick));
+
+        Assert.True(await rewinding.CompleteJobAsync(job, Ct));
+
+        Assert.Equal(new RoomFacts("Expired", active.Version + 1, ActiveReservations: 0, Actions: 0), await scene.RoomFactsAsync());
+        Assert.Equal("Done|1", await scene.GameDeadlineJobAsync());
+        Assert.Equal(scene.Deadline, await JobRows.CompletedAtAsync(scene.Source, "game-deadline", scene.Room, Ct));
     }
 
     /// <summary>
@@ -384,6 +406,8 @@ public sealed class GameDeadlineTests(PostgresFixture postgres)
         public FakeTimeProvider Clock => clock;
 
         public ParticipationService Service => service;
+
+        public NpgsqlDataSource Source => source;
 
         public Guid Room => room;
 
