@@ -33,6 +33,9 @@ internal sealed class Diag455Recorder : IDisposable
     private int _hosts;
     private bool _closed;
 
+    // Escrito só pelo sampler e lido no Dispose, depois do Join.
+    private bool _stallCaptured;
+
     // Resumo do teste, escrito no Dispose.
     private int _physicalOpens;
     private double _maxPhysicalOpenMs;
@@ -125,6 +128,14 @@ internal sealed class Diag455Recorder : IDisposable
             _closed = true;
             _file?.Dispose();
         }
+
+        // O passo de testes esconde a saída de teste verde e só sobe o .diag em falha: a parada capturada reprova o
+        // teste para as pilhas chegarem ao artefato. Só neste PR de diagnóstico.
+        if (_stallCaptured)
+        {
+            throw new InvalidOperationException(
+                "diag455: parada do thread pool capturada; pilhas no stdout e no diag455-*.diag do artefato.");
+        }
     }
 
     private void SampleLoop()
@@ -154,6 +165,7 @@ internal sealed class Diag455Recorder : IDisposable
             if (!captured && (stalled || Diag455StackCapture.Forced))
             {
                 captured = true;
+                _stallCaptured = stalled;
                 CaptureStacks(string.Create(CultureInfo.InvariantCulture,
                     $"completedStuckMs={stalledMs:F0} pending={pending} completed={completed} " +
                     $"threads={ThreadPool.ThreadCount} forced={!stalled}"));
