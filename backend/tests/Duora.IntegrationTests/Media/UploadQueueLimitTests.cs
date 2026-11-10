@@ -16,6 +16,9 @@ public sealed class UploadQueueLimitTests(PostgresFixture postgres) : IAsyncLife
 {
     private const int QueueCap = 3;
 
+    /// <summary>Teto da espera pelos envios simultâneos: um envio preso falha o teste em vez de travar a suíte.</summary>
+    private static readonly TimeSpan ConcurrentUploadsTimeout = TimeSpan.FromSeconds(30);
+
     private string _connectionString = "";
     private DuoraWebFactory? _factory;
     private MediaScenario? _media;
@@ -80,7 +83,7 @@ public sealed class UploadQueueLimitTests(PostgresFixture postgres) : IAsyncLife
             return await MediaScenario.UploadAsync(browser, MediaScenario.JpegLike(fill: (byte)i));
         }).ToList();
         start.SetResult();
-        var responses = await Task.WhenAll(uploads);
+        var responses = await Task.WhenAll(uploads).WaitAsync(ConcurrentUploadsTimeout, TestContext.Current.CancellationToken);
 
         try
         {
