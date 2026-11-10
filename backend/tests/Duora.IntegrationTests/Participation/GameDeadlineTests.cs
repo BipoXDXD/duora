@@ -1,4 +1,8 @@
+using System.Globalization;
+using System.Net;
+using Duora.Contracts.Participation;
 using Duora.Infrastructure.Participation;
+using Duora.IntegrationTests.Identity;
 using Microsoft.Extensions.Time.Testing;
 using Npgsql;
 using static Duora.Infrastructure.Participation.ParticipationSql;
@@ -7,7 +11,8 @@ namespace Duora.IntegrationTests.Participation;
 
 /// <summary>
 /// O prazo da sala ativa (T-18, INV-08) no PostgreSQL real, com relógio falso, pelas duas chamadas que o worker faz em
-/// produção: <c>ClaimJobAsync</c> e <c>CompleteJobAsync</c> do job <c>game-deadline</c>.
+/// produção: <c>ClaimJobAsync</c> e <c>CompleteJobAsync</c> do job <c>game-deadline</c>, e a ação HTTP que chega entre o
+/// prazo e o job.
 /// </summary>
 public sealed class GameDeadlineTests(PostgresFixture postgres)
 {
@@ -55,6 +60,52 @@ public sealed class GameDeadlineTests(PostgresFixture postgres)
         Assert.Equal(active, await scene.RoomFactsAsync());
     }
 
+    /// <summary>
+    /// Entre o prazo e o job a sala segue <c>Active</c> no banco. Quem decide é o relógio do servidor (spec 10.4, "Timeout
+    /// vs ação"; T-18): a ação é recusada sem gravar nada e o job, quando roda, ainda expira a sala. A spec não fixa o
+    /// código; o assert prende o contrato atual de API-R03 para ação recusada, <c>400 VALIDATION_FAILED</c>.
+    /// </summary>
+    [Theory]
+    [InlineData(0)]
+    [InlineData(60)]
+    public async Task AnActionAtOrAfterTheDeadlineButBeforeTheJobIsRefusedWithoutEffect(int secondsAfterDeadline)
+    {
+        await using var scene = await ActiveRoomAsync();
+        using var alice = await scene.SignInAliceAsync();
+        var active = await scene.RoomFactsAsync();
+        scene.Clock.SetUtcNow(scene.Deadline.AddSeconds(secondsAfterDeadline));
+
+        using var late = await ChooseOptionAsync(alice, scene.Room, active.Version);
+
+        Assert.Equal(HttpStatusCode.BadRequest, late.StatusCode);
+        Assert.Contains("\"code\":\"VALIDATION_FAILED\"", await late.Content.ReadAsStringAsync(Ct), StringComparison.Ordinal);
+        Assert.Equal(active, await scene.RoomFactsAsync());
+        Assert.Equal("Pending|0", await scene.GameDeadlineJobAsync());
+
+        var job = await scene.Service.ClaimJobAsync(Ct);
+        Assert.NotNull(job);
+        Assert.True(await scene.Service.CompleteJobAsync(job, Ct));
+        Assert.Equal(new RoomFacts("Expired", active.Version + 1, ActiveReservations: 0, Actions: 0), await scene.RoomFactsAsync());
+    }
+
+    [Fact]
+    public async Task AnActionOneTickBeforeTheDeadlineIsApplied()
+    {
+        await using var scene = await ActiveRoomAsync();
+        using var alice = await scene.SignInAliceAsync();
+        var active = await scene.RoomFactsAsync();
+        scene.Clock.SetUtcNow(scene.Deadline - OneTick);
+
+        using var inTime = await ChooseOptionAsync(alice, scene.Room, active.Version);
+
+        Assert.Equal(HttpStatusCode.NoContent, inTime.StatusCode);
+        Assert.Equal(new RoomFacts("Active", active.Version + 1, ActiveReservations: 2, Actions: 1), await scene.RoomFactsAsync());
+    }
+
+    private static Task<HttpResponseMessage> ChooseOptionAsync(Browser browser, Guid room, long version) =>
+        browser.PostJsonAsync($"/api/v1/rooms/{room}/actions",
+            new RoomActionRequest(Guid.NewGuid(), version.ToString(CultureInfo.InvariantCulture), "choose-option", "morning", "tea"));
+
     private async Task<Scene> ActiveRoomAsync()
     {
         var connectionString = await postgres.CreateMigratedDatabaseAsync(Ct);
@@ -75,14 +126,15 @@ public sealed class GameDeadlineTests(PostgresFixture postgres)
         var room = (await service.StatusAsync(eventId, seed.Alice, Ct))!.RoomId!.Value;
         Assert.Equal(ParticipationOutcome.Done, await service.RespondAsync(room, seed.Alice, true, Ct));
         Assert.Equal(ParticipationOutcome.Done, await service.RespondAsync(room, seed.Bob, true, Ct));
-        var scene = new Scene(source, clock, service, room);
+        var scene = new Scene(new DuoraWebFactory(connectionString) { Time = clock }, connectionString, source, clock, service, seed, room);
         await scene.IsolateGameDeadlineJobAsync();
         return scene;
     }
 
     private sealed record RoomFacts(string State, long Version, long ActiveReservations, long Actions);
 
-    private sealed class Scene(NpgsqlDataSource source, FakeTimeProvider clock, ParticipationService service, Guid room) : IAsyncDisposable
+    private sealed class Scene(DuoraWebFactory factory, string connectionString, NpgsqlDataSource source, FakeTimeProvider clock,
+        ParticipationService service, ParticipationSeed seed, Guid room) : IAsyncDisposable
     {
         public FakeTimeProvider Clock => clock;
 
@@ -91,6 +143,9 @@ public sealed class GameDeadlineTests(PostgresFixture postgres)
         public Guid Room => room;
 
         public DateTimeOffset Deadline { get; private set; }
+
+        public Task<Browser> SignInAliceAsync() =>
+            new IdentityScenario(connectionString, factory).SignedInBrowserAsync(new(seed.Alice, "alice@example.com", IdentityScenario.ValidPassword));
 
         /// <summary>Lê o prazo gravado e adia os outros jobs pendentes, para o claim só poder escolher o <c>game-deadline</c> da sala.</summary>
         public async Task IsolateGameDeadlineJobAsync()
@@ -142,6 +197,10 @@ public sealed class GameDeadlineTests(PostgresFixture postgres)
             return new(reader.GetString(0), reader.GetInt64(1), reader.GetInt64(2), reader.GetInt64(3));
         }
 
-        public ValueTask DisposeAsync() => source.DisposeAsync();
+        public async ValueTask DisposeAsync()
+        {
+            await factory.DisposeAsync();
+            await source.DisposeAsync();
+        }
     }
 }
