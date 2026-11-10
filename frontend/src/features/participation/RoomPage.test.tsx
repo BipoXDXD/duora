@@ -179,7 +179,7 @@ describe('localized room', () => {
     await user.click(await screen.findByRole('button', { name: 'Accept invitation' }))
 
     expect(await screen.findByText('This invitation is no longer available.')).toHaveAttribute('role', 'status')
-    expect(screen.queryByText('This encounter has ended.')).not.toBeInTheDocument()
+    expect(screen.queryByText('This room has been closed.')).not.toBeInTheDocument()
   })
   // Aba antiga: a sala já começou por outro caminho; a falha do convite não descreve mais a tela.
   it('drops the invitation failure once the room is active', async () => {
@@ -232,7 +232,7 @@ describe('localized room', () => {
       http.get(`${API}/rooms/room-gone`, () => notFound('00-en')),
     )
     await renderApp('/rooms/room-gone', undefined, 'en-US')
-    expect(await screen.findByText('This encounter is not available.')).toHaveAttribute('role', 'status')
+    expect(await screen.findByText('This room is not available.')).toHaveAttribute('role', 'status')
     expect(screen.queryByRole('alert')).not.toBeInTheDocument()
   })
 })

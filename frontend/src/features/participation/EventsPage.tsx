@@ -53,8 +53,11 @@ type EntryCommand = 'register' | 'checkIn' | 'withdraw'
 
 const NOT_FOUND = 404
 
-/** Depois do início o servidor recusa a retirada com 404 (API-E04): a tela explica em vez do alerta genérico. */
-function refusedAfterStart(error: Error | null): boolean {
+/**
+ * O servidor recusa a retirada com 404 (API-E04) depois do início, com o evento fora de Published ou com a inscrição
+ * em outro estado: a tela avisa que a retirada fechou, sem afirmar o motivo, em vez do alerta genérico.
+ */
+function withdrawalRefused(error: Error | null): boolean {
   const failure = classifyRequestFailure(error)
   return failure.kind === 'problem' && failure.status === NOT_FOUND
 }
@@ -83,7 +86,7 @@ function EventEntry({ event, userId }: { readonly event: Event; readonly userId:
   const warning = useRef<HTMLParagraphElement>(null)
   const outcome = useRef<HTMLParagraphElement>(null)
   const closedNotice = useRef<HTMLParagraphElement>(null)
-  // A retirada fechou com a confirmação aberta: o encontro começou na tela ou o servidor recusou no limite do horário.
+  // A retirada fechou com a confirmação aberta: o encontro começou na tela ou o servidor recusou com 404.
   const [withdrawClosed, setWithdrawClosed] = useState(false)
   const pendingFocus = useRef<WithdrawalFocus | null>(null)
   const key = ['account', userId, 'participation', event.eventId]
@@ -103,7 +106,7 @@ function EventEntry({ event, userId }: { readonly event: Event; readonly userId:
       await client.invalidateQueries({ queryKey: key })
     },
     onError: (error, action) => {
-      if (action === 'withdraw' && refusedAfterStart(error)) {
+      if (action === 'withdraw' && withdrawalRefused(error)) {
         setConfirmingWithdrawal(false)
         setWithdrawClosed(true)
       }
@@ -129,7 +132,7 @@ function EventEntry({ event, userId }: { readonly event: Event; readonly userId:
   }, [withdrawClosed])
   const waitlisted = state === 'waitlisted'
   const withdrawLabel = t(waitlisted ? 'participation.leaveWaitlist' : 'participation.withdraw')
-  const commandFailed = command.isError && !(command.variables === 'withdraw' && refusedAfterStart(command.error))
+  const commandFailed = command.isError && !(command.variables === 'withdraw' && withdrawalRefused(command.error))
   useEffect(() => {
     const focus = pendingFocus.current
     if (focus === null) {

@@ -32,8 +32,10 @@ public sealed class InviteAndCheckInDeadlineTests(PostgresFixture postgres)
 
         scene.Clock.SetUtcNow(deadline);
         using (var late = await AcceptAsync(scene.Bob, room))
+        using (var unknown = await AcceptAsync(scene.Bob, Guid.NewGuid()))
         {
             Assert.Equal(HttpStatusCode.NotFound, late.StatusCode);
+            Assert.Equal(await NeutralResponse.DescribeAsync(unknown, ct), await NeutralResponse.DescribeAsync(late, ct));
         }
         Assert.Equal(new RoomFacts("Expired", AliceAccepted: true, BobAccepted: false, ActiveReservations: 0, HasGame: false, GameDeadlineJobs: 0),
             await ReadRoomFactsAsync(scene, room, ct));

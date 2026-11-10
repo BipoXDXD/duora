@@ -146,7 +146,7 @@ export const ptBR = {
   'participation.confirmLeaveWaitlist': 'Sim, sair da lista',
   'participation.keepRegistration': 'Manter inscrição',
   'participation.stayOnWaitlist': 'Continuar na lista',
-  'participation.withdrawClosed': 'O encontro começou. Não é mais possível cancelar a inscrição.',
+  'participation.withdrawClosed': 'Não é mais possível cancelar a inscrição.',
   'participation.withdrawn': 'Você saiu deste encontro.',
   'participation.openRoom': 'Abrir convite ou sala',
   'participation.backToEvents': 'Voltar aos encontros',

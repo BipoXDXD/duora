@@ -229,8 +229,9 @@ em [system.md](system.md); critérios de acessibilidade, em [accessibility.md](a
   na própria tela: o foco vai para o aviso "Depois de sair, você não poderá se inscrever de novo neste encontro."
   (decisão 10 de 24/10/2026), que descreve o botão destrutivo "Sim, cancelar inscrição" ("Sim, sair da lista" na
   espera) (`aria-describedby`). A ação segura vem primeiro: "Manter inscrição" ("Continuar na lista" na espera) desiste
-  e devolve o foco ao botão. Se o encontro começa com a confirmação aberta, ou o servidor recusa no limite do horário
-  (404), ela fecha e o foco vai para "O encontro começou. Não é mais possível cancelar a inscrição." Depois da
+  e devolve o foco ao botão. Se o encontro começa com a confirmação aberta, ou o servidor recusa com 404 (no limite do
+  horário, com o evento fora de `Published` ou com a inscrição em outro estado), ela fecha e o foco vai para o aviso
+  neutro "Não é mais possível cancelar a inscrição.", que não afirma o motivo. Depois da
   retirada, o foco vai para "Você saiu deste encontro." e somem inscrição e check-in. A tela não promete aviso à pessoa promovida da espera (#320). Hoje vive na lista de eventos
   (`EventsPage`), não num detalhe do evento.
 

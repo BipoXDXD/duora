@@ -22,7 +22,8 @@ const ROUND_CANCELLED_PT =
 const ROUND_CANCELLED_EN =
   "This round was cancelled. You're still checked in. If there's another round, your invitation will appear here."
 
-const WITHDRAW_CLOSED_PT = 'O encontro começou. Não é mais possível cancelar a inscrição.'
+const WITHDRAW_CLOSED_PT = 'Não é mais possível cancelar a inscrição.'
+const WITHDRAW_CLOSED_EN = 'You can no longer cancel your registration.'
 
 interface ParticipationBody {
   readonly state: string
@@ -330,8 +331,9 @@ describe('withdrawing from an event (API-E04)', () => {
     expect(screen.getByRole('button', { name: 'Yes, leave the waitlist' })).toBeInTheDocument()
   })
 
-  // No limite do horário o servidor recusa com 404: a tela explica sem alerta genérico e sem afirmar outro motivo.
-  it('explains that the event has started when the server refuses at the deadline', async () => {
+  // O servidor recusa com 404 no início do encontro, com o evento fora de Published (cancelado) ou com a inscrição
+  // em outro estado: a tela diz só que a retirada fechou, sem alerta genérico e sem afirmar um motivo.
+  it('says neutrally that withdrawal is closed when the server refuses with 404', async () => {
     const user = userEvent.setup()
     eventsWith('Confirmed', () =>
       HttpResponse.json(
@@ -351,6 +353,22 @@ describe('withdrawing from an event (API-E04)', () => {
     expect(screen.queryByRole('alert')).not.toBeInTheDocument()
     expect(screen.queryByText('Você saiu deste encontro.')).not.toBeInTheDocument()
     expect(screen.queryByRole('button', { name: /Cancelar inscrição/ })).not.toBeInTheDocument()
+  })
+
+  it('says neutrally in English that withdrawal is closed when the server refuses with 404', async () => {
+    const user = userEvent.setup()
+    eventsWith('Confirmed', () =>
+      HttpResponse.json(
+        { type: 'urn:duora:problem:not-found', title: 'Not Found', status: 404, traceId: 'trace' },
+        { status: 404, headers: { 'Content-Type': 'application/problem+json' } },
+      ),
+    )
+    await renderApp('/events', undefined, 'en-US')
+    await user.click(await screen.findByRole('button', { name: 'Cancel registration' }))
+    await user.click(screen.getByRole('button', { name: 'Yes, cancel registration' }))
+
+    expect(await screen.findByText(WITHDRAW_CLOSED_EN)).toHaveAttribute('role', 'status')
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument()
   })
 
   it('shows an alert and keeps the registration when the withdrawal fails otherwise', async () => {

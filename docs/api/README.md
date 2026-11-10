@@ -301,3 +301,12 @@ API-ADM28 (`POST /admin/registration-reconciliations/runs/{runId}/units/{unitId}
 sessão normal, com toque. Mudança aditiva, com os códigos novos `409 RUN_CLOSED` e `409 CUTOVER_CHANGED`. Estas rotas
 retiram inscrições: uso real só pelo [runbook](../operations/registration-reconciliation.md), com autorização própria.
 Requer revisão humana de autorização e contrato antes do merge.
+
+## Aceite tardio do convite (#428)
+
+`POST /api/v1/rooms/{roomId}/accept` (API-R01) com o prazo do convite vencido passou de `204` para `404`, o mesmo
+`404` neutro de sala inexistente (corpo e headers iguais, só o `traceId` muda). Antes, o aceite tardio respondia
+`204` sem aceitar nada e só a repetição recebia `404`. O efeito no banco não mudou: a sala vira `Expired` e as
+reservas são liberadas. A recusa tardia (`POST /api/v1/rooms/{roomId}/reject`) continua `204`, porque o pedido já
+cumpre o efeito. Mudança de semântica sem mudança de schema (o OpenAPI passa a declarar `204` e `404` nas duas
+rotas): a SPA trata o `404` com o aviso "Este convite não está mais disponível.", e a SPA e a API são publicadas juntas.

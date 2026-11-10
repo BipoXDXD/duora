@@ -1,7 +1,6 @@
 using System.Globalization;
 using System.Net;
 using System.Text.Json;
-using System.Text.RegularExpressions;
 using Duora.Contracts.Participation;
 using Duora.Core.Safety;
 using Duora.Infrastructure.Participation;
@@ -15,7 +14,7 @@ using static Duora.Infrastructure.Participation.ParticipationSql;
 namespace Duora.IntegrationTests.Participation;
 
 /// <summary>Sala abortada não diz por quê (TM-24, spec 7.3): para quem fica, saída, suspensão e bloqueio são a mesma resposta.</summary>
-public sealed partial class RoomNeutralityTests(PostgresFixture postgres)
+public sealed class RoomNeutralityTests(PostgresFixture postgres)
 {
     private const string Constellation = "constellation";
     private const string Routes = "routes";
@@ -93,7 +92,7 @@ public sealed partial class RoomNeutralityTests(PostgresFixture postgres)
         using var repeated = await scene.Alice.PostJsonAsync($"/api/v1/rooms/{scene.Room}/exit", null);
 
         Assert.Equal(HttpStatusCode.NotFound, read.StatusCode);
-        Assert.Equal(await DescribeAsync(unknown, ct), await DescribeAsync(read, ct));
+        Assert.Equal(await NeutralResponse.DescribeAsync(unknown, ct), await NeutralResponse.DescribeAsync(read, ct));
         Assert.Equal(WaitingWithoutRoom, await status.Content.ReadAsStringAsync(ct));
         Assert.Equal(HttpStatusCode.NoContent, repeated.StatusCode);
         Assert.Equal(version, await SessionVersionAsync(scene, ct));
@@ -186,8 +185,10 @@ public sealed partial class RoomNeutralityTests(PostgresFixture postgres)
         await using var scene = await SceneAsync(Constellation, Invited, ct);
         scene.Clock.Advance(TimeSpan.FromSeconds(60));
         using (var late = await scene.Alice.PostJsonAsync($"/api/v1/rooms/{scene.Room}/accept", null))
+        using (var unknown = await scene.Alice.PostJsonAsync($"/api/v1/rooms/{Guid.NewGuid()}/accept", null))
         {
             Assert.Equal(HttpStatusCode.NotFound, late.StatusCode);
+            Assert.Equal(await NeutralResponse.DescribeAsync(unknown, ct), await NeutralResponse.DescribeAsync(late, ct));
         }
 
         await AssertRoomStillVisibleAsync(scene, "Expired", "Unavailable", ct);
@@ -215,24 +216,24 @@ public sealed partial class RoomNeutralityTests(PostgresFixture postgres)
         foreach (var route in NotFoundRoutes)
         {
             using var response = await SendAsync(scene.Bob, route, scene.Room, version);
-            seen[route] = await DescribeAsync(response, ct);
+            seen[route] = await NeutralResponse.DescribeAsync(response, ct);
         }
         using (var unknown = await SendAsync(scene.Bob, "read", Guid.NewGuid(), version))
         {
-            seen["unknown-room"] = await DescribeAsync(unknown, ct);
+            seen["unknown-room"] = await NeutralResponse.DescribeAsync(unknown, ct);
         }
         var statusPath = $"/api/v1/events/{scene.EventId}/participation";
         using (var status = await scene.Bob.GetAsync(statusPath))
         {
-            seen["status"] = await DescribeAsync(status, ct);
+            seen["status"] = await NeutralResponse.DescribeAsync(status, ct);
         }
         using (var exit = await scene.Bob.PostJsonAsync($"/api/v1/rooms/{scene.Room}/exit", null))
         {
-            seen["exit"] = await DescribeAsync(exit, ct);
+            seen["exit"] = await NeutralResponse.DescribeAsync(exit, ct);
         }
         using (var status = await scene.Bob.GetAsync(statusPath))
         {
-            seen["status-after-exit"] = await DescribeAsync(status, ct);
+            seen["status-after-exit"] = await NeutralResponse.DescribeAsync(status, ct);
         }
         return seen;
     }
@@ -273,21 +274,6 @@ public sealed partial class RoomNeutralityTests(PostgresFixture postgres)
             _ => throw new ArgumentOutOfRangeException(nameof(route), route, "Rota sem envio definido."),
         };
     }
-
-    // Só o traceId muda de uma requisição para outra; qualquer outra diferença seria um sinal do motivo.
-    // Date e Set-Cookie variam em qualquer resposta e não dependem da sala.
-    private static async Task<string> DescribeAsync(HttpResponseMessage response, CancellationToken ct)
-    {
-        var body = TraceId().Replace(await response.Content.ReadAsStringAsync(ct), string.Empty);
-        var headers = response.Headers.Concat(response.Content.Headers)
-            .Where(header => header.Key is not ("Date" or "Set-Cookie" or "Content-Type"))
-            .Select(header => $"{header.Key}={string.Join(',', header.Value)}")
-            .Order(StringComparer.Ordinal);
-        return $"{(int)response.StatusCode}|{response.Content.Headers.ContentType}|{body}|{string.Join(';', headers)}";
-    }
-
-    [GeneratedRegex("\"traceId\":\"[^\"]*\"")]
-    private static partial Regex TraceId();
 
     private async Task<RoomScene> SceneAsync(string game, string state, CancellationToken ct)
     {
