@@ -756,7 +756,7 @@ public sealed class AccountSecurityService
         }
         catch (Exception error) when (LockTimeoutIn(error) is { } timeout)
         {
-            throw new AccountBusyException(_lock.AccountLockTimeout, timeout);
+            throw new AccountBusyException(_lock.AccountLockTimeout, AccountBusyReason.AccountLock, timeout);
         }
 
         await SetLockTimeoutAsync(NoLockTimeout, cancellationToken);
