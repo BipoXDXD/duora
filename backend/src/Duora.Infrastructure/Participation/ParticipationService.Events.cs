@@ -50,6 +50,12 @@ public sealed partial class ParticipationService(NpgsqlDataSource source, TimePr
         public override DateTimeOffset GetUtcNow() => Truncate(inner.GetUtcNow());
     }
 
+    /// <summary>Para o motor do jogo decidir no mesmo instante que já decidiu a conclusão do job, sem reler o relógio.</summary>
+    private sealed class FrozenClock(DateTimeOffset instant) : TimeProvider
+    {
+        public override DateTimeOffset GetUtcNow() => instant;
+    }
+
     internal Func<string, CancellationToken, Task>? ObserveMatchingStage { get; set; }
 
     public async Task<IReadOnlyList<ParticipationEvent>> EventsAsync(CancellationToken ct)
@@ -306,11 +312,11 @@ public sealed partial class ParticipationService(NpgsqlDataSource source, TimePr
     {
         await using var connection = await source.OpenConnectionAsync(ct);
         await using var transaction = await connection.BeginTransactionAsync(ct);
-        await BuildRoundAsync(connection, roundId, ct);
+        await BuildRoundAsync(connection, roundId, Now, ct);
         await transaction.CommitAsync(ct);
     }
 
-    private async Task BuildRoundAsync(NpgsqlConnection connection, Guid roundId, CancellationToken ct)
+    private async Task BuildRoundAsync(NpgsqlConnection connection, Guid roundId, DateTimeOffset now, CancellationToken ct)
     {
         if (!MatchingEnabled)
         {
@@ -359,7 +365,6 @@ public sealed partial class ParticipationService(NpgsqlDataSource source, TimePr
             state = reader.GetString(4);
             algorithm = (PairingAlgorithmVersion)reader.GetInt32(5);
         }
-        var now = Now;
         if (state != "Scheduled" || starts > now)
         {
             return;

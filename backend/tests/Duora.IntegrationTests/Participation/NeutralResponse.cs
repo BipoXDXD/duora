@@ -2,7 +2,7 @@ using System.Text.RegularExpressions;
 
 namespace Duora.IntegrationTests.Participation;
 
-/// <summary>Descreve uma resposta para comparar recusas que não podem revelar o motivo (TM-24).</summary>
+/// <summary>Descrição comparável de uma resposta que não pode revelar por que a sala não está disponível.</summary>
 internal static partial class NeutralResponse
 {
     // Só o traceId muda de uma requisição para outra; qualquer outra diferença seria um sinal do motivo.
