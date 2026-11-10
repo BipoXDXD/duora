@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using Microsoft.AspNetCore.Diagnostics;
 using Npgsql;
 
@@ -10,24 +11,27 @@ namespace Duora.Web.Http;
 /// </summary>
 internal static class DatabaseUnavailability
 {
-    public static bool IsTemporary(Exception exception)
+    public static bool IsTemporary(Exception exception) => TemporaryCause(exception) is not null;
+
+    /// <summary>A exceção da cadeia que caracteriza a indisponibilidade, ou nula se a falha for outra.</summary>
+    public static NpgsqlException? TemporaryCause(Exception exception)
     {
         for (var current = exception; current is not null; current = current.InnerException)
         {
             switch (current)
             {
                 case PostgresException server when IsUnavailableState(server.SqlState):
-                    return true;
+                    return server;
                 case PostgresException:
                     // Erro de SQL comum (constraint, sintaxe, serialização): não é indisponibilidade.
-                    return false;
+                    return null;
                 case NpgsqlException client when client.IsTransient:
                     // Falha de rede, conexão recusada ou pool esgotado: o servidor nem respondeu.
-                    return true;
+                    return client;
             }
         }
 
-        return false;
+        return null;
     }
 
     private static bool IsUnavailableState(string sqlState) =>
@@ -40,19 +44,27 @@ internal static class DatabaseUnavailability
 
 /// <summary>
 /// Banco indisponível vira 503 <c>TEMPORARILY_UNAVAILABLE</c> com <c>Retry-After</c>, sem detalhe (spec 11; auth.md,
-/// "Banco indisponível"). As outras falhas inesperadas continuam 500.
+/// "Banco indisponível"). As outras falhas inesperadas continuam 500. O Warning leva só o que identifica a falha e a
+/// requisição: a mensagem do Npgsql pode trazer host, porta e usuário, então nem ela nem a exceção vão para o log.
 /// </summary>
-internal sealed class DatabaseUnavailableExceptionHandler : IExceptionHandler
+internal sealed partial class DatabaseUnavailableExceptionHandler(ILogger<DatabaseUnavailableExceptionHandler> logger)
+    : IExceptionHandler
 {
     private static readonly TimeSpan RetryAfter = TimeSpan.FromSeconds(5);
 
     public async ValueTask<bool> TryHandleAsync(HttpContext httpContext, Exception exception, CancellationToken cancellationToken)
     {
-        if (!DatabaseUnavailability.IsTemporary(exception))
+        if (DatabaseUnavailability.TemporaryCause(exception) is not { } cause)
         {
             return false;
         }
 
+        LogDatabaseUnavailable(
+            logger,
+            (cause as PostgresException)?.SqlState,
+            cause.GetType().Name,
+            RouteOf(httpContext),
+            Activity.Current?.Id ?? httpContext.TraceIdentifier);
         ApiProblems.SetRetryAfter(httpContext, RetryAfter);
         await ApiProblems.Problem(
                 StatusCodes.Status503ServiceUnavailable,
@@ -60,4 +72,16 @@ internal sealed class DatabaseUnavailableExceptionHandler : IExceptionHandler
             .ExecuteAsync(httpContext);
         return true;
     }
+
+    /// <summary>O padrão da rota (sem ids); o middleware de exceção já limpou o endpoint do contexto.</summary>
+    private static string? RouteOf(HttpContext httpContext)
+    {
+        var failure = httpContext.Features.Get<IExceptionHandlerFeature>();
+        return (failure?.Endpoint as RouteEndpoint)?.RoutePattern.RawText ?? failure?.Path;
+    }
+
+    [LoggerMessage(Level = LogLevel.Warning,
+        Message = "Database unavailable ({SqlState}, {ErrorType}) on {Route}, trace {TraceId}")]
+    private static partial void LogDatabaseUnavailable(
+        ILogger logger, string? sqlState, string errorType, string? route, string traceId);
 }
