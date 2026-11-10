@@ -149,7 +149,7 @@ public sealed class PostgresFixture : IAsyncLifetime
     {
         try
         {
-            var inventory = await InventoryBeforeRemovalAsync();
+            var inventory = await FixtureCleanup.InventoryWithinCeilingAsync(DescribeForCleanupAsync, InventoryCeiling);
             await FixtureCleanup.RunAsync("remover o container do PostgreSQL", _container.DisposeAsync, inventory);
         }
         finally
@@ -180,20 +180,6 @@ public sealed class PostgresFixture : IAsyncLifetime
         var fileCount = files.ExitCode == 0 ? files.Stdout.Trim() : $"indisponível (saída {files.ExitCode})";
         return $"bancos no servidor: {databases}; tamanho somado: {bytes} bytes; " +
             $"bancos avulsos ainda registrados: {_scratchDatabases.Count}; arquivos no diretório de dados: {fileCount}";
-    }
-
-    private async Task<string> InventoryBeforeRemovalAsync()
-    {
-        using var ceiling = new CancellationTokenSource(InventoryCeiling);
-        try
-        {
-            return await DescribeForCleanupAsync(ceiling.Token);
-        }
-        catch (Exception failure)
-        {
-            // Diagnóstico apenas: sem inventário a remoção ainda precisa rodar, e a falha dele vai na mensagem final.
-            return $"inventário indisponível: {failure.GetType().Name}: {failure.Message}";
-        }
     }
 
     internal static void TrackScratchPool(string? connectionString) => ScratchDatabaseLifetime.TrackPool(connectionString);
