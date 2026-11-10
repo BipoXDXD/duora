@@ -150,8 +150,6 @@ public sealed class ServerErrorTests(PostgresFixture postgres)
     [Theory]
     [InlineData("23505")]
     [InlineData("42P01")]
-    [InlineData("40001")]
-    [InlineData("40P01")]
     public void OrdinaryDatabaseErrorsAreNotUnavailability(string sqlState)
     {
         var error = new PostgresException("erro comum", "ERROR", "ERROR", sqlState);
@@ -159,6 +157,20 @@ public sealed class ServerErrorTests(PostgresFixture postgres)
         Assert.False(DatabaseUnavailability.IsTemporary(error));
         Assert.False(DatabaseUnavailability.IsTemporary(new InvalidOperationException("wrapped", error)));
         Assert.False(DatabaseUnavailability.IsTemporary(new InvalidOperationException("sem banco")));
+    }
+
+    // Serialização, deadlock e lock_timeout crus são passageiros como os embrulhados (#465): o cliente pode repetir, então
+    // não são erro de SQL comum nem 500. O EF por fora não esconde o SqlState.
+    [Theory]
+    [InlineData("40001")]
+    [InlineData("40P01")]
+    [InlineData("55P03")]
+    public void ARetryableServerErrorIsTemporaryAlsoWhenRaw(string sqlState)
+    {
+        var error = new PostgresException("erro comum", "ERROR", "ERROR", sqlState);
+
+        Assert.Same(error, DatabaseUnavailability.TemporaryCause(error));
+        Assert.Same(error, DatabaseUnavailability.TemporaryCause(new InvalidOperationException("wrapped", error)));
     }
 
     // Para o Npgsql, constraint e objeto inexistente não são passageiros: embrulhados por ele continuam erro de SQL.

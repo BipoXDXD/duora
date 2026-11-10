@@ -52,9 +52,8 @@ public sealed class DatabaseUnavailableExceptionHandlerTests
         Assert.DoesNotContain(_canary, warning.Text, StringComparison.Ordinal);
     }
 
-    // O embrulhado, uma ou duas vezes, imita o 503 que a main já dava a ele, o mesmo da indisponibilidade crua do
-    // servidor: a resposta inteira é igual, fora o traceId do corpo e o Date. A mensagem dos embrulhos e do erro do
-    // servidor não vai para o Warning.
+    // O embrulhado, uma ou duas vezes, responde como o mesmo erro cru (#465): a resposta inteira é igual, fora o traceId
+    // do corpo e o Date. A mensagem dos embrulhos e do erro do servidor não vai para o Warning.
     [Theory]
     [InlineData("40001", 1)]
     [InlineData("40P01", 1)]
@@ -62,9 +61,9 @@ public sealed class DatabaseUnavailableExceptionHandlerTests
     [InlineData("40001", 2)]
     [InlineData("40P01", 2)]
     [InlineData("55P03", 2)]
-    public async Task ARetryableServerErrorWrappedByNpgsqlAnswersLikeARawUnavailableServer(string sqlState, int wrappings)
+    public async Task ARetryableServerErrorWrappedByNpgsqlAnswersLikeTheSameRawError(string sqlState, int wrappings)
     {
-        var raw = new PostgresException("indisponível", "FATAL", "FATAL", PostgresErrorCodes.TooManyConnections);
+        var raw = new PostgresException(_canary, "ERROR", "ERROR", sqlState);
         NpgsqlException wrapped = new PostgresException(_canary, "ERROR", "ERROR", sqlState);
         for (var i = 0; i < wrappings; i++)
         {
