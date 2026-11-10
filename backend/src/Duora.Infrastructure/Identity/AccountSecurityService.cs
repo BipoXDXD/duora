@@ -42,8 +42,9 @@ public sealed class AccountLockOptions
 /// (<see cref="AccountLockOptions.AccountQueueTimeout"/>), o lock no PostgreSQL
 /// (<see cref="AccountLockOptions.AccountLockTimeout"/>, <c>lock_timeout</c>, 55P03) ou o prazo total do login
 /// (<c>Identity:LoginTimeout</c>). A verificação que não entrou não gravou nada; o cliente pode tentar de novo depois
-/// de <see cref="RetryAfter"/>. Na conta, ele é sempre <see cref="AccountLockOptions.BusyRetryAfter"/>, qualquer que
-/// seja o teto que estourou, para o header não revelar se a conta existe.
+/// de <see cref="RetryAfter"/>. Na fila, no lock e no prazo do login, ele é sempre
+/// <see cref="AccountLockOptions.BusyRetryAfter"/>, qualquer que seja o teto que estourou, para o header não revelar
+/// se a conta existe; outras esperas de conta autenticada usam o próprio valor curto.
 /// </summary>
 public sealed class AccountBusyException : Exception
 {
@@ -749,14 +750,22 @@ public sealed class AccountSecurityService
         _db.Database.ExecuteSqlAsync($"select set_config('lock_timeout', {lockTimeout}, true)", cancellationToken);
 
     /// <summary>
-    /// O 55P03 chega cru de um comando e embrulhado pelo EF (falha transitória) de uma query; os dois são a espera
-    /// que passou do teto.
+    /// O 55P03 chega cru de um comando, embrulhado pelo EF (falha transitória) de uma query ou com uma
+    /// <see cref="NpgsqlException"/> no meio; em qualquer profundidade é a espera que passou do teto. Não reconhecido,
+    /// cairia no handler global com outro <c>Retry-After</c>, e o header voltaria a revelar a conta (issue #468).
     /// </summary>
-    private static PostgresException? LockTimeoutIn(Exception error) =>
-        (error as PostgresException ?? error.InnerException as PostgresException) is
-        { SqlState: PostgresErrorCodes.LockNotAvailable } timeout
-            ? timeout
-            : null;
+    internal static PostgresException? LockTimeoutIn(Exception error)
+    {
+        for (Exception? current = error; current is not null; current = current.InnerException)
+        {
+            if (current is PostgresException { SqlState: PostgresErrorCodes.LockNotAvailable } timeout)
+            {
+                return timeout;
+            }
+        }
+
+        return null;
+    }
 
     /// <summary>
     /// Registra o início do bloqueio quando a falha recém-contada levou ao teto uma conta que não estava bloqueada.

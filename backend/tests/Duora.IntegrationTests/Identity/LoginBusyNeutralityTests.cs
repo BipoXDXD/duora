@@ -69,8 +69,9 @@ public sealed partial class LoginBusyNeutralityTests(PostgresFixture postgres)
     }
 
     /// <summary>
-    /// Banco indisponível (pool esgotado) é outro contrato, com <c>Retry-After: 5</c>, mas também não pode depender da
-    /// existência da conta.
+    /// Banco indisponível (pool esgotado) é outro contrato, mas também não pode depender da existência da conta. O
+    /// valor do <c>Retry-After</c> não é fixado aqui: ele é do handler de banco indisponível; aqui importa só que
+    /// exista e seja igual nas duas respostas.
     /// </summary>
     [Fact]
     public async Task AnUnavailableDatabaseAnswersTheSameForAnExistingAndAMissingEmail()
@@ -96,7 +97,7 @@ public sealed partial class LoginBusyNeutralityTests(PostgresFixture postgres)
         var existingEmail = await DescribeAsync(existing, ct);
 
         Assert.StartsWith("503|", existingEmail, StringComparison.Ordinal);
-        Assert.EndsWith("Retry-After=5", existingEmail, StringComparison.Ordinal);
+        Assert.True(ProblemAssert.RetryAfterSeconds(existing) > 0);
         Assert.Equal(await DescribeAsync(missing, ct), existingEmail);
     }
 
