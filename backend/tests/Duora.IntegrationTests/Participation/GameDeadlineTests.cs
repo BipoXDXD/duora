@@ -249,6 +249,60 @@ public sealed class GameDeadlineTests(PostgresFixture postgres)
         Assert.Equal(active, await scene.RoomFactsAsync());
     }
 
+    /// <summary>
+    /// Issue #463: numa sala <c>Completed</c>, uma ação nova no prazo ou depois dele recebe a mesma <c>404</c> da sala
+    /// <c>Expired</c> e de uma sala inexistente, em status, corpo sem <c>traceId</c> e headers, antes e depois do job, sem
+    /// gravar nada. O job não muda a sala <c>Completed</c>.
+    /// </summary>
+    [Theory]
+    [InlineData(0)]
+    [InlineData(60)]
+    public async Task ANewActionInACompletedRoomAtOrAfterTheDeadlineGetsTheSame404BeforeAndAfterTheJob(int secondsAfterDeadline)
+    {
+        await using var scene = await ActiveRoomAsync();
+        using var alice = await scene.SignInAliceAsync();
+        await scene.CompleteRoomAsync();
+        var completed = await scene.RoomFactsAsync();
+        Assert.Equal(("Completed", 0L, 2L), (completed.State, completed.ActiveReservations, completed.Actions));
+        scene.Clock.SetUtcNow(scene.Deadline.AddSeconds(secondsAfterDeadline));
+
+        using var late = await ChooseOptionAsync(alice, scene.Room, completed.Version);
+
+        Assert.Equal(HttpStatusCode.NotFound, late.StatusCode);
+        Assert.Equal("NOT_FOUND", await ProblemCodeAsync(late));
+        var unknownRoom = await UnknownRoomAsync(alice, completed.Version);
+        Assert.Equal(unknownRoom, await NeutralResponse.DescribeAsync(late, Ct));
+        Assert.Equal(completed, await scene.RoomFactsAsync());
+
+        var job = await scene.Service.ClaimJobAsync(Ct);
+        Assert.NotNull(job);
+        Assert.Equal(("game-deadline", scene.Room), (job.Kind, job.AggregateId));
+        Assert.True(await scene.Service.CompleteJobAsync(job, Ct));
+        Assert.Equal(completed, await scene.RoomFactsAsync());
+
+        using var afterTheJob = await ChooseOptionAsync(alice, scene.Room, completed.Version);
+        Assert.Equal(unknownRoom, await NeutralResponse.DescribeAsync(afterTheJob, Ct));
+        Assert.Equal(completed, await scene.RoomFactsAsync());
+    }
+
+    /// <summary>Só o depois do prazo mudou: numa sala <c>Completed</c>, uma ação nova antes do prazo continua <c>400 VALIDATION_FAILED</c>, sem gravar.</summary>
+    [Fact]
+    public async Task ANewActionInACompletedRoomBeforeTheDeadlineIsStillAValidationFailure()
+    {
+        await using var scene = await ActiveRoomAsync();
+        using var alice = await scene.SignInAliceAsync();
+        await scene.CompleteRoomAsync();
+        var completed = await scene.RoomFactsAsync();
+        Assert.Equal("Completed", completed.State);
+        scene.Clock.SetUtcNow(scene.Deadline - OneTick);
+
+        using var refused = await ChooseOptionAsync(alice, scene.Room, completed.Version);
+
+        Assert.Equal(HttpStatusCode.BadRequest, refused.StatusCode);
+        Assert.Equal("VALIDATION_FAILED", await ProblemCodeAsync(refused));
+        Assert.Equal(completed, await scene.RoomFactsAsync());
+    }
+
     [Fact]
     public async Task AnActionOneTickBeforeTheDeadlineIsApplied()
     {
@@ -326,6 +380,16 @@ public sealed class GameDeadlineTests(PostgresFixture postgres)
         public Guid Room => room;
 
         public DateTimeOffset Deadline { get; private set; }
+
+        /// <summary>Alice e Bob respondem à única carta pelo serviço, antes do prazo: a sala termina <c>Completed</c>.</summary>
+        public async Task CompleteRoomAsync()
+        {
+            foreach (var (user, option) in new[] { (seed.Alice, "tea"), (seed.Bob, "walk") })
+            {
+                var version = (await service.RoomAsync(room, user, Ct))!.Version;
+                Assert.Equal(ParticipationOutcome.Done, await service.ActionAsync(room, user, Guid.NewGuid(), version, "choose-option", "morning", option, Ct));
+            }
+        }
 
         public Task<Browser> SignInAliceAsync() =>
             new IdentityScenario(connectionString, factory).SignedInBrowserAsync(new(seed.Alice, "alice@example.com", IdentityScenario.ValidPassword));

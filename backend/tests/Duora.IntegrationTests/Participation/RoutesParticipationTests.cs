@@ -279,6 +279,67 @@ public sealed class RoutesParticipationTests(PostgresFixture postgres)
     }
 
     /// <summary>
+    /// Issue #463, como em API-R03: numa sala <c>Completed</c>, uma ação nova no prazo ou depois dele recebe a mesma
+    /// <c>404</c> de uma sala inexistente, em status, corpo sem <c>traceId</c> e headers, antes e depois do job, sem gravar nada.
+    /// </summary>
+    [Theory]
+    [InlineData(0)]
+    [InlineData(60)]
+    public async Task ANewActionInACompletedRoomAtOrAfterTheDeadlineGetsTheSame404BeforeAndAfterTheJob(int secondsAfterDeadline)
+    {
+        var (source, clock, service, seed, room, connectionString) = await Active();
+        await using var owned = source;
+        var ct = TestContext.Current.CancellationToken;
+        await using var factory = new DuoraWebFactory(connectionString) { Time = clock };
+        using var alice = await new IdentityScenario(connectionString, factory)
+            .SignedInBrowserAsync(new(seed.Alice, "alice@example.com", IdentityScenario.ValidPassword));
+        await CompleteRoutesAsync(service, seed, room, ct);
+        await using var connection = await source.OpenConnectionAsync(ct);
+        var completed = await RoomFactsAsync(connection, room, ct);
+        Assert.Equal(("Completed", 0L), (completed.State, completed.ActiveReservations));
+        clock.SetUtcNow((await DeadlineAsync(connection, room, ct)).AddSeconds(secondsAfterDeadline));
+        var endpoint = $"/api/v1/rooms/{room}/routes-actions";
+
+        using var late = await alice.PostJsonAsync(endpoint, AcknowledgeIntroduction(completed.Version));
+
+        Assert.Equal(HttpStatusCode.NotFound, late.StatusCode);
+        Assert.Equal("NOT_FOUND", await ProblemCodeAsync(late, ct));
+        var unknownRoom = await UnknownRoomAsync(alice, completed.Version, ct);
+        Assert.Equal(unknownRoom, await NeutralResponse.DescribeAsync(late, ct));
+        Assert.Equal(completed, await RoomFactsAsync(connection, room, ct));
+
+        await RunDueJobsAsync(service, ct);
+        Assert.Equal(completed, await RoomFactsAsync(connection, room, ct));
+
+        using var afterTheJob = await alice.PostJsonAsync(endpoint, AcknowledgeIntroduction(completed.Version));
+        Assert.Equal(unknownRoom, await NeutralResponse.DescribeAsync(afterTheJob, ct));
+        Assert.Equal(completed, await RoomFactsAsync(connection, room, ct));
+    }
+
+    /// <summary>Só o depois do prazo mudou: numa sala <c>Completed</c>, uma ação nova antes do prazo continua <c>400 VALIDATION_FAILED</c>, sem gravar.</summary>
+    [Fact]
+    public async Task ANewActionInACompletedRoomBeforeTheDeadlineIsStillAValidationFailure()
+    {
+        var (source, clock, service, seed, room, connectionString) = await Active();
+        await using var owned = source;
+        var ct = TestContext.Current.CancellationToken;
+        await using var factory = new DuoraWebFactory(connectionString) { Time = clock };
+        using var alice = await new IdentityScenario(connectionString, factory)
+            .SignedInBrowserAsync(new(seed.Alice, "alice@example.com", IdentityScenario.ValidPassword));
+        await CompleteRoutesAsync(service, seed, room, ct);
+        await using var connection = await source.OpenConnectionAsync(ct);
+        var completed = await RoomFactsAsync(connection, room, ct);
+        Assert.Equal("Completed", completed.State);
+        clock.SetUtcNow((await DeadlineAsync(connection, room, ct)).AddTicks(-1));
+
+        using var refused = await alice.PostJsonAsync($"/api/v1/rooms/{room}/routes-actions", AcknowledgeIntroduction(completed.Version));
+
+        Assert.Equal(HttpStatusCode.BadRequest, refused.StatusCode);
+        Assert.Equal("VALIDATION_FAILED", await ProblemCodeAsync(refused, ct));
+        Assert.Equal(completed, await RoomFactsAsync(connection, room, ct));
+    }
+
+    /// <summary>
     /// Resíduo aceito pela coordenação em 10/11, como em API-R03: até o job, uma ação aplicada um tick antes do prazo e
     /// reenviada no prazo responde <c>204</c> sem gravar de novo, e o mesmo <c>actionId</c> com outro corpo responde
     /// <c>400</c>. Depois do job, os dois recebem <c>404</c>.
@@ -445,6 +506,20 @@ public sealed class RoutesParticipationTests(PostgresFixture postgres)
     {
         var current = (await service.RoomAsync(room, user, ct))!;
         Assert.Equal(ParticipationOutcome.Done, await service.RoutesActionAsync(room, user, Guid.NewGuid(), current.Version, type, stage, step, option, ct));
+    }
+
+    /// <summary>Joga a rota inteira pelo serviço, antes do prazo e sem revisão: a sala termina <c>Completed</c>.</summary>
+    private static async Task CompleteRoutesAsync(ParticipationService service, ParticipationSeed seed, Guid room, CancellationToken ct)
+    {
+        await Acknowledge(service, seed, room, "Introduction", ct);
+        await Acknowledge(service, seed, room, "Clues", ct);
+        var chooser = (await service.RoomAsync(room, seed.Alice, ct))!.RoutesGame!.IsMyTurn ? seed.Alice : seed.Bob;
+        var partner = chooser == seed.Alice ? seed.Bob : seed.Alice;
+        await Action(service, room, chooser, "choose-option", null, "stop", "park", ct);
+        await Action(service, room, partner, "choose-option", null, "second", "lake", ct);
+        await Action(service, room, seed.Alice, "confirm-route", null, null, null, ct);
+        await Action(service, room, seed.Bob, "confirm-route", null, null, null, ct);
+        Assert.Equal("Completed", (await service.RoomAsync(room, seed.Alice, ct))!.State);
     }
 
     private static RoutesActionRequest AcknowledgeIntroduction(long version) =>
