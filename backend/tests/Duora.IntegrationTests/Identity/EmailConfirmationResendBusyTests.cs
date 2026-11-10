@@ -37,8 +37,51 @@ public sealed partial class EmailConfirmationResendBusyTests(PostgresFixture pos
         Assert.StartsWith("202|", missingEmail, StringComparison.Ordinal);
     }
 
-    private DuoraWebFactory ShortLockFactory() =>
-        new(postgres.ConnectionString)
+    /// <summary>
+    /// O 202 da conta travada não pode esconder um envio: o reenvio desiste sem gravar nada, nem enquanto a linha
+    /// está presa nem depois que ela é solta.
+    /// </summary>
+    [Fact]
+    public async Task ALockedPendingAccountGetsNoEmail()
+    {
+        await using var factory = ShortLockFactory();
+        var scenario = new IdentityScenario(postgres, factory);
+        var pending = await RegisterPendingAsync(factory);
+        var emailsBefore = await scenario.CountOutboxEventsAsync(pending.Email);
+
+        long emailsWhileLocked;
+        await using (await RowHolder.HoldAsync(postgres.ConnectionString, pending.UserId))
+        {
+            using var response = await ResendAsync(factory, pending.Email);
+            emailsWhileLocked = await scenario.CountOutboxEventsAsync(pending.Email);
+        }
+
+        Assert.Equal(emailsBefore, emailsWhileLocked);
+        Assert.Equal(emailsBefore, await scenario.CountOutboxEventsAsync(pending.Email));
+    }
+
+    /// <summary>O motivo fica só no log, em Warning, sem o e-mail: o cliente recebe o 202 de sempre.</summary>
+    [Fact]
+    public async Task ALockedPendingAccountLeavesAWarningWithoutTheEmail()
+    {
+        var logs = new CapturingLoggerProvider();
+        await using var factory = ShortLockFactory(logs);
+        var pending = await RegisterPendingAsync(factory);
+        var category = typeof(Duora.Web.Accounts.AuthEndpoints).FullName!;
+
+        await using (await RowHolder.HoldAsync(postgres.ConnectionString, pending.UserId))
+        {
+            using var response = await ResendAsync(factory, pending.Email);
+        }
+
+        var warning = await RowHolder.WithinPatienceAsync(
+            logs.FirstWarningFrom(category), "O reenvio com a conta ocupada não deixou Warning.");
+        Assert.Contains("account busy", warning.Text, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain(pending.Email, warning.Text, StringComparison.OrdinalIgnoreCase);
+    }
+
+    private DuoraWebFactory ShortLockFactory(CapturingLoggerProvider? logs = null) =>
+        new(postgres.ConnectionString, logs)
         {
             // Teto curto para o 55P03 chegar logo; o padrão (5 s) só deixaria o teste mais lento.
             Settings = new Dictionary<string, string?> { ["Identity:AccountLockTimeout"] = "00:00:00.300" },
@@ -125,7 +168,7 @@ public sealed partial class EmailConfirmationResendBusyTests(PostgresFixture pos
             }
         }
 
-        private static async Task WithinPatienceAsync(Task task, string message)
+        public static async Task WithinPatienceAsync(Task task, string message)
         {
             try
             {
@@ -135,6 +178,12 @@ public sealed partial class EmailConfirmationResendBusyTests(PostgresFixture pos
             {
                 throw new TimeoutException($"{message} Esperou {Patience.TotalSeconds} s.", timeout);
             }
+        }
+
+        public static async Task<T> WithinPatienceAsync<T>(Task<T> task, string message)
+        {
+            await WithinPatienceAsync((Task)task, message);
+            return await task;
         }
     }
 }
