@@ -32,7 +32,7 @@ internal sealed class AccountBusyMetrics
         AccountBusyReason.AccountLock => "account_lock",
         AccountBusyReason.AccountQueue => "account_queue",
         AccountBusyReason.LoginDeadline => "login_deadline",
-        AccountBusyReason.Other => "other",
-        _ => throw new ArgumentOutOfRangeException(nameof(reason), reason, "Motivo de conta ocupada sem rótulo."),
+        // Other e qualquer valor fora do enum: lançar aqui, dentro do handler, trocaria o 503 por 500.
+        _ => "other",
     };
 }

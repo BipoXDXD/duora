@@ -78,7 +78,11 @@ public sealed class AccountBusyException : Exception
 /// <summary>O teto que estourou numa <see cref="AccountBusyException"/>.</summary>
 public enum AccountBusyReason
 {
-    /// <summary>Lançada fora dos três tetos abaixo (lock de preferência, fila de inscrição).</summary>
+    /// <summary>
+    /// Fora dos três tetos abaixo: o 55P03 (ou o deadlock, 40P01) de <c>TimeZoneStore</c> e de
+    /// <c>LanguagePreferenceGuard</c>, ainda sem motivo próprio, e a inscrição em evento que esgota as tentativas
+    /// (<c>ParticipationService.RegisterAsync</c>).
+    /// </summary>
     Other,
 
     /// <summary><c>lock_timeout</c> da linha da conta no PostgreSQL (55P03), em <c>AccountSecurityService</c>.</summary>

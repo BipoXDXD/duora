@@ -1,5 +1,4 @@
 using System.Net;
-using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Time.Testing;
 using Npgsql;
 
@@ -48,30 +47,6 @@ public sealed class AccountLockTimeoutTests : IAsyncDisposable
         // Desistiu no lock_timeout (300 ms), não na fila em memória nem no timeout do comando (30 s cada).
         Assert.True(waited.Elapsed >= TimeSpan.FromMilliseconds(300), $"Esperou só {waited.Elapsed}.");
         AssertGaveUpAtTheLockCeiling(waited.Elapsed);
-    }
-
-    [Fact]
-    public async Task ALockCeilingIsLoggedWithItsReasonRouteCeilingAndTraceId()
-    {
-        var logs = new CapturingLoggerProvider();
-        await using var factory = new DuoraWebFactory(_postgres.ConnectionString, logs)
-        {
-            Time = _time,
-            Settings = new Dictionary<string, string?> { ["Identity:AccountLockTimeout"] = "00:00:00.300" },
-        };
-        var account = await new IdentityScenario(_postgres, factory).CreateConfirmedAccountAsync();
-        using var browser = new Browser(factory);
-        await using var holder = await HoldAccountAsync(account.UserId);
-
-        using var response = await IdentityScenario.LoginAsync(browser, account.Email, account.Password);
-
-        var body = await ProblemAssert.IsProblemAsync(response, HttpStatusCode.ServiceUnavailable, "TEMPORARILY_UNAVAILABLE");
-        var entry = AccountBusyLogTests.SingleAccountBusyLog(logs);
-        Assert.Equal(LogLevel.Warning, entry.Level);
-        Assert.Equal("AccountLock", entry.Fields["Reason"]?.ToString());
-        Assert.Equal("/api/v1/auth/login", entry.Fields["Route"]);
-        Assert.Equal(300L, entry.Fields["CeilingMilliseconds"]);
-        Assert.Equal((string?)body["traceId"], entry.Fields["TraceId"]);
     }
 
     [Fact]
@@ -200,7 +175,7 @@ public sealed class AccountLockTimeoutTests : IAsyncDisposable
         var mostWaiting = 0L;
         while (!logins.All(login => login.IsCompleted))
         {
-            mostWaiting = Math.Max(mostWaiting, await CountConnectionsWaitingForTheAccountLockAsync());
+            mostWaiting = Math.Max(mostWaiting, await CountConnectionsBlockedByAsync(holder.ProcessId));
             await Task.Delay(TimeSpan.FromMilliseconds(50), TestContext.Current.CancellationToken);
         }
 
@@ -215,17 +190,27 @@ public sealed class AccountLockTimeoutTests : IAsyncDisposable
         browsers.ForEach(browser => browser.Dispose());
     }
 
-    private async Task<long> CountConnectionsWaitingForTheAccountLockAsync()
+    /// <summary>
+    /// Conexões na fila de bloqueio que começa no <paramref name="holderPid"/>: as que ele bloqueia e as que esperam
+    /// atrás delas (a segunda espera pela mesma linha é bloqueada pela primeira, não pelo holder). Só essa fila: outras
+    /// classes de teste rodam em paralelo no mesmo banco e travam suas próprias contas.
+    /// </summary>
+    private async Task<long> CountConnectionsBlockedByAsync(int holderPid)
     {
         await using var connection = new NpgsqlConnection(_postgres.ConnectionString);
         await connection.OpenAsync(TestContext.Current.CancellationToken);
         await using var command = new NpgsqlCommand(
             """
-            select count(*) from pg_stat_activity
-            where datname = current_database() and wait_event_type = 'Lock'
-              and query like '%from identity.users where id =%for no key update%'
+            with recursive blocked(pid) as (
+                select pid from pg_stat_activity where pg_blocking_pids(pid) @> array[$1]
+                union
+                select waiting.pid from pg_stat_activity waiting
+                join blocked on pg_blocking_pids(waiting.pid) @> array[blocked.pid]
+            )
+            select count(*) from blocked
             """,
             connection);
+        command.Parameters.AddWithValue(holderPid);
         return Convert.ToInt64(await command.ExecuteScalarAsync(TestContext.Current.CancellationToken), System.Globalization.CultureInfo.InvariantCulture);
     }
 
@@ -299,6 +284,9 @@ public sealed class AccountLockTimeoutTests : IAsyncDisposable
     private sealed class AccountHolder(NpgsqlConnection connection, NpgsqlTransaction transaction) : IAsyncDisposable
     {
         private bool _released;
+
+        /// <summary>Pid do backend que segura o lock, para achar quem ele bloqueia.</summary>
+        public int ProcessId { get; } = connection.ProcessID;
 
         public async ValueTask DisposeAsync()
         {

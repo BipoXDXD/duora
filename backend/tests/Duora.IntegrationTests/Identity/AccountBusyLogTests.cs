@@ -6,21 +6,45 @@ using Duora.Infrastructure.Identity;
 using Duora.Web.Http;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Logging;
+using Npgsql;
 
 namespace Duora.IntegrationTests.Identity;
 
 /// <summary>
 /// Conta ocupada (503) se distingue do banco indisponível só no log e na métrica, pelo motivo interno. A resposta HTTP
 /// continua a mesma do banco indisponível, salvo o <c>Retry-After</c>: diferenciá-las abriria enumeração de contas.
-/// O log leva motivo, padrão da rota, teto e traceId; nunca e-mail, conta ou mensagem de exceção. O caso do lock da
-/// conta fica em <see cref="AccountLockTimeoutTests"/>: segurar a linha da conta aqui, em paralelo, somaria uma espera
-/// à contagem de <c>pg_stat_activity</c> daquela classe.
+/// O log leva motivo, padrão da rota, teto e traceId; nunca e-mail, conta ou mensagem de exceção.
 /// </summary>
 public sealed partial class AccountBusyLogTests(PostgresFixture postgres)
 {
     private const int AccountBusyEventId = 5031;
     private const string AccountBusyEventName = "AccountBusy";
+    private const string LoginRoute = "/api/v1/auth/login";
     private const string HandlerCategory = "Duora.Web.Http.AccountBusyExceptionHandler";
+
+    [Fact]
+    public async Task ALockCeilingIsLoggedWithItsReasonRouteCeilingAndTraceId()
+    {
+        var logs = new CapturingLoggerProvider();
+        await using var factory = new DuoraWebFactory(postgres.ConnectionString, logs)
+        {
+            Settings = new Dictionary<string, string?> { ["Identity:AccountLockTimeout"] = "00:00:00.300" },
+        };
+        var account = await new IdentityScenario(postgres, factory).CreateConfirmedAccountAsync();
+        using var browser = new Browser(factory);
+        await using var holder = await HoldAccountAsync(account.UserId);
+
+        using var response = await IdentityScenario.LoginAsync(browser, account.Email, account.Password);
+
+        var body = await ProblemAssert.IsProblemAsync(response, HttpStatusCode.ServiceUnavailable, "TEMPORARILY_UNAVAILABLE");
+        var entry = SingleAccountBusyLog(logs);
+        Assert.Equal(LogLevel.Warning, entry.Level);
+        Assert.Equal("AccountLock", entry.Fields["Reason"]?.ToString());
+        Assert.Equal(LoginRoute, entry.Fields["Route"]);
+        Assert.Equal(300L, entry.Fields["CeilingMilliseconds"]);
+        Assert.Equal((string?)body["traceId"], entry.Fields["TraceId"]);
+    }
 
     [Fact]
     public async Task ALoginPastItsDeadlineIsLoggedAsTheLoginDeadline()
@@ -126,7 +150,7 @@ public sealed partial class AccountBusyLogTests(PostgresFixture postgres)
             TestServices = services => services.AddScoped<IPasswordHasher<DuoraUser>>(
                 _ => new BusyPasswordHasher(new AccountBusyException(TimeSpan.FromSeconds(2), AccountBusyReason.LoginDeadline))),
         };
-        using var counter = new AccountBusyCounter(factory);
+        using var counter = new AccountBusyCounter(factory.Services.GetRequiredService<IMeterFactory>());
         using var browser = new Browser(factory);
 
         using var response = await IdentityScenario.LoginAsync(browser, IdentityScenario.NewEmail(), "senha qualquer longa");
@@ -139,8 +163,26 @@ public sealed partial class AccountBusyLogTests(PostgresFixture postgres)
         Assert.Equal("login_deadline", tag.Value);
     }
 
-    /// <summary>O Warning único da conta ocupada, com o EventId próprio. Também usado por AccountLockTimeoutTests.</summary>
-    internal static CapturedLog SingleAccountBusyLog(CapturingLoggerProvider logs)
+    /// <summary>
+    /// Um motivo fora do enum (versão nova lançando, conversão errada) não pode estourar dentro do handler: o 503
+    /// viraria 500. Conta como <c>other</c>.
+    /// </summary>
+    [Fact]
+    public void AReasonOutsideTheEnumIsCountedAsOther()
+    {
+        using var services = new ServiceCollection().AddMetrics().BuildServiceProvider();
+        var meters = services.GetRequiredService<IMeterFactory>();
+        using var counter = new AccountBusyCounter(meters);
+        var metrics = new AccountBusyMetrics(meters);
+
+        metrics.Record((AccountBusyReason)99);
+
+        var measurement = Assert.Single(counter.Measurements);
+        var tag = Assert.Single(measurement.Tags);
+        Assert.Equal("other", tag.Value);
+    }
+
+    private static CapturedLog SingleAccountBusyLog(CapturingLoggerProvider logs)
     {
         var entry = Assert.Single(logs.Entries, log => log.Category == HandlerCategory);
         Assert.Equal(AccountBusyEventId, entry.EventId.Id);
@@ -164,8 +206,33 @@ public sealed partial class AccountBusyLogTests(PostgresFixture postgres)
         return string.Join("\n", headers);
     }
 
+    /// <summary>Outra transação com a linha da conta travada, como uma verificação longa em andamento.</summary>
+    private async Task<AccountHolder> HoldAccountAsync(Guid userId)
+    {
+        var connection = new NpgsqlConnection(postgres.ConnectionString);
+        await connection.OpenAsync(TestContext.Current.CancellationToken);
+        var transaction = await connection.BeginTransactionAsync(TestContext.Current.CancellationToken);
+        await using var command = new NpgsqlCommand(
+            "select 1 from identity.users where id = $1 for no key update",
+            connection,
+            transaction);
+        command.Parameters.AddWithValue(userId);
+        await command.ExecuteNonQueryAsync(TestContext.Current.CancellationToken);
+        return new AccountHolder(connection, transaction);
+    }
+
     [GeneratedRegex("\"traceId\":\"[^\"]*\"")]
     private static partial Regex TraceIdValue();
+
+    private sealed class AccountHolder(NpgsqlConnection connection, NpgsqlTransaction transaction) : IAsyncDisposable
+    {
+        public async ValueTask DisposeAsync()
+        {
+            await transaction.RollbackAsync();
+            await transaction.DisposeAsync();
+            await connection.DisposeAsync();
+        }
+    }
 
     /// <summary>Hasher que estoura com a exceção dada ao verificar (login real ou hash de isca).</summary>
     private sealed class BusyPasswordHasher(AccountBusyException busy) : IPasswordHasher<DuoraUser>
@@ -182,9 +249,8 @@ public sealed partial class AccountBusyLogTests(PostgresFixture postgres)
         private readonly MeterListener _listener = new();
         private readonly List<(long Value, KeyValuePair<string, object?>[] Tags)> _measurements = [];
 
-        public AccountBusyCounter(DuoraWebFactory factory)
+        public AccountBusyCounter(IMeterFactory meters)
         {
-            var meters = factory.Services.GetRequiredService<IMeterFactory>();
             _listener.InstrumentPublished = (instrument, listener) =>
             {
                 if (ReferenceEquals(instrument.Meter.Scope, meters)
