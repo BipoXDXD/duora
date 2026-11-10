@@ -79,6 +79,28 @@ para a SPA tratá-los:
 | `SAME_AS_TEMPORARY_PASSWORD` | `400` (`VALIDATION_FAILED`, em `errors.newPassword`) | A16 | A senha nova repete a temporária |
 | `AGE_VERIFICATION_RETIRED` | `410` | `POST /api/v1/me/age-verifications`, `GET /api/v1/me/age-verifications/current` | Verificação etária retirada (ADR-0029): nenhuma operação etária é executada |
 
+## Indisponibilidade temporária do banco (#465)
+
+Um erro passageiro do banco responde igual em toda rota: `503` `TEMPORARILY_UNAVAILABLE`, `Retry-After`, sem
+detalhe da falha. Quem decide é só o handler global (`DatabaseUnavailableExceptionHandler`); nenhum filtro de
+endpoint trata contenção por conta própria.
+
+| Falha | SQLSTATE | `Retry-After` |
+|---|---|---|
+| Contenção: serialização, deadlock, `lock_timeout` (crua ou embrulhada pelo Npgsql) | `40001`, `40P01`, `55P03` | `2` |
+| Banco fora do alcance: rede, pool esgotado, servidor sem conexões ou desligando | `53300`, `57P01`–`57P03`, `08*`, falha transitória do cliente | `5` |
+
+Mudança de contrato, sem mudança de schema (o OpenAPI não lista o `Retry-After` desses 503):
+
+- Contenção crua numa rota sem filtro próprio: era `500` `INTERNAL_ERROR`, passa a `503` com `Retry-After: 2`.
+- Contenção embrulhada pelo Npgsql: era `503` com `Retry-After: 5`, passa a `2`.
+- Rotas de Participation, Catalog, PhotoReview e Media: continuam `503` com `Retry-After: 2`; a resposta ganha
+  `Expires: -1`, como todo erro tratado pelo handler global, e a falha passa a gerar o Warning com o SQLSTATE.
+
+O valor de cada linha é uma constante do handler. A escolha entre `2` e `5` para contenção está pendente da
+coordenação (PR do #465). O `503` de `AccountBusyException` no login e o `57014` (`statement_timeout`) das rotas
+de mídia seguem com regras próprias.
+
 ## Localização do perfil (expansão da issue #78)
 
 API-P01/P02 acrescentam `countryCode` e `subdivisionCode`, opcionais e anuláveis, conservando `regionCode`.

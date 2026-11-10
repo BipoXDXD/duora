@@ -419,6 +419,9 @@ job na ordem 0; efeito externo autoriza no banco antes de agir no storage. Job d
 | Violação de unicidade, `CHECK`, FK | `23505`, `23514`, `23503` | **Não**; mapear para resposta de domínio (`409`) ou bug |
 | Autorização, validação, versão divergente | — | **Não** |
 
+Contenção que escapa do retry (`40001`, `40P01`, `55P03`) chega ao handler global e responde `503`
+`TEMPORARILY_UNAVAILABLE` com `Retry-After: 2` em qualquer rota ([contrato](../api/README.md#indisponibilidade-temporária-do-banco-465)).
+
 No máximo 3 tentativas, backoff de 50 ms, 100 ms e 200 ms com jitter **(hipótese)**, envolvendo a unidade
 transacional inteira pela estratégia de execução do EF Core; nunca combinar transação manual e retry
 improvisado (spec 10.5; D-EF-04). A lista de erros transitórios da estratégia é configurada explicitamente.
