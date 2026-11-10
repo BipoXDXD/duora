@@ -67,7 +67,8 @@ internal sealed class IdentityShortWaitOptions
 /// (<c>Identity:LoginTimeout</c>). A verificação que não entrou não gravou nada; o cliente pode tentar de novo depois
 /// de <see cref="RetryAfter"/>. Na fila, no lock e no prazo do login, ele é sempre
 /// <see cref="AccountLockOptions.BusyRetryAfter"/>, qualquer que seja o teto que estourou, para o header não revelar
-/// se a conta existe; outras esperas de conta autenticada usam o próprio valor curto.
+/// se a conta existe; outras esperas de conta autenticada usam o próprio valor curto. O teto que de fato estourou fica
+/// em <see cref="WaitCeiling"/>, só para o log.
 /// </summary>
 public sealed class AccountBusyException : Exception
 {
@@ -80,21 +81,63 @@ public sealed class AccountBusyException : Exception
         : base(message)
     {
         RetryAfter = TimeSpan.FromSeconds(1);
+        WaitCeiling = RetryAfter;
     }
 
     public AccountBusyException(string message, Exception innerException)
         : base(message, innerException)
     {
         RetryAfter = TimeSpan.FromSeconds(1);
+        WaitCeiling = RetryAfter;
     }
 
+    /// <summary>Espera de <see cref="AccountBusyReason.Other"/>, cujo teto é o próprio <paramref name="retryAfter"/>.</summary>
     public AccountBusyException(TimeSpan retryAfter, Exception? innerException = null)
+        : this(retryAfter, AccountBusyReason.Other, retryAfter, innerException)
+    {
+    }
+
+    public AccountBusyException(
+        TimeSpan retryAfter, AccountBusyReason reason, TimeSpan waitCeiling, Exception? innerException = null)
         : base("Conta ocupada por outra verificação.", innerException)
     {
         RetryAfter = retryAfter;
+        Reason = reason;
+        WaitCeiling = waitCeiling;
     }
 
+    /// <summary>Quanto o cliente espera antes de tentar de novo (header <c>Retry-After</c>).</summary>
     public TimeSpan RetryAfter { get; }
+
+    /// <summary>
+    /// O teto da espera que estourou (fila, <c>lock_timeout</c> ou prazo do login), que pode diferir de
+    /// <see cref="RetryAfter"/>. Só para log: no header ele revelaria se a conta existe (issue #468).
+    /// </summary>
+    public TimeSpan WaitCeiling { get; }
+
+    /// <summary>Qual teto estourou. Só para log e métrica: a resposta HTTP é a mesma para todos (e igual à do banco
+    /// indisponível, salvo o <c>Retry-After</c>), ou o motivo ajudaria a enumerar contas.</summary>
+    public AccountBusyReason Reason { get; }
+}
+
+/// <summary>O teto que estourou numa <see cref="AccountBusyException"/>.</summary>
+public enum AccountBusyReason
+{
+    /// <summary>
+    /// Fora dos três tetos abaixo: o 55P03 (ou o deadlock, 40P01) de <c>TimeZoneStore</c> e de
+    /// <c>LanguagePreferenceGuard</c>, ainda sem motivo próprio, e a inscrição em evento que esgota as tentativas
+    /// (<c>ParticipationService.RegisterAsync</c>).
+    /// </summary>
+    Other,
+
+    /// <summary><c>lock_timeout</c> da linha da conta no PostgreSQL (55P03), em <c>AccountSecurityService</c>.</summary>
+    AccountLock,
+
+    /// <summary>Teto da fila em memória por conta ou por e-mail, em <c>AccountCheckGate</c>.</summary>
+    AccountQueue,
+
+    /// <summary>Prazo total do login (<c>Identity:LoginTimeout</c>), em <c>CredentialVerifier</c>.</summary>
+    LoginDeadline,
 }
 
 /// <summary>Início do cadastro do TOTP (API-A11).</summary>
@@ -783,7 +826,8 @@ public sealed class AccountSecurityService
         }
         catch (Exception error) when (LockTimeoutIn(error) is { } timeout)
         {
-            throw new AccountBusyException(_lock.BusyRetryAfter, timeout);
+            throw new AccountBusyException(
+                _lock.BusyRetryAfter, AccountBusyReason.AccountLock, lockTimeout, timeout);
         }
 
         await SetLockTimeoutAsync(NoLockTimeout, cancellationToken);

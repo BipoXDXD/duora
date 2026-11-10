@@ -77,7 +77,7 @@ internal sealed class AccountCheckGate(AccountLockOptions options)
         {
             if (!await entry.Semaphore.WaitAsync(timeout, cancellationToken))
             {
-                throw new AccountBusyException(options.BusyRetryAfter);
+                throw new AccountBusyException(options.BusyRetryAfter, AccountBusyReason.AccountQueue, timeout);
             }
         }
         catch
