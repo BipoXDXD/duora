@@ -12,14 +12,15 @@ internal static class StorageOperationBoundary
 
     /// <summary>
     /// A failed operation ends here: the accept loop discards finished tasks, so nothing it raises may escape. The
-    /// client is denied before the log is written, because a broken log must not cost it the reply.
+    /// client is denied before the log is written, because a broken log must not cost it the reply. The budget runs on
+    /// <paramref name="time"/> so its expiry can be proved without waiting 30 s.
     /// </summary>
     internal static async Task RunAsync(Stream stream, TextWriter errors,
-        Func<CancellationToken, Task<(PrivateGenerationReply Reply, byte[] Body)>> operation,
+        Func<CancellationToken, Task<(PrivateGenerationReply Reply, byte[] Body)>> operation, TimeProvider time,
         CancellationToken cancellationToken)
     {
-        using var budget = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
-        budget.CancelAfter(OperationBudget);
+        using var deadline = new CancellationTokenSource(OperationBudget, time);
+        using var budget = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, deadline.Token);
         (PrivateGenerationReply Reply, byte[] Body) outcome;
         try
         {

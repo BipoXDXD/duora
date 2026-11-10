@@ -3,6 +3,7 @@ using System.Runtime.CompilerServices;
 using System.Text;
 using System.Text.Json;
 using Duora.Infrastructure.Media;
+using Microsoft.Extensions.Time.Testing;
 using Npgsql;
 
 namespace Duora.IntegrationTests.Media;
@@ -30,7 +31,7 @@ public sealed class StorageOperationBoundaryTests
         using var errors = new StringWriter();
         var failure = (Exception)Activator.CreateInstance(type, PrivateText)!;
 
-        await StorageOperationBoundary.RunAsync(stream, errors, _ => FailInsideTheOperationAsync(failure), Ct);
+        await StorageOperationBoundary.RunAsync(stream, errors, _ => FailInsideTheOperationAsync(failure), TimeProvider.System, Ct);
 
         var line = errors.ToString();
         Assert.StartsWith($"STORAGE_OPERATION_FAILED {name} ", line, StringComparison.Ordinal);
@@ -57,7 +58,7 @@ public sealed class StorageOperationBoundaryTests
         using var errors = new StringWriter();
         var failure = (Exception)Activator.CreateInstance(type)!;
 
-        await StorageOperationBoundary.RunAsync(stream, errors, _ => FailInsideTheOperationAsync(failure), Ct);
+        await StorageOperationBoundary.RunAsync(stream, errors, _ => FailInsideTheOperationAsync(failure), TimeProvider.System, Ct);
 
         Assert.Equal($"STORAGE_OPERATION_DENIED {name}{Environment.NewLine}", errors.ToString());
         Assert.Equal("denied", await ReplyAsync(stream));
@@ -72,7 +73,7 @@ public sealed class StorageOperationBoundaryTests
         using var errors = new StringWriter();
 
         await StorageOperationBoundary.RunAsync(
-            stream, errors, _ => throw new InvalidDataException(PrivateText), Ct);
+            stream, errors, _ => throw new InvalidDataException(PrivateText), TimeProvider.System, Ct);
 
         var newLine = Environment.NewLine;
         Assert.Equal($"STORAGE_OPERATION_DENIED InvalidDataException{newLine}STORAGE_REPLY_LOST {name}{newLine}",
@@ -88,7 +89,7 @@ public sealed class StorageOperationBoundaryTests
         using var stream = new MemoryStream();
         await using var errors = new BrokenWriter(logFailure);
 
-        await StorageOperationBoundary.RunAsync(stream, errors, _ => throw new InvalidCastException(PrivateText), Ct);
+        await StorageOperationBoundary.RunAsync(stream, errors, _ => throw new InvalidCastException(PrivateText), TimeProvider.System, Ct);
 
         Assert.Equal("denied", await ReplyAsync(stream));
     }
@@ -100,7 +101,7 @@ public sealed class StorageOperationBoundaryTests
         await using var errors = new BrokenWriter(typeof(IOException));
 
         var run = StorageOperationBoundary.RunAsync(
-            stream, errors, _ => throw new InvalidCastException(PrivateText), Ct);
+            stream, errors, _ => throw new InvalidCastException(PrivateText), TimeProvider.System, Ct);
 
         await run;
         Assert.True(run.IsCompletedSuccessfully);
@@ -118,7 +119,7 @@ public sealed class StorageOperationBoundaryTests
         {
             budget.ThrowIfCancellationRequested();
             return Task.FromResult(Confirmed([]));
-        }, stop.Token);
+        }, TimeProvider.System, stop.Token);
 
         Assert.Equal($"STORAGE_OPERATION_DENIED OperationCanceledException{Environment.NewLine}", errors.ToString());
         Assert.Equal("denied", await ReplyAsync(stream));
@@ -130,7 +131,7 @@ public sealed class StorageOperationBoundaryTests
         using var stream = new MemoryStream();
         using var errors = new StringWriter();
 
-        await StorageOperationBoundary.RunAsync(stream, errors, _ => Task.FromResult(Confirmed([1, 2, 3])), Ct);
+        await StorageOperationBoundary.RunAsync(stream, errors, _ => Task.FromResult(Confirmed([1, 2, 3])), TimeProvider.System, Ct);
 
         Assert.Empty(errors.ToString());
         stream.Position = 0;
@@ -148,7 +149,7 @@ public sealed class StorageOperationBoundaryTests
         await using var stream = new CutOffStream(FrameLength(Confirmed(body).Reply) + Delivered, new IOException());
         using var errors = new StringWriter();
 
-        await StorageOperationBoundary.RunAsync(stream, errors, _ => Task.FromResult(Confirmed(body)), Ct);
+        await StorageOperationBoundary.RunAsync(stream, errors, _ => Task.FromResult(Confirmed(body)), TimeProvider.System, Ct);
 
         stream.Position = 0;
         await Assert.ThrowsAsync<EndOfStreamException>(() => PrivateGenerationWire.ReadResponseAsync(stream, Ct));
@@ -168,7 +169,7 @@ public sealed class StorageOperationBoundaryTests
         using var errors = new StringWriter();
 
         await StorageOperationBoundary.RunAsync(
-            stream, errors, _ => Task.FromResult(Confirmed(new byte[1024])), Ct);
+            stream, errors, _ => Task.FromResult(Confirmed(new byte[1024])), TimeProvider.System, Ct);
 
         stream.Position = 0;
         await Assert.ThrowsAsync<EndOfStreamException>(() => PrivateGenerationWire.ReadResponseAsync(stream, Ct));
@@ -181,15 +182,58 @@ public sealed class StorageOperationBoundaryTests
         await using var stream = new CutOffStream(2, new IOException());
         await using var errors = new BrokenWriter(typeof(IOException));
 
-        await StorageOperationBoundary.RunAsync(stream, errors, _ => Task.FromResult(Confirmed([1, 2, 3])), Ct);
+        await StorageOperationBoundary.RunAsync(stream, errors, _ => Task.FromResult(Confirmed([1, 2, 3])), TimeProvider.System, Ct);
 
         Assert.Equal(2, stream.Length);
     }
 
     /// <summary>
-    /// A client that stops reading must not keep one of the host's 16 slots past the operation budget. The budget's
-    /// own 30 s timer is not injectable, so the clock is the caller's token, which the budget is linked to: it fires
-    /// inside the write, and the write has to see it through the token the operation was handed.
+    /// The host's 16 slots are held by operations, so the budget is the boundary's own 30 s and not whatever the
+    /// caller passes: a caller that never cancels still gets an operation that reaches the budget denied.
+    /// </summary>
+    [Fact]
+    public async Task AnOperationThatReachesTheBudgetIsDeniedWithoutTheCallerCancelling()
+    {
+        var time = new FakeTimeProvider();
+        using var stream = new MemoryStream();
+        using var errors = new StringWriter();
+
+        await StorageOperationBoundary.RunAsync(stream, errors, budget =>
+        {
+            time.Advance(TimeSpan.FromSeconds(30));
+            budget.ThrowIfCancellationRequested();
+            return Task.FromResult(Confirmed([1, 2, 3]));
+        }, time, CancellationToken.None);
+
+        Assert.Equal($"STORAGE_OPERATION_DENIED OperationCanceledException{Environment.NewLine}", errors.ToString());
+        Assert.Equal("denied", await ReplyAsync(stream));
+    }
+
+    [Fact]
+    public async Task AnOperationJustInsideTheBudgetIsNotCut()
+    {
+        var time = new FakeTimeProvider();
+        using var stream = new MemoryStream();
+        using var errors = new StringWriter();
+
+        await StorageOperationBoundary.RunAsync(stream, errors, budget =>
+        {
+            time.Advance(TimeSpan.FromSeconds(30) - TimeSpan.FromTicks(1));
+            budget.ThrowIfCancellationRequested();
+            return Task.FromResult(Confirmed([1, 2, 3]));
+        }, time, CancellationToken.None);
+
+        Assert.Empty(errors.ToString());
+        stream.Position = 0;
+        var (reply, body) = await PrivateGenerationWire.ReadResponseAsync(stream, Ct);
+        Assert.Equal("ok", reply.Status);
+        Assert.Equal([1, 2, 3], body);
+    }
+
+    /// <summary>
+    /// A client that stops reading must not keep one of the host's 16 slots past the operation budget. Here the clock
+    /// is the caller's token, which the budget is linked to: it fires inside the write, and the write has to see it
+    /// through the token the operation was handed.
     /// </summary>
     [Theory]
     [InlineData(0, "frame length")]
@@ -206,7 +250,7 @@ public sealed class StorageOperationBoundaryTests
         {
             budget = token;
             return Task.FromResult(Confirmed([1, 2, 3]));
-        }, stop.Token);
+        }, TimeProvider.System, stop.Token);
 
         Assert.True(stream.Stalled, part);
         Assert.Equal(budget, stream.StalledToken);
