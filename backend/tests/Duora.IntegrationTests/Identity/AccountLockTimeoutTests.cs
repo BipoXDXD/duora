@@ -1,4 +1,5 @@
 using System.Net;
+using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Time.Testing;
 using Npgsql;
 
@@ -47,6 +48,30 @@ public sealed class AccountLockTimeoutTests : IAsyncDisposable
         // Desistiu no lock_timeout (300 ms), não na fila em memória nem no timeout do comando (30 s cada).
         Assert.True(waited.Elapsed >= TimeSpan.FromMilliseconds(300), $"Esperou só {waited.Elapsed}.");
         AssertGaveUpAtTheLockCeiling(waited.Elapsed);
+    }
+
+    [Fact]
+    public async Task ALockCeilingIsLoggedWithItsReasonRouteCeilingAndTraceId()
+    {
+        var logs = new CapturingLoggerProvider();
+        await using var factory = new DuoraWebFactory(_postgres.ConnectionString, logs)
+        {
+            Time = _time,
+            Settings = new Dictionary<string, string?> { ["Identity:AccountLockTimeout"] = "00:00:00.300" },
+        };
+        var account = await new IdentityScenario(_postgres, factory).CreateConfirmedAccountAsync();
+        using var browser = new Browser(factory);
+        await using var holder = await HoldAccountAsync(account.UserId);
+
+        using var response = await IdentityScenario.LoginAsync(browser, account.Email, account.Password);
+
+        var body = await ProblemAssert.IsProblemAsync(response, HttpStatusCode.ServiceUnavailable, "TEMPORARILY_UNAVAILABLE");
+        var entry = AccountBusyLogTests.SingleAccountBusyLog(logs);
+        Assert.Equal(LogLevel.Warning, entry.Level);
+        Assert.Equal("AccountLock", entry.Fields["Reason"]?.ToString());
+        Assert.Equal("/api/v1/auth/login", entry.Fields["Route"]);
+        Assert.Equal(300L, entry.Fields["CeilingMilliseconds"]);
+        Assert.Equal((string?)body["traceId"], entry.Fields["TraceId"]);
     }
 
     [Fact]
