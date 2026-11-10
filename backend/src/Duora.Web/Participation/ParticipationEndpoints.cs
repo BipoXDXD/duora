@@ -20,20 +20,20 @@ internal static class ParticipationEndpoints
         routes.MapGet("/events", async (ParticipationService service, CancellationToken ct) =>
             (await service.EventsAsync(ct)).Select(e => new EventResponse(e.Id, e.Title, e.StartsAt, e.StartsAt.AddMinutes(-10), e.State, e.TimeZone)).ToArray());
         routes.MapPut("/events/{eventId:guid}/registration", async (Guid eventId, HttpContext context, ParticipationService service, CancellationToken ct) =>
-            Result(await service.RegisterAsync(eventId, User(context), false, ct)));
+            Result(await service.RegisterAsync(eventId, User(context), false, ct))).Produces(204).ProducesProblem(404).ProducesProblem(503);
         // API-E04 (ADR-0053): sem corpo e sem id de pessoa; a inscrição alvo é sempre a de quem chama.
         routes.MapDelete("/events/{eventId:guid}/registration", async (Guid eventId, HttpContext context, ParticipationService service, CancellationToken ct) =>
             Result(await service.WithdrawAsync(eventId, User(context), ct))).Produces(204).ProducesProblem(404);
         routes.MapPost("/events/{eventId:guid}/check-in", async (Guid eventId, HttpContext context, ParticipationService service, CancellationToken ct) =>
-            Result(await service.RegisterAsync(eventId, User(context), true, ct)));
+            Result(await service.RegisterAsync(eventId, User(context), true, ct))).Produces(204).ProducesProblem(404).ProducesProblem(503);
         routes.MapGet("/events/{eventId:guid}/participation", async (Guid eventId, HttpContext context, ParticipationService service, CancellationToken ct) =>
             await service.StatusAsync(eventId, User(context), ct) is { } s ? Results.Ok(new ParticipationResponse(s.State, s.RoomId, s.RoundCancelled)) : Results.NotFound()).Produces<ParticipationResponse>();
         routes.MapGet("/rooms/{roomId:guid}", async (Guid roomId, HttpContext context, ParticipationService service, CancellationToken ct) =>
             await service.RoomAsync(roomId, User(context), ct) is { } room ? Results.Ok(Map(room)) : Results.NotFound()).Produces<RoomResponse>().ProducesProblem(404);
         routes.MapPost("/rooms/{roomId:guid}/accept", async (Guid roomId, HttpContext context, ParticipationService service, CancellationToken ct) =>
-            Result(await service.RespondAsync(roomId, User(context), true, ct)));
+            Result(await service.RespondAsync(roomId, User(context), true, ct))).Produces(204).ProducesProblem(404).ProducesProblem(503);
         routes.MapPost("/rooms/{roomId:guid}/reject", async (Guid roomId, HttpContext context, ParticipationService service, CancellationToken ct) =>
-            Result(await service.RespondAsync(roomId, User(context), false, ct)));
+            Result(await service.RespondAsync(roomId, User(context), false, ct))).Produces(204).ProducesProblem(404).ProducesProblem(503);
         routes.MapPost("/rooms/{roomId:guid}/actions", async (Guid roomId, RoomActionRequest request, HttpContext context, ParticipationService service, CancellationToken ct) =>
             long.TryParse(request.ExpectedVersion, NumberStyles.None, CultureInfo.InvariantCulture, out var version)
                 ? Result(await service.ActionAsync(roomId, User(context), request.ActionId, version, request.Type, request.CardId, request.OptionId, ct))
