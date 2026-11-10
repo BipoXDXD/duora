@@ -261,10 +261,12 @@ class DatabaseObserverImageTests(unittest.TestCase):
             create table ops.outbox_deliveries(
                 id bigint generated always as identity primary key, consumer text not null, status text not null,
                 available_at timestamptz not null, lease_expires_at timestamptz, last_error text)""")
-        self.assertIs(alert.provider_failing(runner), False)
+        self.assertEqual(alert.read_queue(runner), (False, False))
         superuser("""insert into ops.outbox_deliveries(consumer, status, available_at, last_error)
                      values ('selfie-provider', 'Pending', now(), 'ProviderUnavailable')""")
-        self.assertIs(alert.provider_failing(runner), True)
+        self.assertEqual(alert.read_queue(runner), (True, False))
+        superuser("""update ops.outbox_deliveries set available_at = now() - interval '61 seconds', last_error = null""")
+        self.assertEqual(alert.read_queue(runner), (False, True))
 
         identity = ["docker", "exec", self.container, "psql", "--no-psqlrc", "--no-password"]
         write = subprocess.run(identity + ["--dbname", alert.CONNECTION, "--command",
@@ -279,7 +281,7 @@ class DatabaseObserverImageTests(unittest.TestCase):
         self.assertIn("pg_hba.conf", network.stderr)
 
         _run(["docker", "exec", self.container, "pg_ctl", "-w", "-D", "/tmp/probe-pgdata", "stop", "-m", "fast"])
-        self.assertIsNone(alert.provider_failing(runner))
+        self.assertIsNone(alert.read_queue(runner))
 
 
 @unittest.skipUnless(IMAGE, "defina DUORA_POSTGRES_IMAGE com a imagem derivada (docker)")
