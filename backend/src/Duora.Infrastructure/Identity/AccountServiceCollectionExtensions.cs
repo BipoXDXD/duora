@@ -50,7 +50,7 @@ public static class AccountServiceCollectionExtensions
             .BindConfiguration(AccountLockOptions.Section)
             .Validate(o => o.IsValid(), "Identity:AccountLockTimeout e Identity:AccountQueueTimeout precisam ficar entre 100 ms e 1 min.")
             .ValidateOnStart();
-        services.AddSingleton<AccountCheckGate>();
+        services.AddSingleton(provider => new AccountCheckGate(provider.GetRequiredService<IOptions<AccountLockOptions>>().Value));
         services.AddScoped(provider => new AccountSecurityService(
             provider.GetRequiredService<DuoraDbContext>(),
             provider.GetRequiredService<UserManager<DuoraUser>>(),
