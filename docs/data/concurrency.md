@@ -419,6 +419,11 @@ job na ordem 0; efeito externo autoriza no banco antes de agir no storage. Job d
 | Violação de unicidade, `CHECK`, FK | `23505`, `23514`, `23503` | **Não**; mapear para resposta de domínio (`409`) ou bug |
 | Autorização, validação, versão divergente | — | **Não** |
 
+Contenção que escapa do retry (`40001`, `40P01`, `55P03`) chega ao handler global e responde `503`
+`TEMPORARILY_UNAVAILABLE` com `Retry-After: 2`, e banco fora do alcance com `Retry-After: 5`; sob `/auth`, todo `503`
+usa o `Retry-After` da conta ocupada (30 s) para não revelar a causa (decisão da coordenação, 10/11;
+[contrato](../api/README.md#indisponibilidade-temporária-do-banco-465)).
+
 No máximo 3 tentativas, backoff de 50 ms, 100 ms e 200 ms com jitter **(hipótese)**, envolvendo a unidade
 transacional inteira pela estratégia de execução do EF Core; nunca combinar transação manual e retry
 improvisado (spec 10.5; D-EF-04). A lista de erros transitórios da estratégia é configurada explicitamente.
@@ -486,23 +491,36 @@ C12 (`ConcurrentModerationDecisionsSecondGets409`) e C13 (T-19). Nomes "a criar"
 
 API-A04 e as operações de credenciais A07, A11–A16 preservam a exclusão por conta e o
 `SELECT ... FOR NO KEY UPDATE`; TM-01 (força bruta) e TM-06 (enumeração) são os riscos afetados.
-INV-12 continua exigindo revisão humana antes do merge. Não há migração. A fila e os prazos não mudam o contrato
-HTTP; os limites que vieram no mesmo PR acrescentam o `429` das revogações de sessão que falham (A10), e os
-demais `429` já estavam no contrato ([limites](../security/auth.md)).
+INV-12 continua exigindo revisão humana antes do merge. Não há migração. A fila e os prazos respondem
+pelo `503 TEMPORARILY_UNAVAILABLE` de conta ocupada da tabela abaixo, que faz parte do contrato HTTP; a issue #468
+mudou o `Retry-After` dele para um valor único. Os limites que vieram no mesmo PR acrescentam o `429` das revogações de sessão que
+falham (A10), e os demais `429` já estavam no contrato ([limites](../security/auth.md)).
 
 | Limite (`Identity`) | Padrão | Recurso durante a espera | Ao exceder |
 |---|---:|---|---|
 | `AccountQueueTimeout` | 30 s | Sem conexão; cada admissão na fila tem seu teto | `503 TEMPORARILY_UNAVAILABLE`, `Retry-After: 30` |
-| `AccountLockTimeout` | 5 s | Uma conexão por conta e processo na disputa do lock SQL | Mesmo contrato, `Retry-After: 5`; rollback e liberação da conexão |
-| `LoginTimeout` | 30 s | Prazo das esperas do login (A04): filas, lock e piso | Mesmo contrato, `Retry-After: 30`; a espera em andamento é cancelada, e nada foi gravado, exceto no estouro durante o piso, quando a falha já conta |
+| `AccountLockTimeout` | 5 s | Uma conexão por conta e processo na disputa do lock SQL | Mesmo contrato, `Retry-After: 30` (o teto da fila, não o do lock; issue #468); rollback e liberação da conexão |
+| `LoginTimeout` | 30 s | Prazo das esperas do login (A04): filas, lock e piso | Mesmo contrato, `Retry-After: 30` (o teto da fila); a espera em andamento é cancelada, e nada foi gravado, exceto no estouro durante o piso, quando a falha já conta |
 
-O `Retry-After` é sempre o teto que estourou, arredondado para cima em segundos (a mesma regra que o
-lock já seguia antes da #65). Um `Retry-After` fixo e curto foi considerado e descartado: quem
+O `Retry-After` de toda conta ocupada é um só: o teto da fila (`AccountQueueTimeout`), arredondado
+para cima em segundos, qualquer que seja o teto que estourou. A regra mora em
+`AccountLockOptions.BusyRetryAfter`, lida por quem cria a exceção: a fila (`AccountCheckGate`, que recebe as
+opções no construtor e ignora o teto da chamada no header), o lock SQL (`AccountSecurityService`) e o prazo do
+login (`CredentialVerifier`, por `IOptions<AccountLockOptions>`). Até a issue #468 o header era o teto que estourou, e o lock SQL
+respondia `Retry-After: 5`. Como só uma conta existente disputa a linha no PostgreSQL, um e-mail
+inexistente nunca recebia 5, e o header dizia que a conta existia (TM-06). Com o valor único, ele
+depende só da configuração, nunca da conta, e é igual para e-mail existente e inexistente
+(`LoginBusyNeutralityTests`). Um `Retry-After` fixo e curto foi considerado e descartado: quem
 estourou a fila de 30 s ficou atrás de 30 s de verificações da mesma conta, que não esvaziam em 1 s,
-e voltar logo só entraria de novo no fim da mesma fila. O valor depende só da configuração, nunca da
-conta, então é igual para e-mail existente e inexistente (TM-06). O custo é um cliente legítimo
+e voltar logo só entraria de novo no fim da mesma fila. O custo é um cliente legítimo
 esperar 30 s depois de um `503` raro; o frontend não repete o login sozinho (`mutations: { retry: false }`
-em `frontend/src/app/query-client.ts`).
+em `frontend/src/app/query-client.ts`) e não lê o `Retry-After` do `503`: `frontend/src/shared/api/request-failure.ts`
+só extrai `retryAfterSeconds` do `429`, e o `503` vira um problema genérico. O valor vale para clientes HTTP
+que respeitam o header, não para a interface atual.
+
+O valor único alcança toda operação que espera a conta, não só o login: logout (A05), revogação de sessões
+(A10), reset de senha (A07) e MFA (A11–A16) também passam de `Retry-After: 5` para `30` quando o lock SQL
+estoura.
 
 Os dois primeiros aceitam de 100 ms a 1 min e são validados no boot, independentemente. O teto SQL é
 removido após adquirir o lock, como antes. Os dois são tetos de fase; o prazo do pedido inteiro é o
@@ -525,7 +543,13 @@ mesmo `503` com `Retry-After: 30`. Ficou assim de propósito, em vez de um teto 
 fila por e-mail: o `AccountQueueTimeout` existe para a fila por UUID, a única espera das rotas
 A07 e A11–A16, e um terceiro valor só para o login seria configuração sem efeito observável enquanto
 ficar abaixo do prazo. Quem baixar o `AccountQueueTimeout` abaixo do `LoginTimeout` passa a ter a
-fila desistindo primeiro, com o `Retry-After` dela.
+fila desistindo primeiro; o `Retry-After` é o mesmo nos dois casos.
+
+O `503` de banco indisponível (pool esgotado, `DatabaseUnavailableExceptionHandler`) não depende da conta,
+e um e-mail inexistente o recebe igual
+(`LoginBusyNeutralityTests.AnUnavailableDatabaseAnswersTheSameForAnExistingAndAMissingEmail`). Sob `/auth`, o
+login inclusive, ele responde com o mesmo `Retry-After: 30` da conta ocupada; fora de `/auth`, com `5` (#465,
+[contrato](../api/README.md#indisponibilidade-temporária-do-banco-465)).
 
 O login adquire primeiro uma vez por e-mail normalizado pelo Identity, antes de buscar a conta.
 Endereços existentes e inexistentes disputam essa mesma forma de fila. A chave em memória é o endereço
@@ -561,6 +585,14 @@ na quarta posição com a máquina carregada (medido em 2026-10-19). Por isso `L
 afirma limites inferiores (o i-ésimo a terminar esperou i + 1 hashes), não proximidade. Medir
 distribuições de latência sob carga representativa é necessário antes de aceitar esses riscos; não
 registrar e-mail, IP ou UUID como rótulo. O teste controlado não substitui benchmark da VPS.
+
+O reenvio da confirmação (API-A03, issue #470) trava a mesma linha, mas não usa esses tetos. A rota responde
+`202` igual exista a conta ou não, e só a conta existente chega à trava; esperar 5 s pelo lock diria pelo tempo que
+ela existe. A fila por UUID e o `lock_timeout` do reenvio esperam `Identity:ShortWait:LockTimeout` cada um (100 ms,
+validado entre 1 ms e 125 ms, porque as duas esperas se somam), dentro do piso de 500 ms da rota. Estourou, o
+reenvio desiste sem gravar nada e responde o mesmo `202`, com o motivo só num Warning
+(`EmailConfirmationResendBusyTests`, `EmailConfirmationResendTimingTests`). O cadastro (#466) segue a mesma decisão e
+deve usar a mesma configuração.
 
 ### Com mais de uma instância web
 
