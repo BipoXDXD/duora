@@ -13,6 +13,9 @@ public sealed class SessionTests : IAsyncDisposable
 {
     private const string SessionCookie = "__Host-duora";
 
+    /// <summary>Menor que os 30 minutos ociosos: usar a sessão a cada passo nunca a deixa expirar.</summary>
+    private static readonly TimeSpan ActivityStep = TimeSpan.FromMinutes(25);
+
     private readonly PostgresFixture _postgres;
     private readonly FakeTimeProvider _time;
     private readonly DuoraWebFactory _factory;
@@ -21,8 +24,9 @@ public sealed class SessionTests : IAsyncDisposable
     {
         _postgres = postgres;
         // Instante real só como ponto de partida, para as chaves de Data Protection não nascerem "no futuro"; os
-        // testes dependem apenas dos avanços explícitos. Truncado ao segundo: o cookie guarda a expiração em segundos
-        // inteiros, e uma fração faria o handler recusar o ticket um instante antes do limite que o banco decide.
+        // testes dependem apenas dos avanços explícitos. Truncado ao segundo: o cookie guarda a expiração em
+        // segundos inteiros, e uma fração faria o handler recusar o ticket um instante antes do limite que o banco
+        // decide.
         _time = TestClock.StartingNow();
         _factory = new DuoraWebFactory(postgres.ConnectionString) { Time = _time };
     }
@@ -182,18 +186,9 @@ public sealed class SessionTests : IAsyncDisposable
     {
         var account = await Scenario.CreateConfirmedAccountAsync();
         using var browser = await Scenario.SignedInBrowserAsync(account);
-        var step = TimeSpan.FromMinutes(25);
-        var elapsed = TimeSpan.Zero;
 
-        while (elapsed + step < TimeSpan.FromHours(12))
-        {
-            _time.Advance(step);
-            elapsed += step;
-            using var active = await browser.GetAsync("/api/v1/me");
-            Assert.True(active.StatusCode == HttpStatusCode.OK, $"Sessão caiu com {elapsed} de uso contínuo.");
-        }
-
-        _time.Advance(step);
+        await UseSessionUntilOneStepBeforeTheAbsoluteLimitAsync(browser);
+        _time.Advance(ActivityStep);
         using var pastAbsolute = await browser.GetAsync("/api/v1/me");
 
         await ProblemAssert.IsProblemAsync(pastAbsolute, HttpStatusCode.Unauthorized, "UNAUTHENTICATED");
@@ -206,15 +201,8 @@ public sealed class SessionTests : IAsyncDisposable
     {
         var account = await Scenario.CreateConfirmedAccountAsync();
         using var browser = await Scenario.SignedInBrowserAsync(account);
-        var step = TimeSpan.FromMinutes(25);
-        var elapsed = TimeSpan.Zero;
-        while (elapsed + step < TimeSpan.FromHours(12))
-        {
-            _time.Advance(step);
-            elapsed += step;
-            using var active = await browser.GetAsync("/api/v1/me");
-            Assert.True(active.StatusCode == HttpStatusCode.OK, $"Sessão caiu com {elapsed} de uso contínuo.");
-        }
+
+        var elapsed = await UseSessionUntilOneStepBeforeTheAbsoluteLimitAsync(browser);
 
         _time.Advance(TimeSpan.FromHours(12) - elapsed - TimeSpan.FromSeconds(secondsBeforeLimit));
         using var response = await browser.GetAsync("/api/v1/me");
@@ -305,6 +293,24 @@ public sealed class SessionTests : IAsyncDisposable
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);
         var list = await response.Content.ReadFromJsonAsync<SessionListResponse>(TestContext.Current.CancellationToken);
         return list?.Items ?? throw new InvalidOperationException("Lista de sessões vazia.");
+    }
+
+    /// <summary>
+    /// Usa a sessão a cada <see cref="ActivityStep"/> enquanto o próximo passo ainda não chega às 12 horas do limite
+    /// absoluto; devolve o tempo decorrido desde o login.
+    /// </summary>
+    private async Task<TimeSpan> UseSessionUntilOneStepBeforeTheAbsoluteLimitAsync(Browser browser)
+    {
+        var elapsed = TimeSpan.Zero;
+        while (elapsed + ActivityStep < TimeSpan.FromHours(12))
+        {
+            _time.Advance(ActivityStep);
+            elapsed += ActivityStep;
+            using var active = await browser.GetAsync("/api/v1/me");
+            Assert.True(active.StatusCode == HttpStatusCode.OK, $"Sessão caiu com {elapsed} de uso contínuo.");
+        }
+
+        return elapsed;
     }
 
     private static async Task<Guid> CurrentSessionIdAsync(Browser browser) =>

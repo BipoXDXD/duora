@@ -3,8 +3,11 @@ using System.Buffers.Text;
 using System.Net;
 using System.Text;
 using Duora.Infrastructure.Identity;
+using Duora.Web.Identity;
 using Microsoft.AspNetCore.DataProtection;
+using Microsoft.AspNetCore.Identity;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Options;
 
 namespace Duora.IntegrationTests.Identity;
 
@@ -164,11 +167,24 @@ public sealed class PasswordResetTests(PostgresFixture postgres) : IAsyncDisposa
         }
     }
 
+    [Fact]
+    public void ResetTokenProviderIsConfiguredForThirtyMinutes()
+    {
+        // O tipo das opções é interno do Duora.Web.Identity; as duas leituras são o contrato de 30 minutos.
+        var optionsType = typeof(CredentialVerifier).Assembly.GetType(
+            "Duora.Web.Identity.PasswordResetTokenProviderOptions", throwOnError: true)!;
+        var options = (IOptions<DataProtectionTokenProviderOptions>)_factory.Services.GetRequiredService(
+            typeof(IOptions<>).MakeGenericType(optionsType));
+
+        Assert.Equal(TimeSpan.FromMinutes(30), options.Value.TokenLifespan);
+        Assert.Equal(AccountTokenProviders.PasswordReset, options.Value.Name);
+    }
+
     /// <summary>
-    /// O provider do Identity lê o relógio do sistema (não o <see cref="TimeProvider"/> da aplicação), então o teste
-    /// não consegue avançar o tempo. Em vez disso recua o instante de emissão gravado no token real: os 8 primeiros
-    /// bytes do payload protegido são os ticks UTC da emissão. O caso de 29 minutos prova que o token regravado
-    /// continua no formato aceito; só assim o de 31 minutos prova a validade e não um token malformado.
+    /// O provider do Identity lê o relógio do sistema (não o <see cref="TimeProvider"/> da aplicação), então o
+    /// teste não consegue avançar o tempo. Em vez disso recua o instante de emissão gravado no token real: os 8
+    /// primeiros bytes do payload protegido são os ticks UTC da emissão. O caso de 29 minutos prova que o token
+    /// regravado continua no formato aceito; só assim o de 31 minutos prova a validade e não um token malformado.
     /// </summary>
     private string AgeToken(string linkToken, TimeSpan age)
     {
