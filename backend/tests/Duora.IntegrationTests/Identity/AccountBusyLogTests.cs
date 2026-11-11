@@ -13,7 +13,8 @@ namespace Duora.IntegrationTests.Identity;
 
 /// <summary>
 /// Conta ocupada (503) se distingue do banco indisponível só no log e na métrica, pelo motivo interno. A resposta HTTP
-/// continua a mesma do banco indisponível, salvo o <c>Retry-After</c>: diferenciá-las abriria enumeração de contas.
+/// continua a mesma do banco indisponível, inclusive o <c>Retry-After</c> sob <c>/auth</c> (#465): diferenciá-las abriria
+/// enumeração de contas.
 /// O log leva motivo, padrão da rota, teto e traceId; nunca e-mail, conta ou mensagem de exceção.
 /// </summary>
 public sealed partial class AccountBusyLogTests(PostgresFixture postgres)
@@ -118,11 +119,10 @@ public sealed partial class AccountBusyLogTests(PostgresFixture postgres)
 
     /// <summary>
     /// TM: enumeração pela resposta. Conta ocupada e banco indisponível respondem os mesmos bytes (status, corpo sem o
-    /// traceId e headers), exceto o <c>Retry-After</c>, que já difere: o da conta é o <c>RetryAfter</c> da exceção
-    /// (<c>BusyRetryAfter</c> em produção; 2 s neste stub), o do banco é 5 s.
+    /// traceId e headers). Sob <c>/auth</c> nem o <c>Retry-After</c> difere: os dois são o <c>BusyRetryAfter</c> (#465).
     /// </summary>
     [Fact]
-    public async Task AnAccountBusyAnswerIsTheDatabaseUnavailableAnswerExceptRetryAfter()
+    public async Task AnAccountBusyAnswerIsTheDatabaseUnavailableAnswer()
     {
         await using var busyFactory = new DuoraWebFactory(postgres.ConnectionString)
         {
@@ -140,9 +140,8 @@ public sealed partial class AccountBusyLogTests(PostgresFixture postgres)
         Assert.Equal(HttpStatusCode.ServiceUnavailable, busy.StatusCode);
         Assert.Equal(down.StatusCode, busy.StatusCode);
         Assert.Equal(await RawBodyWithoutTraceIdAsync(down), await RawBodyWithoutTraceIdAsync(busy));
-        Assert.Equal(HeadersExceptRetryAfterAndDate(down), HeadersExceptRetryAfterAndDate(busy));
-        Assert.Equal(2, ProblemAssert.RetryAfterSeconds(busy));
-        Assert.Equal(5, ProblemAssert.RetryAfterSeconds(down));
+        Assert.Equal(HeadersExceptDate(down), HeadersExceptDate(busy));
+        Assert.Equal(30, ProblemAssert.RetryAfterSeconds(busy));
     }
 
     [Fact]
@@ -218,11 +217,10 @@ public sealed partial class AccountBusyLogTests(PostgresFixture postgres)
         return TraceIdValue().Replace(text, "\"traceId\":\"\"");
     }
 
-    private static string HeadersExceptRetryAfterAndDate(HttpResponseMessage response)
+    private static string HeadersExceptDate(HttpResponseMessage response)
     {
-        string[] varying = ["Retry-After", "Date"];
         var headers = response.Headers.Concat(response.Content.Headers)
-            .Where(header => !varying.Contains(header.Key, StringComparer.OrdinalIgnoreCase))
+            .Where(header => !string.Equals(header.Key, "Date", StringComparison.OrdinalIgnoreCase))
             .OrderBy(header => header.Key, StringComparer.OrdinalIgnoreCase)
             .Select(header => $"{header.Key}: {string.Join(", ", header.Value)}");
         return string.Join("\n", headers);

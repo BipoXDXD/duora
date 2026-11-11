@@ -419,6 +419,11 @@ job na ordem 0; efeito externo autoriza no banco antes de agir no storage. Job d
 | Violação de unicidade, `CHECK`, FK | `23505`, `23514`, `23503` | **Não**; mapear para resposta de domínio (`409`) ou bug |
 | Autorização, validação, versão divergente | — | **Não** |
 
+Contenção que escapa do retry (`40001`, `40P01`, `55P03`) chega ao handler global e responde `503`
+`TEMPORARILY_UNAVAILABLE` com `Retry-After: 2`, e banco fora do alcance com `Retry-After: 5`; sob `/auth`, todo `503`
+usa o `Retry-After` da conta ocupada (30 s) para não revelar a causa (decisão da coordenação, 10/11;
+[contrato](../api/README.md#indisponibilidade-temporária-do-banco-465)).
+
 No máximo 3 tentativas, backoff de 50 ms, 100 ms e 200 ms com jitter **(hipótese)**, envolvendo a unidade
 transacional inteira pela estratégia de execução do EF Core; nunca combinar transação manual e retry
 improvisado (spec 10.5; D-EF-04). A lista de erros transitórios da estratégia é configurada explicitamente.
@@ -540,9 +545,11 @@ A07 e A11–A16, e um terceiro valor só para o login seria configuração sem e
 ficar abaixo do prazo. Quem baixar o `AccountQueueTimeout` abaixo do `LoginTimeout` passa a ter a
 fila desistindo primeiro; o `Retry-After` é o mesmo nos dois casos.
 
-O `503` de banco indisponível (pool esgotado, `DatabaseUnavailableExceptionHandler`, `Retry-After: 5`) é
-outro contrato e não muda: não depende da conta, e um e-mail inexistente o recebe igual
-(`LoginBusyNeutralityTests.AnUnavailableDatabaseAnswersTheSameForAnExistingAndAMissingEmail`).
+O `503` de banco indisponível (pool esgotado, `DatabaseUnavailableExceptionHandler`) não depende da conta,
+e um e-mail inexistente o recebe igual
+(`LoginBusyNeutralityTests.AnUnavailableDatabaseAnswersTheSameForAnExistingAndAMissingEmail`). Sob `/auth`, o
+login inclusive, ele responde com o mesmo `Retry-After: 30` da conta ocupada; fora de `/auth`, com `5` (#465,
+[contrato](../api/README.md#indisponibilidade-temporária-do-banco-465)).
 
 O login adquire primeiro uma vez por e-mail normalizado pelo Identity, antes de buscar a conta.
 Endereços existentes e inexistentes disputam essa mesma forma de fila. A chave em memória é o endereço
