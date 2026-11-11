@@ -822,8 +822,9 @@ public sealed class AccountSecurityService
 
     /// <summary>
     /// Atalho de <see cref="WithLockCeilingAsync{T}(TimeSpan, Func{Task{T}}, CancellationToken)"/> com o teto do
-    /// login, <c>Identity:AccountLockTimeout</c>: o das operações que esperam a conta pelo tempo normal (login,
-    /// cadastro, revogação de sessão). As mesmas pré-condições e a mesma <see cref="AccountBusyException"/> valem aqui.
+    /// login, <c>Identity:AccountLockTimeout</c>, para quem espera a conta pelo tempo normal (hoje, a revogação de
+    /// sessão). Quem tem teto próprio chama a sobrecarga com o teto: o cadastro usa o seu, curto (#466). As mesmas
+    /// pré-condições e a mesma <see cref="AccountBusyException"/> valem aqui.
     /// </summary>
     internal Task<T> WithLockCeilingAsync<T>(Func<Task<T>> takeLock, CancellationToken cancellationToken) =>
         WithLockCeilingAsync(_lock.AccountLockTimeout, takeLock, cancellationToken);
