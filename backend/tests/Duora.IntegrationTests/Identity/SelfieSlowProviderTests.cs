@@ -341,6 +341,28 @@ public sealed class SelfieSlowProviderTests(PostgresFixture postgres)
         });
     }
 
+    /// <summary>
+    /// O SDK real lê o corpo de forma síncrona. Se tudo antes da leitura completar sem ceder a thread, a chamada prende
+    /// quem disparou o lote, e ninguém avança o relógio até o corte que a soltaria. A trava aqui só cede ao corte do
+    /// relógio do teste, como o corpo parado só cede ao descarte que o corte provoca.
+    /// </summary>
+    [Fact]
+    public Task ABatchThatBlocksSynchronouslyUntilTheCutStillReachesTheCut() => WithinTheWholeTestCeilingAsync(async () =>
+    {
+        var blocked = false;
+        var releasedByTheCut = false;
+
+        await CutAsync(() =>
+        {
+            using var cut = new CancellationTokenSource(CallTimeout, _time);
+            Volatile.Write(ref blocked, true);
+            releasedByTheCut = cut.Token.WaitHandle.WaitOne(CallCeiling);
+            return Task.CompletedTask;
+        }, () => Volatile.Read(ref blocked));
+
+        Assert.True(releasedByTheCut, "A trava síncrona só terminou pelo teto: o lote prendeu a thread que avança o relógio.");
+    });
+
     [Fact]
     public async Task TheCeilingNamesTheHostDisposalWhenItHangsAfterAPassingBody()
     {
@@ -1134,12 +1156,17 @@ public sealed class SelfieSlowProviderTests(PostgresFixture postgres)
 
     /// <summary>
     /// Lote cuja chamada fica presa: espera a chamada chegar ao fornecedor, leva o relógio do teste até o corte e devolve
-    /// o lote encerrado. Falha em vez de pendurar a suíte se o corte não vier.
+    /// o lote encerrado. Falha em vez de pendurar a suíte se o corte não vier. O lote começa em outra thread: o SDK real lê
+    /// o corpo de forma síncrona, e quando tudo antes da leitura completava sem ceder a thread, a chamada prendia esta,
+    /// que é a única que avança o relógio até o corte.
     /// </summary>
-    private async Task CutDispatchAsync(DuoraWebFactory host, Func<bool> called)
+    private Task CutDispatchAsync(DuoraWebFactory host, Func<bool> called) =>
+        CutAsync(() => SelfieConcurrencyHarness.DispatchAsync(host, Ct), called);
+
+    private async Task CutAsync(Func<Task> dispatch, Func<bool> called)
     {
         _step = "esperando a chamada chegar ao fornecedor";
-        var batch = SelfieConcurrencyHarness.DispatchAsync(host, Ct);
+        var batch = Task.Run(dispatch, Ct);
         await WaitUntilAsync(called, batch);
         _step = "avançando o relógio até o corte, com os timers disparando nesta thread";
         _time.Advance(CallTimeout);
