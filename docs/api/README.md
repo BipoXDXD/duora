@@ -85,8 +85,15 @@ Um erro passageiro do banco responde `503` `TEMPORARILY_UNAVAILABLE` com `Retry-
 Quem decide é só o handler global (`DatabaseUnavailableExceptionHandler`); nenhum filtro de endpoint trata
 contenção por conta própria, e o teste de arquitetura `ContentionClassificationTests` impede que volte um.
 A elegibilidade indisponível (`EligibleParticipant`, `account-moderator`) não tem 503 próprio: ela monta a mesma
-resposta, pela mesma fonte do `Retry-After` (`DatabaseUnavailability.Unavailable`), e só o Warning fica com o
-handler global (#473).
+resposta, pela mesma fonte do `Retry-After` (`DatabaseUnavailability.Unavailable`), mas não loga. O Warning
+(`DatabaseUnavailable` ou `DatabaseContention`) sai só pelo handler global, então uma falha de banco vista só pela
+elegibilidade responde `503` sem nenhuma linha de log (#473).
+
+Os endpoints que montam o `503` de banco sem passar pelo handler (revisão de foto, mídia, bloqueio, suspensão de
+conta e a entrega da evidência) também usam `DatabaseUnavailability` (`Unavailable` com a exceção, ou `Contention`
+quando o serviço devolve só `Busy`), e um teste de arquitetura (`RetryAfterSourceTests`) barra o prazo literal e o
+`catch` do Npgsql que grava o header (#493). O `503` de outra causa (fila de mídia, storage, capacidade, revisão sem
+evidência) declara o prazo numa constante nomeada perto dela.
 
 Valores (decisão da coordenação, 10/11):
 
@@ -94,7 +101,7 @@ Valores (decisão da coordenação, 10/11):
 |---|---|---|---|
 | Contenção: serialização, deadlock, `lock_timeout` (crua ou embrulhada pelo Npgsql ou pelo EF) | `40001`, `40P01`, `55P03` | `2` | `30` |
 | Banco fora do alcance: rede, pool esgotado, servidor sem conexões ou desligando | `53300`, `57P01`–`57P03`, `08*`, falha transitória do cliente | `5` | `30` |
-| Timeout de comando (`statement_timeout`) | `57014` | regra da rota (mídia e revisão de foto: `503`; outras: `500`) | `30` |
+| Timeout de comando (`statement_timeout`) | `57014` | regra da rota (mídia e revisão de foto: `503` com `2`; outras: `500`) | `30` |
 | Conta ocupada (`AccountBusyException`: fila, lock ou prazo) | — | o da exceção (na conta, `30`) | `30`; no cadastro e no reenvio, não é `503` (abaixo) |
 | Documentos legais indisponíveis no cadastro | — | — | `30` |
 

@@ -69,8 +69,7 @@ internal static class PhotoReviewEndpoints
             catch (PostgresException error) when (!http.RequestAborted.IsCancellationRequested
                 && error.SqlState is PostgresErrorCodes.QueryCanceled)
             {
-                ApiProblems.SetRetryAfter(http, TimeSpan.FromSeconds(2));
-                return ApiProblems.Problem(503, ApiProblems.TemporarilyUnavailable);
+                return DatabaseUnavailability.Unavailable(http, error);
             }
         });
 
@@ -242,9 +241,13 @@ internal static class PhotoReviewEndpoints
         _ => throw new InvalidOperationException("A private review response needs a result or refusal."),
     };
 
+    // Evidência ou derivado que não está pronto, prazo da revisão vencido, falha de I/O ou cancelamento do storage:
+    // não é o banco (o 57014 vai para DatabaseUnavailability), então o prazo é próprio da revisão.
+    private static readonly TimeSpan ReviewUnavailableRetryAfter = TimeSpan.FromSeconds(2);
+
     private static ProblemHttpResult Unavailable(HttpContext http)
     {
-        ApiProblems.SetRetryAfter(http, TimeSpan.FromSeconds(2));
+        ApiProblems.SetRetryAfter(http, ReviewUnavailableRetryAfter);
         return ApiProblems.Problem(503, ApiProblems.TemporarilyUnavailable);
     }
 }

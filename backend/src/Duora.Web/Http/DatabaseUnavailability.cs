@@ -54,20 +54,32 @@ internal static class DatabaseUnavailability
         return inner as PostgresException;
     }
 
-    // Contenção: os lock_timeout curtos do projeto ficam em 2 s e os 503 de contenção já respondiam 2, então outra
-    // tentativa nesse prazo costuma passar.
+    // Passa sozinho em instantes: os lock_timeout e statement_timeout curtos do projeto ficam em 2 s e os 503 de
+    // contenção já respondiam 2, então outra tentativa nesse prazo costuma passar.
     private static readonly TimeSpan ContentionRetryAfter = TimeSpan.FromSeconds(2);
 
     // Banco fora do alcance (rede, pool, servidor cheio ou desligando): recuperar leva mais tempo.
     private static readonly TimeSpan UnreachableRetryAfter = TimeSpan.FromSeconds(5);
 
     /// <summary>
-    /// O 503 de banco indisponível, com o <c>Retry-After</c> da causa: fonte única para o handler global e para a
-    /// elegibilidade (#473). Sem causa conhecida (<paramref name="cause"/> nulo), vale o de banco fora do alcance.
+    /// O 503 de banco indisponível, com o <c>Retry-After</c> da causa: fonte única para o handler global, a
+    /// elegibilidade (#473) e os endpoints que respondem sem o handler (#493). Contenção e timeout de comando (57014)
+    /// passam logo; sem causa conhecida (<paramref name="cause"/> nulo), vale o de banco fora do alcance. O 57014 só
+    /// chega aqui pelos filtros de mídia e revisão de foto; o handler global o trata como indisponibilidade só nas
+    /// rotas neutras, onde o valor do <c>Retry-After</c> é o da conta ocupada.
     /// </summary>
     public static ProblemHttpResult Unavailable(HttpContext httpContext, NpgsqlException? cause) =>
-        ApiProblems.Unavailable(
-            httpContext, cause is not null && IsContention(cause) ? ContentionRetryAfter : UnreachableRetryAfter);
+        ApiProblems.Unavailable(httpContext, cause is not null && RecoversSoon(cause) ? ContentionRetryAfter : UnreachableRetryAfter);
+
+    /// <summary>
+    /// O 503 de contenção que esgotou as tentativas, quando o resultado do serviço já não carrega a exceção
+    /// (<c>Busy</c>): o mesmo <c>Retry-After</c> da contenção crua.
+    /// </summary>
+    public static ProblemHttpResult Contention(HttpContext httpContext) =>
+        ApiProblems.Unavailable(httpContext, ContentionRetryAfter);
+
+    private static bool RecoversSoon(NpgsqlException cause) =>
+        IsContention(cause) || cause is PostgresException { SqlState: PostgresErrorCodes.QueryCanceled };
 
     /// <summary>Contenção entre transações: a mesma operação costuma passar logo em seguida.</summary>
     public static bool IsContention(NpgsqlException cause) =>
