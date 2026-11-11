@@ -210,6 +210,7 @@ jobs:
         run: |
           source "$GITHUB_WORKSPACE/scripts/ci/apt-retry.sh"
           apt_configure_network
+          apt_prefer_reachable_mirror
           retry_with_backoff pnpm exec playwright install-deps chromium webkit
 
       - name: Instalar navegadores do Playwright

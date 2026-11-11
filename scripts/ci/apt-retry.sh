@@ -72,6 +72,33 @@ apt_use_fallback_mirror() {
   fi
 }
 
+# _apt_host_resolves <host>: o nome resolve em até 10 s. Separado para os testes trocarem por uma função falsa.
+_apt_host_resolves() {
+  timeout 10 getent hosts "$1" > /dev/null 2>&1
+}
+
+# apt_prefer_reachable_mirror [diretório de fontes...]: se o espelho do runner não resolve, troca antes da 1ª
+# tentativa. Com Acquire::Retries=5, uma tentativa contra um nome que não resolve gastava ~11 min do prazo do job.
+# CI_APT_PROBE_HOSTS troca os hosts sondados; o padrão segue a arquitetura (ports.ubuntu.com no arm64).
+apt_prefer_reachable_mirror() {
+  local -a hosts
+  if [ -n "${CI_APT_PROBE_HOSTS:-}" ]; then
+    read -r -a hosts <<< "$CI_APT_PROBE_HOSTS"
+  elif [ "$(dpkg --print-architecture 2> /dev/null)" = arm64 ]; then
+    hosts=(ports.ubuntu.com)
+  else
+    hosts=(azure.archive.ubuntu.com archive.ubuntu.com)
+  fi
+  local host
+  for host in "${hosts[@]}"; do
+    if ! _apt_host_resolves "$host"; then
+      echo "::warning::apt: $host não resolve; a 1ª tentativa já usa o espelho de fallback" >&2
+      apt_use_fallback_mirror "$@"
+      return 0
+    fi
+  done
+}
+
 # Do apt_retry em curso: diretórios Dir::Etc::sourceparts e os pares `-o` do chamador. Vazios fora dele
 # (ex.: playwright install-deps).
 _apt_sourceparts=()
@@ -110,6 +137,7 @@ apt_retry() {
   case " $* " in
     *" install "*) recover=apt_recover_install ;;
   esac
+  apt_prefer_reachable_mirror "${_apt_sourceparts[@]}"
   CI_RETRY_RECOVER="$recover" retry_with_backoff sudo apt-get \
     -o Acquire::Retries=5 -o Acquire::http::Timeout=30 -o Acquire::https::Timeout=30 "$@"
 }

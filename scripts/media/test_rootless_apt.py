@@ -137,9 +137,11 @@ class RootlessAptTests(unittest.TestCase):
             return subprocess.run(["bash", "-euo", "pipefail", "-c",
                                    textwrap.dedent(harness) + commands],
                                   # GITHUB_WORKSPACE: o passo carrega o helper de retry por ele. Esperas zeradas:
-                                  # as 3 tentativas continuam, só sem os 15 s e 45 s reais.
+                                  # as 3 tentativas continuam, só sem os 15 s e 45 s reais. Sonda de DNS em localhost:
+                                  # a queda do DNS do runner não pode trocar o espelho nem gastar o teto do teste.
                                   env={**os.environ, "fixture": str(fixture), "apt_root": str(scoped),
-                                       "GITHUB_WORKSPACE": str(ROOT), "CI_RETRY_DELAYS": "0 0"},
+                                       "GITHUB_WORKSPACE": str(ROOT), "CI_RETRY_DELAYS": "0 0",
+                                       "CI_APT_PROBE_HOSTS": "localhost"},
                                   capture_output=True, text=True, timeout=30)
 
     def test_unscoped_baseline_reproduces_403_before_install(self):

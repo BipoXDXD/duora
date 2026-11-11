@@ -39,6 +39,8 @@ class AptRetryTests(unittest.TestCase):
             }}
             sleep() {{ printf '%s\\n' "$1" >> "$root/sleeps"; }}
             source "$helper"
+            # DNS de verdade fica fora dos testes: por padrão o espelho do runner resolve; quem testa a sonda redefine.
+            _apt_host_resolves() {{ return 0; }}
         ''')
         inherited = {k: v for k, v in os.environ.items() if not k.startswith("CI_RETRY_")}
         env = {**inherited, "root": str(self.root), "helper": str(HELPER), **(extra_env or {})}
@@ -164,6 +166,35 @@ class AptRetryTests(unittest.TestCase):
         result = self.run_helper(body, failures=1)
         self.assertEqual(0, result.returncode, result.stderr)
         self.assertEqual(["dpkg --configure -a"], self.dpkg_recoveries())
+
+    def test_without_dns_for_the_runner_mirror_the_first_attempt_already_uses_the_fallback(self):
+        mirrors = self.root / "apt-mirrors.txt"
+        mirrors.write_text("http://azure.archive.ubuntu.com/ubuntu/\n")
+        body = ('_apt_host_resolves() { printf "probe %s\\n" "$1" >> "$root/calls"; return 2; }\n'
+                'apt_retry update -qq')
+        result = self.run_helper(body, failures=0, extra_env={"CI_APT_MIRROR_FILES": str(mirrors),
+                                                              "CI_APT_PROBE_HOSTS": "azure.archive.ubuntu.com"})
+        self.assertEqual(0, result.returncode, result.stderr)
+        lines = (self.root / "calls").read_text().splitlines()
+        self.assertEqual("probe azure.archive.ubuntu.com", lines[0])
+        self.assertTrue(lines[1].startswith("perl "), lines)
+        self.assertTrue(lines[2].startswith("apt-get "), lines)
+
+    def test_with_dns_the_first_attempt_keeps_the_runner_mirror(self):
+        mirrors = self.root / "apt-mirrors.txt"
+        mirrors.write_text("http://azure.archive.ubuntu.com/ubuntu/\n")
+        body = '_apt_host_resolves() { return 0; }\napt_retry update -qq'
+        self.run_helper(body, failures=0, extra_env={"CI_APT_MIRROR_FILES": str(mirrors),
+                                                     "CI_APT_PROBE_HOSTS": "azure.archive.ubuntu.com"})
+        self.assertEqual([], self.mirror_switches())
+
+    def test_default_probe_host_follows_the_architecture(self):
+        body = ('dpkg() { echo arm64; }\n'
+                '_apt_host_resolves() { printf "probe %s\\n" "$1" >> "$root/calls"; }\n'
+                'apt_prefer_reachable_mirror')
+        result = self.run_helper(body, failures=0)
+        self.assertEqual(0, result.returncode, result.stderr)
+        self.assertIn("probe ports.ubuntu.com", (self.root / "calls").read_text())
 
     def test_fallback_mirror_ignores_missing_files(self):
         body = 'sudo() { [ "$1" = perl ] && { "$@"; return; }; return 0; }\napt_use_fallback_mirror'
