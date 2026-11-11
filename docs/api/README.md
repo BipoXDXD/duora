@@ -100,7 +100,7 @@ Valores (decisão da coordenação, 10/11):
 | Falha | SQLSTATE | `Retry-After` fora de `/auth` | `Retry-After` em `/auth` |
 |---|---|---|---|
 | Contenção: serialização, deadlock, `lock_timeout` (crua ou embrulhada pelo Npgsql ou pelo EF) | `40001`, `40P01`, `55P03` | `2` | `30` |
-| Banco fora do alcance: rede, pool, servidor sem conexões, recursos, disco ou memória, no limite de configuração, com objeto em uso, erro de E/S, sessão ociosa encerrada, ou desligando | `53300`, `53000`, `53100`, `53200`, `53400`, `55006`, `57P05`, `58030`, `57P01`–`57P03`, `08*`, falha transitória do cliente | `5` | `30` |
+| Banco fora do alcance: rede, pool, servidor sem conexões, recursos, disco ou memória, no limite de configuração, com objeto em uso, erro de E/S, sessão ociosa encerrada, ou desligando | `53300`, `53000`, `53100`, `53200`, `53400`, `55006`, `57P05`, `58030`, `57P01`–`57P03`, `08000`, `08001`, `08003`, `08004`, `08006`, `08007`, falha transitória do cliente | `5` | `30` |
 | Timeout de comando (`statement_timeout`) | `57014` | regra da rota (mídia e revisão de foto: `503` com `2`; outras: `500`) | `30` |
 | Conta ocupada (`AccountBusyException`: fila, lock ou prazo) | — | o da exceção (na conta, `30`) | `30`; no cadastro e no reenvio, não é `503` (abaixo) |
 | Documentos legais indisponíveis no cadastro | — | — | `30` |
@@ -145,6 +145,11 @@ ver o fim desta seção):
 - `53200`, `53400`, `55006` e `58030` crus (`PostgresException`): eram `500` `INTERNAL_ERROR`, passam a `503` com
   `Retry-After: 5` (`30` sob `/auth`), igual ao embrulhado pelo Npgsql ou pelo EF (#476). O mesmo vale para `53000`,
   `53100` e `57P05` crus (#492).
+- Classe `08` por lista explícita (#497): só `08000`, `08001`, `08003`, `08004`, `08006` e `08007` (os do `IsTransient`
+  do Npgsql 10.0.3) são banco fora do alcance. Antes, todo SQLSTATE com prefixo `08` era; `08P01` (`protocol_violation`,
+  que costuma ser defeito de código ou de proxy, como um bind com o número de parâmetros errado) e `08002` (nome de
+  conexão em uso) crus ou embrulhados pelo EF eram `503` com `Retry-After: 5` (`30` sob `/auth`) e Warning, e passam a
+  `500` `INTERNAL_ERROR`, sem `Retry-After`, com log Error. Os seis da lista seguem `503`.
 - Entrega da evidência de revisão de foto (`GET /api/v1/admin/photo-reviews/{id}/evidence/{variant}`), falha antes do
   primeiro byte (#493): a exceção do Npgsql que não é contenção nem `57014` (banco fora do alcance) era `503` com
   `Retry-After: 2`, passa a `5`, como no handler global; contenção e `57014` continuam `2`, e a falha de I/O ou o

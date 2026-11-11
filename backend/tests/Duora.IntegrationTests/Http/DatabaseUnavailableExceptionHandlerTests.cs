@@ -96,6 +96,55 @@ public sealed class DatabaseUnavailableExceptionHandlerTests
         Assert.False(handled);
     }
 
+    // O IsTransient do Npgsql cobre só 08000, 08001, 08003, 08004, 08006 e 08007 na classe 08 (#497). Estes seis são
+    // banco fora do alcance: 503 com Warning, cada um com o seu caso.
+    [Theory]
+    [InlineData("08000")]
+    [InlineData("08001")]
+    [InlineData("08003")]
+    [InlineData("08004")]
+    [InlineData("08006")]
+    [InlineData("08007")]
+    public async Task AConnectionExceptionOnTheExplicitListIsUnavailability(string sqlState)
+    {
+        var raw = new PostgresException(_canary, "FATAL", "FATAL", sqlState);
+
+        var (response, warning) = await HandleWithResponseAsync(raw, "/api/v1/rooms");
+
+        Assert.Equal(StatusCodes.Status503ServiceUnavailable, response.Status);
+        Assert.Contains("Retry-After: 5", response.Headers, StringComparison.Ordinal);
+        Assert.Contains($"({sqlState}, {nameof(PostgresException)})", warning.Text, StringComparison.Ordinal);
+        Assert.DoesNotContain(_canary, warning.Text, StringComparison.Ordinal);
+    }
+
+    // 08P01 (protocol_violation) costuma ser defeito de código ou de proxy, como um bind com o número de parâmetros
+    // errado, e 08002 (connection_name_in_use) não é falha de rede: fora da lista, crus ou embrulhados pelo EF seguem
+    // para o 500 com log Error, sem Retry-After (#497).
+    [Theory]
+    [InlineData("08P01", false)]
+    [InlineData("08002", false)]
+    [InlineData("08P01", true)]
+    [InlineData("08002", true)]
+    public async Task AClass08ErrorOutsideTheExplicitListIsNotUnavailability(string sqlState, bool wrappedByEf)
+    {
+        using var services = new ServiceCollection().AddLogging().BuildServiceProvider();
+        var context = new DefaultHttpContext { RequestServices = services };
+        Exception failure = new PostgresException(_canary, "ERROR", "ERROR", sqlState);
+        if (wrappedByEf)
+        {
+            failure = new InvalidOperationException("transient", failure);
+        }
+
+        var handler = new DatabaseUnavailableExceptionHandler(
+            services.GetRequiredService<ILogger<DatabaseUnavailableExceptionHandler>>());
+
+        var handled = await handler.TryHandleAsync(context, failure, TestContext.Current.CancellationToken);
+
+        Assert.False(handled);
+        Assert.False(DatabaseUnavailability.IsTemporary(failure));
+        Assert.False(context.Response.Headers.ContainsKey("Retry-After"));
+    }
+
     // Já embrulhados, 55000 e 58000 seguem 503: quem decide é o IsTransient do Npgsql sobre a NpgsqlException, não a
     // lista própria (#492). Fixa o comportamento atual; o cru é o teste acima.
     [Theory]
