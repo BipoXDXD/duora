@@ -32,7 +32,7 @@ internal sealed partial class AccountBusyExceptionHandler(
             logger,
             busy.Reason,
             RouteOf(httpContext),
-            (long)busy.RetryAfter.TotalMilliseconds,
+            (long)busy.WaitCeiling.TotalMilliseconds,
             Activity.Current?.Id ?? httpContext.TraceIdentifier);
         metrics.Record(busy.Reason);
         ApiProblems.SetRetryAfter(httpContext, busy.RetryAfter);
