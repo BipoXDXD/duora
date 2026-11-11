@@ -9,12 +9,19 @@ namespace Duora.IntegrationTests.Identity;
 
 /// <summary>
 /// Issue #461: o upsert do cadastro espera a linha da conta com teto. Desde a #466 o teto é o do cadastro
-/// (<c>Identity:RegistrationLockTimeout</c>), curto e separado do teto do login. Quando o teto estoura, a resposta é a mesma de um cadastro comum (TM-06): quem chama não fica sabendo que a conta
-/// existe nem que outra operação a segura.
+/// (<c>Identity:RegistrationLockTimeout</c>), curto e separado do teto do login. Quando o teto estoura, a resposta é
+/// a mesma de um cadastro comum (TM-06): quem chama não fica sabendo que a conta existe nem que outra operação a
+/// segura.
 /// </summary>
 public sealed class RegistrationLockTimeoutTests : IAsyncDisposable
 {
     private static readonly TimeSpan RegistrationLockTimeout = TimeSpan.FromMilliseconds(20);
+
+    /// <summary>
+    /// Teto do login, bem acima do do cadastro: se o cadastro voltasse a esperar por ele, a conta travada responderia
+    /// ~1 s mais devagar que o e-mail novo, e o limite superior de tempo do primeiro teste desta classe falha.
+    /// </summary>
+    private static readonly TimeSpan LoginLockTimeout = TimeSpan.FromSeconds(1);
 
     /// <summary>Folga larga para máquina carregada; sem o teto, o cadastro só termina quando a trava sai.</summary>
     private static readonly TimeSpan ResponseLimit = TimeSpan.FromSeconds(10);
@@ -23,6 +30,9 @@ public sealed class RegistrationLockTimeoutTests : IAsyncDisposable
     private static readonly HashSet<string> PerRequestHeaders = new(StringComparer.OrdinalIgnoreCase) { "Date" };
 
     private const string GaveUpLogMessage = "gave up waiting for the account row lock";
+
+    private static readonly string DidNotAnswerMessage =
+        $"O cadastro da conta travada não respondeu em {ResponseLimit.TotalSeconds} s.";
 
     private readonly PostgresFixture _postgres;
     private readonly CapturingLoggerProvider _logs = new();
@@ -36,7 +46,9 @@ public sealed class RegistrationLockTimeoutTests : IAsyncDisposable
             Time = TestClock.StartingNow(),
             Settings = new Dictionary<string, string?>
             {
-                ["Identity:RegistrationLockTimeout"] = RegistrationLockTimeout.ToString("c", CultureInfo.InvariantCulture),
+                ["Identity:RegistrationLockTimeout"] =
+                    RegistrationLockTimeout.ToString("c", CultureInfo.InvariantCulture),
+                ["Identity:AccountLockTimeout"] = LoginLockTimeout.ToString("c", CultureInfo.InvariantCulture),
             },
         };
     }
@@ -51,8 +63,10 @@ public sealed class RegistrationLockTimeoutTests : IAsyncDisposable
         var account = await Scenario.CreateConfirmedAccountAsync();
         using var newEmailBrowser = new Browser(_factory);
         await newEmailBrowser.FetchCsrfTokenAsync();
+        var newEmailTime = Stopwatch.StartNew();
         using var newEmail = await newEmailBrowser.PostJsonAsync(
             "/api/v1/auth/register", IdentityScenario.RegistrationBody(IdentityScenario.NewEmail()));
+        newEmailTime.Stop();
         using var heldBrowser = new Browser(_factory);
         await heldBrowser.FetchCsrfTokenAsync();
 
@@ -60,11 +74,21 @@ public sealed class RegistrationLockTimeoutTests : IAsyncDisposable
 
         using (held)
         {
-            Assert.True(answeredWhileHeld, $"O cadastro da conta travada não respondeu em {ResponseLimit.TotalSeconds} s.");
+            Assert.True(answeredWhileHeld, DidNotAnswerMessage);
             TestContext.Current.TestOutputHelper?.WriteLine(
                 $"#461 cadastro da conta travada: {(int)held.StatusCode} em {waited.TotalMilliseconds:F0} ms; " +
                 $"headers={string.Join("; ", Headers(held).Select(h => $"{h.Key}={h.Value}"))}");
             Assert.True(waited >= RegistrationLockTimeout, "O cadastro deveria ter esperado a trava até o teto.");
+            // Limite superior: o e-mail novo mede o custo dos hashes e do resto do cadastro nesta máquina, então a conta
+            // travada só pode passar dele pelo teto do cadastro mais a folga. Metade do teto do login separa os dois
+            // lados sem depender do tempo absoluto: no teto do login a conta travada esperaria ~1 s além do e-mail novo.
+            var upperBound = newEmailTime.Elapsed + LoginLockTimeout / 2;
+            Assert.True(
+                waited < upperBound,
+                $"O cadastro da conta travada levou {waited.TotalMilliseconds:F0} ms; " +
+                $"o limite é {upperBound.TotalMilliseconds:F0} ms " +
+                $"(e-mail novo {newEmailTime.Elapsed.TotalMilliseconds:F0} ms + metade do teto do login). " +
+                "Esperar o teto do login estoura este limite.");
             Assert.Equal(HttpStatusCode.Accepted, newEmail.StatusCode);
             Assert.Equal(newEmail.StatusCode, held.StatusCode);
             Assert.Equal(
@@ -96,7 +120,7 @@ public sealed class RegistrationLockTimeoutTests : IAsyncDisposable
 
         // O rastro vem antes do prazo: uma escrita feita depois que a trava saiu também tem de aparecer aqui.
         Assert.Equal(before, await AccountFootprintAsync(account));
-        Assert.True(answeredWhileHeld, $"O cadastro da conta travada não respondeu em {ResponseLimit.TotalSeconds} s.");
+        Assert.True(answeredWhileHeld, DidNotAnswerMessage);
         Assert.Single(_logs.Entries, entry => entry.Text.Contains(GaveUpLogMessage, StringComparison.Ordinal));
     }
 
@@ -110,8 +134,9 @@ public sealed class RegistrationLockTimeoutTests : IAsyncDisposable
         var (response, _, answeredWhileHeld) = await RegisterWhileHeldAsync(account, browser);
         response.Dispose();
 
-        Assert.True(answeredWhileHeld, $"O cadastro da conta travada não respondeu em {ResponseLimit.TotalSeconds} s.");
-        var gaveUp = Assert.Single(_logs.Entries, entry => entry.Text.Contains(GaveUpLogMessage, StringComparison.Ordinal));
+        Assert.True(answeredWhileHeld, DidNotAnswerMessage);
+        var gaveUp = Assert.Single(
+            _logs.Entries, entry => entry.Text.Contains(GaveUpLogMessage, StringComparison.Ordinal));
         Assert.Equal(LogLevel.Warning, gaveUp.Level);
         Assert.DoesNotContain(account.Email, gaveUp.Text, StringComparison.OrdinalIgnoreCase);
         Assert.DoesNotContain(account.UserId.ToString("D"), gaveUp.Text, StringComparison.OrdinalIgnoreCase);
