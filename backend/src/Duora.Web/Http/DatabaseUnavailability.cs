@@ -6,10 +6,11 @@ namespace Duora.Web.Http;
 
 /// <summary>
 /// Banco temporariamente fora do alcance: conexão recusada ou caída, pool esgotado (o <c>Timeout</c> do pool venceu)
-/// ou servidor sem conexões livres (53300) ou desligando (57P01 a 57P03, classe 08). Também a contenção, que passa
-/// sozinha: serialização (40001), deadlock (40P01) e <c>lock_timeout</c> (55P03), crua ou embrulhada pelo Npgsql
-/// (#465). O EF costuma embrulhar a causa numa <see cref="InvalidOperationException"/> ("transient failure"), então
-/// a cadeia inteira é examinada.
+/// ou servidor sem conexões livres (53300) ou desligando (57P01 a 57P03, classe 08). Também os estados que o
+/// <c>IsTransient</c> do Npgsql considera passageiros, crus como embrulhados: 53200, 53400, 55006 e 58030 (#476).
+/// E a contenção, que passa sozinha: serialização (40001), deadlock (40P01) e <c>lock_timeout</c> (55P03), crua ou
+/// embrulhada pelo Npgsql (#465). O EF costuma embrulhar a causa numa <see cref="InvalidOperationException"/>
+/// ("transient failure"), então a cadeia inteira é examinada.
 /// </summary>
 internal static class DatabaseUnavailability
 {
@@ -64,6 +65,10 @@ internal static class DatabaseUnavailability
 
     private static bool IsUnavailableState(string sqlState) =>
         sqlState is PostgresErrorCodes.TooManyConnections
+            or PostgresErrorCodes.OutOfMemory
+            or PostgresErrorCodes.ConfigurationLimitExceeded
+            or PostgresErrorCodes.ObjectInUse
+            or PostgresErrorCodes.IoError
             or PostgresErrorCodes.AdminShutdown
             or PostgresErrorCodes.CrashShutdown
             or PostgresErrorCodes.CannotConnectNow

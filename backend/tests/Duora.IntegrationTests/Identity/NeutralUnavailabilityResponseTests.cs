@@ -41,6 +41,8 @@ public sealed class NeutralUnavailabilityResponseTests(NeutralUnavailabilityResp
         "53300", "cliente-timeout",
         "40001-cru", "40P01-cru", "55P03-cru",
         "40001-npgsql", "40P01-npgsql", "55P03-npgsql",
+        "53200-cru", "53400-cru", "55006-cru", "58030-cru",
+        "53200-npgsql", "53400-npgsql", "55006-npgsql", "58030-npgsql",
         "57014-cru",
     ];
 
