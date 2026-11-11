@@ -39,6 +39,7 @@ public sealed partial class AccountBusyLogTests(PostgresFixture postgres)
         using var response = await IdentityScenario.LoginAsync(browser, account.Email, account.Password);
 
         var body = await ProblemAssert.IsProblemAsync(response, HttpStatusCode.ServiceUnavailable, "TEMPORARILY_UNAVAILABLE");
+        Assert.Equal(30, ProblemAssert.RetryAfterSeconds(response));
         var entry = SingleAccountBusyLog(logs);
         Assert.Equal(LogLevel.Warning, entry.Level);
         Assert.Equal("AccountLock", entry.Fields["Reason"]?.ToString());
@@ -126,7 +127,7 @@ public sealed partial class AccountBusyLogTests(PostgresFixture postgres)
         await using var busyFactory = new DuoraWebFactory(postgres.ConnectionString)
         {
             TestServices = services => services.AddScoped<IPasswordHasher<DuoraUser>>(
-                _ => new BusyPasswordHasher(new AccountBusyException(TimeSpan.FromSeconds(2), AccountBusyReason.AccountLock, TimeSpan.FromSeconds(2)))),
+                _ => new BusyPasswordHasher(new AccountBusyException(TimeSpan.FromSeconds(2), AccountBusyReason.AccountLock, TimeSpan.FromMilliseconds(300)))),
         };
         await using var downFactory = new DuoraWebFactory(new CanaryConnectionString().Value);
         using var busyBrowser = new Browser(busyFactory);
@@ -149,7 +150,7 @@ public sealed partial class AccountBusyLogTests(PostgresFixture postgres)
         await using var factory = new DuoraWebFactory(postgres.ConnectionString)
         {
             TestServices = services => services.AddScoped<IPasswordHasher<DuoraUser>>(
-                _ => new BusyPasswordHasher(new AccountBusyException(TimeSpan.FromSeconds(2), AccountBusyReason.LoginDeadline, TimeSpan.FromSeconds(2)))),
+                _ => new BusyPasswordHasher(new AccountBusyException(TimeSpan.FromSeconds(2), AccountBusyReason.LoginDeadline, TimeSpan.FromSeconds(1)))),
         };
         using var counter = new AccountBusyCounter(factory.Services.GetRequiredService<IMeterFactory>());
         using var browser = new Browser(factory);
