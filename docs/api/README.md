@@ -129,6 +129,22 @@ Mudança de contrato, sem mudança de schema (o OpenAPI não lista o `Retry-Afte
 - Rotas sob `/auth`: todo `503` passa a `Retry-After: 30`; o `57014` passa de `500` a `503`; o `503` legal do
   cadastro e os `503` do Google passam a levar `Retry-After`.
 
+## Reenvio da confirmação com a conta ocupada (#470)
+
+Mudança de contrato em `POST /api/v1/auth/email-confirmation-requests` (API-A03), sem mudança de schema: a conta
+ocupada (`AccountBusyException`: fila, lock da linha ou prazo) **era `503` `TEMPORARILY_UNAVAILABLE` com
+`Retry-After: 30` e passa a `202` sem corpo**, a mesma resposta inteira (status, corpo e headers) da conta
+existente livre e do e-mail inexistente, dentro do mesmo piso de tempo. O reenvio desiste sem gravar nada e o motivo
+fica só no Warning do log. Só uma conta existente espera a trava, então o `503` dizia que o e-mail tem conta (TM-06).
+
+- Continua `503`: banco indisponível, contenção e timeout de comando (seção acima). Por isso o `503` segue
+  declarado no OpenAPI; a descrição da operação registra a regra nova. `oasdiff breaking` não aponta breaking change.
+- Continua `429` com `Retry-After` depois do limite do cadastro (mesmo contador; `ResendUsesTheRegistrationAccountLimitAndReturnsRetryAfter`).
+- SPA: `CheckEmailPage` não trata `503` em ramo próprio (falha genérica por `classifyRequestFailure`), então não
+  muda; o `202` já mostra o aviso neutro.
+- Testes: `EmailConfirmationResendBusyTests.ExistingMissingAndBusyAccountsGetTheSameEmptyAccepted` e
+  `NeutralUnavailabilityResponseTests` (causas `busy-*` no reenvio).
+
 ## Localização do perfil (expansão da issue #78)
 
 API-P01/P02 acrescentam `countryCode` e `subdivisionCode`, opcionais e anuláveis, conservando `regionCode`.
