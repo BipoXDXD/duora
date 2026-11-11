@@ -46,7 +46,8 @@ public sealed class ServerErrorTests(PostgresFixture postgres)
 
         using var response = await browser.PostJsonAsync("/api/v1/auth/login", LoginBody);
 
-        var body = await ProblemAssert.IsProblemAsync(response, HttpStatusCode.ServiceUnavailable, "TEMPORARILY_UNAVAILABLE");
+        var body = await ProblemAssert.IsProblemAsync(
+            response, HttpStatusCode.ServiceUnavailable, "TEMPORARILY_UNAVAILABLE");
         var traceId = (string?)body["traceId"] ?? throw new InvalidOperationException("Sem traceId.");
         var warning = Assert.Single(
             logs.Entries,
@@ -58,7 +59,8 @@ public sealed class ServerErrorTests(PostgresFixture postgres)
         Assert.Contains(traceId, warning.Text, StringComparison.Ordinal);
         string[] internals = ["127.0.0.1", "Port=", "Username", "Host=", "   at ", "Failed to connect"];
         Assert.DoesNotContain(internals, leak => warning.Text.Contains(leak, StringComparison.Ordinal));
-        Assert.DoesNotContain(logs.Entries, entry => entry.Text.Contains(connection.Password, StringComparison.Ordinal));
+        Assert.DoesNotContain(
+            logs.Entries, entry => entry.Text.Contains(connection.Password, StringComparison.Ordinal));
     }
 
     [Fact]
@@ -159,8 +161,8 @@ public sealed class ServerErrorTests(PostgresFixture postgres)
         Assert.False(DatabaseUnavailability.IsTemporary(new InvalidOperationException("sem banco")));
     }
 
-    // Serialização, deadlock e lock_timeout crus são passageiros como os embrulhados (#465): o cliente pode repetir, então
-    // não são erro de SQL comum nem 500. O EF por fora não esconde o SqlState.
+    // Serialização, deadlock e lock_timeout crus são passageiros como os embrulhados (#465): o cliente pode repetir,
+    // então não são erro de SQL comum nem 500. O EF por fora não esconde o SqlState.
     [Theory]
     [InlineData("40001")]
     [InlineData("40P01")]
@@ -182,12 +184,13 @@ public sealed class ServerErrorTests(PostgresFixture postgres)
         var error = new PostgresException("erro comum", "ERROR", "ERROR", sqlState);
 
         Assert.False(DatabaseUnavailability.IsTemporary(new NpgsqlException("driver", error)));
-        Assert.False(DatabaseUnavailability.IsTemporary(new NpgsqlException("driver", new NpgsqlException("driver", error))));
+        Assert.False(DatabaseUnavailability.IsTemporary(
+            new NpgsqlException("driver", new NpgsqlException("driver", error))));
     }
 
-    // Serialização, deadlock e lock_timeout embrulhados pelo Npgsql eram 503 na main (o IsTransient dele desce até o erro
-    // do servidor; sonda com o 10.0.3) e continuam: o cliente pode repetir. A causa apontada é o erro do servidor, para o
-    // Warning levar o SqlState dele. Cru, o mesmo erro continua fora deste handler, como na main.
+    // Serialização, deadlock e lock_timeout embrulhados pelo Npgsql eram 503 na main (o IsTransient dele desce até o
+    // erro do servidor; sonda com o 10.0.3) e continuam: o cliente pode repetir. A causa apontada é o erro do
+    // servidor, para o Warning levar o SqlState dele. Cru, o mesmo erro continua fora deste handler, como na main.
     [Theory]
     [InlineData("40001")]
     [InlineData("40P01")]

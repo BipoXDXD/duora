@@ -249,8 +249,8 @@ public sealed class LoginConcurrencyTests(PostgresFixture postgres)
     }
 
     /// <summary>
-    /// Issue #468: o <c>Retry-After</c> da conta ocupada não depende do teto que o chamador passou ao gate. Se dependesse,
-    /// um teto novo numa rota que só conta existente alcança voltaria a revelar a existência da conta.
+    /// Issue #468: o <c>Retry-After</c> da conta ocupada não depende do teto que o chamador passou ao gate. Se
+    /// dependesse, um teto novo numa rota que só conta existente alcança voltaria a revelar a existência da conta.
     /// </summary>
     [Fact]
     public async Task TheGateAnswersTheSingleBusyRetryAfterWhateverCeilingItWasGiven()
