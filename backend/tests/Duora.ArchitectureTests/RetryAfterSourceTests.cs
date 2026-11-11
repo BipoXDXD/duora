@@ -28,6 +28,7 @@ public sealed partial class RetryAfterSourceTests
         ["Duora.Web/Safety/PhotoReviewEvidenceResult.cs"] = "I/O do storage na entrega (o Npgsql vai para a fonte)",
         ["Duora.Web/Safety/RegistrationReconciliationEndpoints.cs"] = "statement_timeout de 30 s das rotas de reconciliação",
         ["Duora.Web/Accounts/SelfieVerificationEndpoints.cs"] = "pausa de 1 hora da selfie, calculada",
+        ["Duora.Web/Http/ServiceUnavailableOpenApi.cs"] = "declara o header no contrato OpenAPI, não o escreve na resposta",
     };
 
     private static readonly string[] WebProjects = ["Duora.Web", "Duora.Web.Identity"];
