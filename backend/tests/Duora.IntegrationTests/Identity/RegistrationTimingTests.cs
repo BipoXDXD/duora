@@ -10,25 +10,28 @@ using Npgsql;
 
 namespace Duora.IntegrationTests.Identity;
 
-/// <summary>A medida de tempo roda sozinha, depois das classes paralelas, para o ruído da suíte não entrar nela.</summary>
+/// <summary>
+/// A medida de tempo roda sozinha, depois das classes paralelas, para o ruído da suíte não entrar nela.
+/// </summary>
 [CollectionDefinition(nameof(SerialTimingMeasurement), DisableParallelization = true)]
 public sealed class SerialTimingMeasurement;
 
 /// <summary>
-/// Issue #466 (decisão da coordenação, 10/11: (iv-a)): o tempo de resposta do cadastro não distingue um e-mail novo de
-/// uma conta travada por outra operação nem de uma conta com o orçamento de emissão esgotado. Os três respondem 202
-/// idêntico; aqui se afirma que o tempo também: a mediana das diferenças para o e-mail novo, pareadas por rodada, fica
-/// dentro de <see cref="MedianDifferenceLimit"/>.
+/// Issue #466 (decisão da coordenação, 10/11: (iv-a)): o tempo de resposta do cadastro não distingue um e-mail novo
+/// de uma conta travada por outra operação nem de uma conta com o orçamento de emissão esgotado. Os três respondem
+/// 202 idêntico; aqui se afirma que o tempo também: a mediana das diferenças para o e-mail novo, pareadas por
+/// rodada, fica dentro de <see cref="MedianDifferenceLimit"/>.
 /// </summary>
 /// <remarks>
 /// <para>
 /// O hash tem custo fixo (<see cref="FixedCostPasswordHasher"/>) em vez do PBKDF2 real: o que se mede é a forma do
-/// caminho (quantos hashes e quanto se espera pela trava), e um custo de CPU real oscila com a carga do runner a ponto de
-/// encobrir ou inventar diferença. Com o custo fixo, cada hash pulado aparece como <see cref="HashCost"/> a menos.
+/// caminho (quantos hashes e quanto se espera pela trava), e um custo de CPU real oscila com a carga do runner a
+/// ponto de encobrir ou inventar diferença. Com o custo fixo, cada hash pulado aparece como <see cref="HashCost"/> a
+/// menos.
 /// </para>
 /// <para>
-/// O teto do login (<c>Identity:AccountLockTimeout</c>) fica em 300 ms, o mesmo dos outros testes de trava: se o cadastro
-/// voltasse a usá-lo, a conta travada responderia ~300 ms mais devagar. O teto do cadastro fica no padrão.
+/// O teto do login (<c>Identity:AccountLockTimeout</c>) fica em 300 ms, o mesmo dos outros testes de trava: se o
+/// cadastro voltasse a usá-lo, a conta travada responderia ~300 ms mais devagar. O teto do cadastro fica no padrão.
 /// </para>
 /// </remarks>
 [Collection(nameof(SerialTimingMeasurement))]
@@ -41,10 +44,10 @@ public sealed class RegistrationTimingTests : IAsyncDisposable
     private static readonly TimeSpan HashCost = TimeSpan.FromMilliseconds(40);
 
     /// <summary>
-    /// Limite da mediana das diferenças pareadas. Cobre o resíduo esperado (o SQL que a desistência não roda, ~5–7 ms
-    /// medidos na #466, e o teto curto do cadastro) mais o erro da mediana numa máquina carregada: com loadavg ~30, o
-    /// desvio por amostra chegou a 36–39 ms e o orçamento esgotado deu −12,2 ms. Mesmo assim fica abaixo do que o
-    /// teste tem de pegar: um hash pulado custa ao menos <see cref="HashCost"/>, e as sabotagens deram
+    /// Limite da mediana das diferenças pareadas. Cobre o resíduo esperado (o SQL que a desistência não roda, ~5–7
+    /// ms medidos na #466, e o teto curto do cadastro) mais o erro da mediana numa máquina carregada: com loadavg
+    /// ~30, o desvio por amostra chegou a 36–39 ms e o orçamento esgotado deu −12,2 ms. Mesmo assim fica abaixo do
+    /// que o teste tem de pegar: um hash pulado custa ao menos <see cref="HashCost"/>, e as sabotagens deram
     /// −53 ms (hash do código só no caminho que emite) e +294 ms (cadastro de volta ao teto do login).
     /// </summary>
     private static readonly TimeSpan MedianDifferenceLimit = TimeSpan.FromMilliseconds(25);
@@ -131,9 +134,11 @@ public sealed class RegistrationTimingTests : IAsyncDisposable
             $"orçamento esgotado {Median(times[RegistrationCase.ExhaustedBudget]):F1} ms; " +
             $"desvio por amostra do e-mail novo {StandardDeviation(times[RegistrationCase.NewEmail]):F1} ms; " +
             $"diferença pareada (mediana): conta travada {heldAccount:+0.0;-0.0} ms, " +
-            $"orçamento esgotado {exhaustedBudget:+0.0;-0.0} ms; limite ±{MedianDifferenceLimit.TotalMilliseconds:F0} ms."));
+            $"orçamento esgotado {exhaustedBudget:+0.0;-0.0} ms; " +
+            $"limite ±{MedianDifferenceLimit.TotalMilliseconds:F0} ms."));
 
-        // Os casos só valem se seguiram o caminho que dizem: a desistência pela trava e o cadastro recusado pelo orçamento.
+        // Os casos só valem se seguiram o caminho que dizem: a desistência pela trava e o cadastro recusado pelo
+        // orçamento.
         Assert.Equal(
             WarmupRounds + Samples,
             _logs.Entries.Count(entry => entry.Text.Contains(GaveUpLogMessage, StringComparison.Ordinal)));
@@ -157,7 +162,9 @@ public sealed class RegistrationTimingTests : IAsyncDisposable
                 $"{registrationCase}: mediana da diferença para o e-mail novo de {difference:+0.0;-0.0} ms " +
                 $"(limite ±{MedianDifferenceLimit.TotalMilliseconds:F0} ms)."));
 
-    /// <summary>Conta pendente cujos cadastros já gastaram as emissões da hora; o próximo é recusado sem gravar.</summary>
+    /// <summary>
+    /// Conta pendente cujos cadastros já gastaram as emissões da hora; o próximo é recusado sem gravar.
+    /// </summary>
     private async Task<string> ExhaustIssuanceBudgetAsync()
     {
         var email = IdentityScenario.NewEmail();
@@ -198,7 +205,8 @@ public sealed class RegistrationTimingTests : IAsyncDisposable
         return elapsed;
     }
 
-    private static double MedianDifferenceFromNewEmail(Dictionary<RegistrationCase, List<double>> times, RegistrationCase other) =>
+    private static double MedianDifferenceFromNewEmail(
+        Dictionary<RegistrationCase, List<double>> times, RegistrationCase other) =>
         Median(times[other].Zip(times[RegistrationCase.NewEmail], (sample, newEmail) => sample - newEmail));
 
     private static double StandardDeviation(List<double> values)
@@ -225,7 +233,8 @@ public sealed class RegistrationTimingTests : IAsyncDisposable
             return _inner.HashPassword(user, password);
         }
 
-        public PasswordVerificationResult VerifyHashedPassword(DuoraUser user, string hashedPassword, string providedPassword)
+        public PasswordVerificationResult VerifyHashedPassword(
+            DuoraUser user, string hashedPassword, string providedPassword)
         {
             Thread.Sleep(HashCost);
             return _inner.VerifyHashedPassword(user, hashedPassword, providedPassword);
