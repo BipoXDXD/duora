@@ -67,7 +67,7 @@ public sealed class SelfieSlowProviderTests(PostgresFixture postgres)
 
     private static CancellationToken Ct => TestContext.Current.CancellationToken;
 
-    private readonly FakeTimeProvider _time = new(DateTimeOffset.FromUnixTimeSeconds(DateTimeOffset.UtcNow.ToUnixTimeSeconds()));
+    private readonly ClockWithPendingJump _time = new(DateTimeOffset.FromUnixTimeSeconds(DateTimeOffset.UtcNow.ToUnixTimeSeconds()));
 
     /// <summary>Onde o teste está, para a falha por teto dizer onde parou. Escrito na tarefa do corpo e lido na do teto.</summary>
     private volatile string _step = "corpo do teste";
@@ -78,11 +78,17 @@ public sealed class SelfieSlowProviderTests(PostgresFixture postgres)
     /// <summary>Descartes dos hosts do teste, do último criado para o primeiro.</summary>
     private readonly Stack<Func<ValueTask>> _hostDisposals = new();
 
+    /// <summary>
+    /// A chamada abandonada no corte segura a vaga até terminar de fato, e pelo SDK real ela só termina depois do
+    /// corte, em outra thread. Enquanto ela segue viva, o lote seguinte não chama o fornecedor e a tentativa fica como o
+    /// corte deixou; a nova chamada só sai depois que a abandonada termina.
+    /// </summary>
     [Fact]
     public Task AStalledSessionStartThroughTheRealSdkIsCutAndRetriedWithoutReleasingTheAccount() => WithinTheWholeTestCeilingAsync(async () =>
     {
         var connection = await postgres.CreateMigratedDatabaseAsync(Ct);
-        var transport = new SyntheticAwsTransport(Stall);
+        var stallEnds = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var transport = new SyntheticAwsTransport(cancellationToken => StallUntilReleasedAsync(stallEnds.Task, cancellationToken));
         var host = RealSdkHost(connection, transport);
         var scenario = new IdentityScenario(connection, host);
         var account = await scenario.CreateConfirmedAccountAsync();
@@ -100,10 +106,55 @@ public sealed class SelfieSlowProviderTests(PostgresFixture postgres)
 
         transport.Send = HealthySession;
         _time.Advance(UntilNextTry);
-        await SelfieConcurrencyHarness.DispatchAsync(host, Ct);
+        Assert.Equal(0, await SelfieConcurrencyHarness.DispatchAsync(host, Ct));
 
+        Assert.Equal(1, transport.Calls);
+        Assert.Equal("Pending|no-reference|PROVIDER_UNAVAILABLE|open", await AttemptAsync(scenario));
+
+        stallEnds.SetResult();
+        await WaitUntilAsync(() => FinishedProviderCalls(host) == 1);
+        Assert.Equal(1, await SelfieConcurrencyHarness.DispatchAsync(host, Ct));
+
+        Assert.Equal(2, transport.Calls);
         Assert.Equal("Capturing|has-reference|no-feedback|open", await AttemptAsync(scenario));
         await AssertNotReleasedAsync(scenario, host, account.UserId);
+    });
+
+    /// <summary>
+    /// O prazo do corte fica fixo quando a chamada sai. O avanço do relógio que cai enquanto o dispatcher monta a espera
+    /// pela chamada, no instante em que ele arma um timer, ainda corta no prazo: o lote não espera um segundo prazo
+    /// inteiro com a chamada viva. O lote roda numa thread só, para o salto cair depois de todo o trecho síncrono que fez
+    /// a chamada, e não antes dele.
+    /// </summary>
+    [Fact]
+    public Task AClockJumpWhileTheCutIsBeingArmedStillCutsAtTheDeadline() => WithinTheWholeTestCeilingAsync(async () =>
+    {
+        var provider = new FaultySelfieProvider(_time);
+        var connection = await postgres.CreateMigratedDatabaseAsync(Ct);
+        var host = FakeProviderHost(connection, provider);
+        var scenario = new IdentityScenario(connection, host);
+        var account = await scenario.CreateConfirmedAccountAsync();
+        await SelfieConcurrencyHarness.RequestAsync(host, account.UserId, Ct);
+        var release = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        provider.StartFault = _ =>
+        {
+            _time.JumpAtTheNextTimerOnThisThread(CallTimeout);
+            return release.Task;
+        };
+        using var pump = new SingleThreadPump();
+
+        _step = "esperando a chamada chegar ao fornecedor";
+        var batch = pump.Run(() => SelfieConcurrencyHarness.DispatchAsync(host, Ct));
+        await WaitUntilAsync(() => provider.StartCalls == 1, batch);
+        await pump.DrainAsync().WaitAsync(CallCeiling, Ct);
+        _time.FinishThePendingJump();
+        _step = "esperando o lote encerrar depois do corte";
+        await batch.WaitAsync(CallCeiling, Ct);
+        _step = "seguindo depois do corte";
+
+        Assert.Equal("Pending|no-reference|PROVIDER_UNAVAILABLE|open", await AttemptAsync(scenario));
+        Assert.Equal("Pending|ProviderUnavailable|1", await DeliveryAsync(scenario));
+        release.TrySetResult();
     });
 
     [Fact]
@@ -340,6 +391,28 @@ public sealed class SelfieSlowProviderTests(PostgresFixture postgres)
             await AssertNotReleasedAsync(scenario, host, account.UserId);
         });
     }
+
+    /// <summary>
+    /// O SDK real lê o corpo de forma síncrona. Se tudo antes da leitura completar sem ceder a thread, a chamada prende
+    /// quem disparou o lote, e ninguém avança o relógio até o corte que a soltaria. A trava aqui só cede ao corte do
+    /// relógio do teste, como o corpo parado só cede ao descarte que o corte provoca.
+    /// </summary>
+    [Fact]
+    public Task ABatchThatBlocksSynchronouslyUntilTheCutStillReachesTheCut() => WithinTheWholeTestCeilingAsync(async () =>
+    {
+        var blocked = false;
+        var releasedByTheCut = false;
+
+        await CutAsync(() =>
+        {
+            using var cut = new CancellationTokenSource(CallTimeout, _time);
+            Volatile.Write(ref blocked, true);
+            releasedByTheCut = cut.Token.WaitHandle.WaitOne(CallCeiling);
+            return Task.CompletedTask;
+        }, () => Volatile.Read(ref blocked));
+
+        Assert.True(releasedByTheCut, "A trava síncrona só terminou pelo teto: o lote prendeu a thread que avança o relógio.");
+    });
 
     [Fact]
     public async Task TheCeilingNamesTheHostDisposalWhenItHangsAfterAPassingBody()
@@ -1032,8 +1105,16 @@ public sealed class SelfieSlowProviderTests(PostgresFixture postgres)
     private static Task<long> EmailAsync(IdentityScenario scenario, string comparison) => scenario.ScalarAsync(
         $"select count(*) from ops.outbox_deliveries where consumer = 'transactional-email' and status {comparison} 'Delivered'");
 
-    private static Task<HttpResponseMessage> Stall(CancellationToken cancellationToken) =>
-        Task.Delay(Timeout.Infinite, cancellationToken).ContinueWith(_ => new HttpResponseMessage(), TaskScheduler.Default);
+    /// <summary>
+    /// Fornecedor parado que respeita o cancelamento, mas só devolve a resposta quando o teste solta: a chamada
+    /// abandonada no corte segue viva, segurando a vaga, pelo tempo que o teste decidir.
+    /// </summary>
+    private static async Task<HttpResponseMessage> StallUntilReleasedAsync(Task released, CancellationToken cancellationToken)
+    {
+        await Task.Delay(Timeout.Infinite, cancellationToken).ConfigureAwait(ConfigureAwaitOptions.SuppressThrowing);
+        await released;
+        return new HttpResponseMessage();
+    }
 
     /// <summary>Cada resposta ganha um corpo novo: nenhuma chamada, de teste nenhum, herda o descarte de outra.</summary>
     private static Task<HttpResponseMessage> StalledBody(ConcurrentQueue<StalledStream> bodies)
@@ -1083,8 +1164,18 @@ public sealed class SelfieSlowProviderTests(PostgresFixture postgres)
         {
             Time = _time,
             Settings = SelfieTestSettings.Enabled(ScriptedSelfieProvider.Policy),
-            TestServices = services => services.AddSingleton<HttpClientFactory>(transport),
+            TestServices = services =>
+            {
+                services.AddSingleton<HttpClientFactory>(transport);
+                var real = services.Last(service => service.ServiceType == typeof(ISelfieProvider)).ImplementationFactory
+                    ?? throw new InvalidOperationException("O fornecedor real da selfie deixou de ser registrado por fábrica.");
+                services.AddSingleton<ISelfieProvider>(p => new FinishCountingSelfieProvider((ISelfieProvider)real(p)));
+            },
         });
+
+    /// <summary>Chamadas ao fornecedor real já concluídas, inclusive as que o dispatcher abandonou no corte.</summary>
+    private static int FinishedProviderCalls(DuoraWebFactory host) =>
+        ((FinishCountingSelfieProvider)host.Services.GetRequiredService<ISelfieProvider>()).Finished;
 
     private DuoraWebFactory FakeProviderHost(string connection, ISelfieProvider provider, CapturingLoggerProvider? logs = null) =>
         DisposedAtTheEnd(SelfieConcurrencyHarness.Host(connection, _time, provider, logs: logs));
@@ -1134,12 +1225,17 @@ public sealed class SelfieSlowProviderTests(PostgresFixture postgres)
 
     /// <summary>
     /// Lote cuja chamada fica presa: espera a chamada chegar ao fornecedor, leva o relógio do teste até o corte e devolve
-    /// o lote encerrado. Falha em vez de pendurar a suíte se o corte não vier.
+    /// o lote encerrado. Falha em vez de pendurar a suíte se o corte não vier. O lote começa em outra thread: o SDK real lê
+    /// o corpo de forma síncrona, e quando tudo antes da leitura completava sem ceder a thread, a chamada prendia esta,
+    /// que é a única que avança o relógio até o corte.
     /// </summary>
-    private async Task CutDispatchAsync(DuoraWebFactory host, Func<bool> called)
+    private Task CutDispatchAsync(DuoraWebFactory host, Func<bool> called) =>
+        CutAsync(() => SelfieConcurrencyHarness.DispatchAsync(host, Ct), called);
+
+    private async Task CutAsync(Func<Task> dispatch, Func<bool> called)
     {
         _step = "esperando a chamada chegar ao fornecedor";
-        var batch = SelfieConcurrencyHarness.DispatchAsync(host, Ct);
+        var batch = Task.Run(dispatch, Ct);
         await WaitUntilAsync(called, batch);
         _step = "avançando o relógio até o corte, com os timers disparando nesta thread";
         _time.Advance(CallTimeout);
@@ -1382,6 +1478,129 @@ public sealed class SelfieSlowProviderTests(PostgresFixture postgres)
         {
             _closed.TrySetResult();
             base.Dispose(disposing);
+        }
+    }
+
+    /// <summary>
+    /// Relógio falso que pode saltar no instante em que um timer é armado, na thread que pediu o salto: reproduz o avanço do
+    /// teste caindo entre a leitura do relógio e a criação do timer de quem o leu. O salto acontece uma vez só, no timer ou
+    /// em <see cref="FinishThePendingJump"/>, o que vier primeiro.
+    /// </summary>
+    private sealed class ClockWithPendingJump(DateTimeOffset start) : FakeTimeProvider(start)
+    {
+        private readonly Lock _gate = new();
+        private TimeSpan? _jump;
+        private int _jumpingThread;
+
+        public void JumpAtTheNextTimerOnThisThread(TimeSpan jump)
+        {
+            lock (_gate)
+            {
+                _jump = jump;
+                _jumpingThread = Environment.CurrentManagedThreadId;
+            }
+        }
+
+        public void FinishThePendingJump()
+        {
+            if (TakeJump(anyThread: true) is { } jump)
+            {
+                Advance(jump);
+            }
+        }
+
+        public override ITimer CreateTimer(TimerCallback callback, object? state, TimeSpan dueTime, TimeSpan period)
+        {
+            if (TakeJump(anyThread: false) is { } jump)
+            {
+                Advance(jump);
+            }
+
+            return base.CreateTimer(callback, state, dueTime, period);
+        }
+
+        private TimeSpan? TakeJump(bool anyThread)
+        {
+            lock (_gate)
+            {
+                if (_jump is not { } jump || (!anyThread && _jumpingThread != Environment.CurrentManagedThreadId))
+                {
+                    return null;
+                }
+
+                _jump = null;
+                return jump;
+            }
+        }
+    }
+
+    /// <summary>
+    /// Uma thread só, em ordem, para o lote: o que o teste posta depois de ver a chamada só roda quando o trecho síncrono
+    /// que a fez, até o lote parar à espera do corte, já terminou. Depois do descarte, o que ainda chegar não roda.
+    /// </summary>
+    private sealed class SingleThreadPump : SynchronizationContext, IDisposable
+    {
+        private readonly BlockingCollection<(SendOrPostCallback Callback, object? State)?> _work = [];
+
+        public SingleThreadPump() => new Thread(RunAll) { IsBackground = true, Name = "lote do teste" }.Start();
+
+        public Task<T> Run<T>(Func<Task<T>> work)
+        {
+            var started = new TaskCompletionSource<Task<T>>(TaskCreationOptions.RunContinuationsAsynchronously);
+            Post(_ => started.SetResult(work()), null);
+            return started.Task.Unwrap();
+        }
+
+        public Task DrainAsync()
+        {
+            var drained = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+            Post(_ => drained.SetResult(), null);
+            return drained.Task;
+        }
+
+        public override void Post(SendOrPostCallback d, object? state) => _work.Add((d, state));
+
+        public override void Send(SendOrPostCallback d, object? state) =>
+            throw new NotSupportedException("O lote do teste só recebe trabalho em fila.");
+
+        public void Dispose() => _work.Add(null);
+
+        private void RunAll()
+        {
+            SetSynchronizationContext(this);
+            foreach (var item in _work.GetConsumingEnumerable())
+            {
+                if (item is not { } work)
+                {
+                    return;
+                }
+
+                work.Callback(work.State);
+            }
+        }
+    }
+
+    /// <summary>
+    /// O fornecedor real, com a contagem das chamadas concluídas. Devolve a mesma tarefa do SDK, que é a que a vaga
+    /// acompanha, e conta depois da conclusão: quando a contagem sobe, a vaga já vê a tarefa terminada.
+    /// </summary>
+    private sealed class FinishCountingSelfieProvider(ISelfieProvider real) : ISelfieProvider
+    {
+        private int _finished;
+
+        public int Finished => Volatile.Read(ref _finished);
+
+        public Task<SelfieSession> StartAsync(Guid attemptId, CancellationToken cancellationToken) =>
+            Counted(real.StartAsync(attemptId, cancellationToken));
+
+        public Task<SelfieResult> ReadAsync(string reference, CancellationToken cancellationToken) =>
+            Counted(real.ReadAsync(reference, cancellationToken));
+
+        private Task<T> Counted<T>(Task<T> call)
+        {
+            _ = call.ContinueWith(_ => Interlocked.Increment(ref _finished), CancellationToken.None,
+                TaskContinuationOptions.ExecuteSynchronously, TaskScheduler.Default);
+            return call;
         }
     }
 
