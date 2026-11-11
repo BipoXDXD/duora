@@ -23,16 +23,20 @@ repete o pedido. `EmailConfirmationResendBusyTests` compara status, corpo sem `t
 `Set-Cookie`) da conta pendente travada com os de um e-mail inexistente, e confere a outbox e o Warning. A mesma
 comparação cobre a pendente que recebe código, a confirmada e a pendente com orçamento esgotado. Depois de duas
 desistências com a linha travada, solta a linha, um novo reenvio ainda emite o código (outbox + 1): a desistência
-não gasta orçamento, stamp nem código. Quando `AccountBusyMetrics`/`AccountBusyReason` (#467) chegarem à `main`, o
-catch do reenvio passa a registrar também a métrica, com o motivo de conta ocupada; até lá, só o Warning.
+não gasta orçamento, stamp nem código. O Warning leva o motivo (`AccountBusyReason`, do #467) e o teto que estourou,
+como o do 503. A métrica `identity.account_busy` (`AccountBusyMetrics`) conta só respostas 503, e o reenvio responde
+202, então fica fora dela.
 O tempo também não distingue: o reenvio não espera o teto do login (`Identity:AccountLockTimeout`, 5 s), que
 passaria do piso e diria pela demora que a conta existe; o jitter de 100 ms não esconde segundos numa amostra só.
 A fila por conta e o `lock_timeout` esperam só `Identity:ShortWait:LockTimeout` (100 ms; validado entre 1 ms e
 125 ms no boot). As duas esperas se somam no pior caso (fila cheia e depois a linha travada): 2 × 125 ms ainda deixam
-metade do piso de 500 ms para o resto do pedido, e a desistência cai dentro dele. `EmailConfirmationResendTimingTests` compara a mediana de 11
-amostras dos dois casos, com limite de 100 ms (medido: +10,8 ms; voltando ao teto longo, +975,8 ms com o teto do
-login em 1,5 s). Pedido cujo trabalho passa do piso (hash lento sob carga) ainda pode diferir; o piso só iguala o
-que fica abaixo dele.
+metade do piso de 500 ms para o resto do pedido, e a desistência cai dentro dele. O teto máximo vem do piso
+(`NeutralResponseFloor.Floor / 4`). `EmailConfirmationResendBusyTests` segura a vez da conta no `AccountCheckGate`
+e confere que o reenvio responde como o e-mail inexistente, sem outbox, dentro do piso com o jitter e uma folga;
+voltando ao teto da fila do login, ele esperaria `Identity:AccountQueueTimeout`. `EmailConfirmationResendTimingTests`
+compara a mediana de 11 amostras dos dois casos, com limite de 100 ms (medido: +10,8 ms; voltando ao teto longo,
++975,8 ms com o teto do login em 1,5 s). Pedido cujo trabalho passa do piso (hash lento sob carga) ainda pode
+diferir; o piso só iguala o que fica abaixo dele.
 
 Somente PendingEmail admissível e com senha correta pode usar o orçamento persistente de emissão3/h,
 compartilhado com o cadastro e preservado após restart. Reenvio não renova CreatedAt/limite72h. A mesma trava

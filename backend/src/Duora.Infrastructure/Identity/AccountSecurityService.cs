@@ -38,6 +38,18 @@ public sealed class AccountLockOptions
 }
 
 /// <summary>
+/// Piso de tempo das rotas públicas que respondem igual exista a conta ou não (reenvio da confirmação, #470): toda
+/// resposta sai depois de <see cref="Floor"/> mais um jitter uniforme de até <see cref="MaxJitter"/>. A espera curta
+/// pela conta (<c>Identity:ShortWait</c>) tem de caber dentro dele.
+/// </summary>
+public static class NeutralResponseFloor
+{
+    public static readonly TimeSpan Floor = TimeSpan.FromMilliseconds(500);
+
+    public static readonly TimeSpan MaxJitter = TimeSpan.FromMilliseconds(100);
+}
+
+/// <summary>
 /// Espera curta pela conta (seção <c>Identity:ShortWait</c>) para as rotas públicas que respondem igual exista a conta
 /// ou não. O e-mail inexistente nem chega à trava e responde no piso de tempo; a conta ocupada tem de desistir dentro
 /// dele, ou a demora diria que ela existe (TM-06, #470). A fila em memória e o <c>lock_timeout</c> esperam, cada um, o
@@ -48,13 +60,14 @@ internal sealed class IdentityShortWaitOptions
     public const string Section = "Identity:ShortWait";
 
     private static readonly TimeSpan Minimum = TimeSpan.FromMilliseconds(1);
-    private static readonly TimeSpan Maximum = TimeSpan.FromMilliseconds(125);
-
     /// <summary>
-    /// Teto de cada espera (100 ms). A conta ocupada pode esperar a fila e depois o lock, então o pior caso é o dobro:
-    /// com o máximo de 125 ms, 250 ms, metade do piso de 500 ms, e a outra metade fica para o resto do pedido. Um
-    /// teto maior voltaria a aparecer no tempo de resposta.
+    /// 125 ms. A conta ocupada pode esperar a fila e depois o lock, então o pior caso é o dobro: 250 ms, metade do
+    /// <see cref="NeutralResponseFloor.Floor"/>, e a outra metade fica para o resto do pedido. Um teto maior voltaria
+    /// a aparecer no tempo de resposta.
     /// </summary>
+    private static readonly TimeSpan Maximum = NeutralResponseFloor.Floor / 4;
+
+    /// <summary>Teto de cada espera (100 ms), da fila e do lock.</summary>
     public TimeSpan LockTimeout { get; set; } = TimeSpan.FromMilliseconds(100);
 
     public bool IsValid() => LockTimeout >= Minimum && LockTimeout <= Maximum;
@@ -362,8 +375,9 @@ public sealed class AccountSecurityService
     }
 
     /// <summary>
-    /// Como <see cref="LockAccountAsync"/>, mas a fila e o lock esperam só <see cref="IdentityShortWaitOptions.LockTimeout"/>:
-    /// para a rota pública que desiste em silêncio da conta ocupada e precisa responder dentro do piso de tempo.
+    /// Como <see cref="LockAccountAsync"/>, mas a fila e o lock esperam só
+    /// <see cref="IdentityShortWaitOptions.LockTimeout"/>: para a rota pública que desiste em silêncio da conta ocupada
+    /// e precisa responder dentro do piso de tempo.
     /// </summary>
     /// <exception cref="AccountBusyException">A espera curta estourou; a transação não gravou nada.</exception>
     public Task<AccountCheck> LockAccountBrieflyAsync(DuoraUser user, CancellationToken cancellationToken)

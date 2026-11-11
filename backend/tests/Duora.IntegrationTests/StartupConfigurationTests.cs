@@ -215,6 +215,17 @@ public sealed class StartupConfigurationTests
         Assert.Equal(TimeSpan.FromMilliseconds(125), options.LockTimeout);
     }
 
+    /// <summary>O on point de baixo: 1 ms ainda é uma espera (0 desligaria o <c>lock_timeout</c>).</summary>
+    [Fact]
+    public async Task WebAcceptsTheShortestIdentityShortWait()
+    {
+        await using var app = BuildWeb("--Identity:ShortWait:LockTimeout=00:00:00.001");
+
+        var options = app.Services.GetRequiredService<IOptions<IdentityShortWaitOptions>>().Value;
+
+        Assert.Equal(TimeSpan.FromMilliseconds(1), options.LockTimeout);
+    }
+
     [Theory]
     [InlineData("00:00:00")]
     [InlineData("00:00:00.126")]

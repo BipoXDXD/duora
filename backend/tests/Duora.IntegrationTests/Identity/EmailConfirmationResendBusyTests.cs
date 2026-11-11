@@ -1,4 +1,7 @@
+using System.Diagnostics;
 using System.Text.RegularExpressions;
+using Duora.Infrastructure.Identity;
+using Microsoft.Extensions.DependencyInjection;
 using Npgsql;
 
 namespace Duora.IntegrationTests.Identity;
@@ -16,6 +19,19 @@ public sealed partial class EmailConfirmationResendBusyTests(PostgresFixture pos
 
     /// <summary>Teto de espera dos sinais entre o teste e a transação que segura a linha.</summary>
     private static readonly TimeSpan Patience = TimeSpan.FromSeconds(30);
+
+    /// <summary>
+    /// Teto da fila em memória nestes testes. Se o reenvio voltasse a esperar a fila pelo teto do login, a conta com a
+    /// vez ocupada levaria isso tudo, bem acima de <see cref="HeldTurnLimit"/>.
+    /// </summary>
+    private const string LoginQueueTimeout = "00:00:02";
+
+    /// <summary>
+    /// O piso com o jitter máximo (600 ms) e folga para a máquina carregada; muito abaixo de
+    /// <see cref="LoginQueueTimeout"/>.
+    /// </summary>
+    private static readonly TimeSpan HeldTurnLimit =
+        NeutralResponseFloor.Floor + NeutralResponseFloor.MaxJitter + TimeSpan.FromMilliseconds(500);
 
     [Fact]
     public async Task ALockedPendingAccountAnswersLikeAMissingEmail()
@@ -36,6 +52,37 @@ public sealed partial class EmailConfirmationResendBusyTests(PostgresFixture pos
 
         Assert.Equal(missingEmail, lockedAccount);
         Assert.StartsWith("202|", missingEmail, StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// A vez da conta na fila em memória também é espera curta: com outra verificação segurando a vez, o reenvio
+    /// desiste dentro do piso, sem e-mail, e responde como o e-mail inexistente. Se a fila esperasse o teto do login
+    /// (<c>Identity:AccountQueueTimeout</c>), a demora diria que a conta existe.
+    /// </summary>
+    [Fact]
+    public async Task APendingAccountWhoseTurnIsHeldAnswersLikeAMissingEmailWithinTheFloor()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        await using var factory = ShortLockFactory();
+        var scenario = new IdentityScenario(postgres, factory);
+        var pending = await RegisterPendingAsync(factory);
+        var emailsBefore = await scenario.CountOutboxEventsAsync(pending.Email);
+        var gate = factory.Services.GetRequiredService<AccountCheckGate>();
+
+        string heldTurn;
+        TimeSpan elapsed;
+        await using (await gate.EnterAsync(pending.UserId, Patience, ct))
+        {
+            var startedAt = Stopwatch.GetTimestamp();
+            using var response = await ResendAsync(factory, pending.Email);
+            elapsed = Stopwatch.GetElapsedTime(startedAt);
+            heldTurn = await DescribeAsync(response, ct);
+        }
+        using var missing = await ResendAsync(factory, IdentityScenario.NewEmail());
+
+        Assert.Equal(await DescribeAsync(missing, ct), heldTurn);
+        Assert.Equal(emailsBefore, await scenario.CountOutboxEventsAsync(pending.Email));
+        Assert.InRange(elapsed, TimeSpan.Zero, HeldTurnLimit);
     }
 
     /// <summary>
@@ -88,18 +135,19 @@ public sealed partial class EmailConfirmationResendBusyTests(PostgresFixture pos
 
     /// <summary>
     /// Os outros desfechos do reenvio também saem idênticos ao e-mail inexistente: pendente que recebe código,
-    /// conta já confirmada e pendente com o orçamento de emissões esgotado.
+    /// conta já confirmada e pendente com o orçamento de emissões esgotado. A outbox confirma qual desfecho foi.
     /// </summary>
     [Theory]
-    [InlineData("pending")]
-    [InlineData("confirmed")]
-    [InlineData("budget-exhausted")]
-    public async Task EveryResendOutcomeAnswersLikeAMissingEmail(string kind)
+    [InlineData("pending", 1)]
+    [InlineData("confirmed", 0)]
+    [InlineData("budget-exhausted", 0)]
+    public async Task EveryResendOutcomeAnswersLikeAMissingEmail(string kind, int emailsSent)
     {
         var ct = TestContext.Current.CancellationToken;
         await using var factory = ShortLockFactory();
+        var scenario = new IdentityScenario(postgres, factory);
         var email = kind == "confirmed"
-            ? (await new IdentityScenario(postgres, factory).CreateConfirmedAccountAsync()).Email
+            ? (await scenario.CreateConfirmedAccountAsync()).Email
             : (await RegisterPendingAsync(factory)).Email;
         if (kind == "budget-exhausted")
         {
@@ -110,14 +158,20 @@ public sealed partial class EmailConfirmationResendBusyTests(PostgresFixture pos
             }
         }
 
+        var emailsBefore = await scenario.CountOutboxEventsAsync(email);
+
         using var outcome = await ResendAsync(factory, email);
         var account = await DescribeAsync(outcome, ct);
         using var missing = await ResendAsync(factory, IdentityScenario.NewEmail());
 
         Assert.Equal(await DescribeAsync(missing, ct), account);
+        Assert.Equal(emailsBefore + emailsSent, await scenario.CountOutboxEventsAsync(email));
     }
 
-    /// <summary>O motivo fica só no log, em Warning, sem o e-mail: o cliente recebe o 202 de sempre.</summary>
+    /// <summary>
+    /// O motivo e o teto que estourou ficam só no log, em Warning, sem o e-mail: o cliente recebe o 202 de sempre.
+    /// Com a linha presa, a fila passa e quem desiste é o lock, no teto curto padrão de 100 ms.
+    /// </summary>
     [Fact]
     public async Task ALockedPendingAccountLeavesAWarningWithoutTheEmail()
     {
@@ -133,18 +187,20 @@ public sealed partial class EmailConfirmationResendBusyTests(PostgresFixture pos
 
         var warning = await RowHolder.WithinPatienceAsync(
             logs.FirstWarningFrom(category), "O reenvio com a conta ocupada não deixou Warning.");
-        Assert.Contains("account busy", warning.Text, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("account busy (AccountLock), ceiling 100 ms", warning.Text, StringComparison.Ordinal);
         Assert.DoesNotContain(pending.Email, warning.Text, StringComparison.OrdinalIgnoreCase);
     }
 
     private DuoraWebFactory ShortLockFactory(CapturingLoggerProvider? logs = null) =>
         new(postgres.ConnectionString, logs)
         {
-            // O reenvio espera só Identity:ShortWait. O teto do login fica curto para que, se o reenvio voltar a
-            // usá-lo, estes testes continuem rápidos; quem pega a volta ao teto longo é EmailConfirmationResendTimingTests.
+            // O reenvio espera só Identity:ShortWait. Os tetos do login ficam curtos para que, se o reenvio voltar a
+            // usá-los, estes testes continuem rápidos; a volta ao teto do lock é pega por
+            // EmailConfirmationResendTimingTests, e a do teto da fila, pelo teste da vez ocupada.
             Settings = new Dictionary<string, string?>
             {
                 ["Identity:AccountLockTimeout"] = "00:00:00.300",
+                ["Identity:AccountQueueTimeout"] = LoginQueueTimeout,
                 // Os limites em memória responderiam 429 antes do caminho testado nos reenvios repetidos.
                 ["RateLimiting:RegisterPerIp:PermitLimit"] = "1000",
                 ["RateLimiting:RegisterPerAccount:PermitLimit"] = "1000",

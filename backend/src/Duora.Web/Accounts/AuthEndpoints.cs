@@ -151,14 +151,16 @@ internal static partial class AuthEndpoints
         {
             await accounts.RequestEmailConfirmationAsync(email, password, cancellationToken);
         }
-        catch (AccountBusyException)
+        catch (AccountBusyException busy)
         {
             // Só conta existente espera a trava (o e-mail inexistente sai antes): 503 aqui revelaria a conta (#470).
             // O reenvio desiste sem gravar nada e responde o 202 neutro; o motivo fica só no log.
-            LogResendSkippedAccountBusy(loggers.CreateLogger(typeof(AuthEndpoints)));
+            LogResendSkippedAccountBusy(
+                loggers.CreateLogger(typeof(AuthEndpoints)), busy.Reason, (long)busy.WaitCeiling.TotalMilliseconds);
         }
         // Piso monotônico e jitter para todos os 202; fora da transação, sem ocupar conexão durante a espera.
-        var floor = TimeSpan.FromMilliseconds(500 + Random.Shared.Next(101));
+        var jitter = Random.Shared.Next((int)NeutralResponseFloor.MaxJitter.TotalMilliseconds + 1);
+        var floor = NeutralResponseFloor.Floor + TimeSpan.FromMilliseconds(jitter);
         while (floor - Stopwatch.GetElapsedTime(startedAt) is var remaining && remaining > TimeSpan.Zero)
         {
             await Task.Delay(TimeSpan.FromMilliseconds(Math.Ceiling(remaining.TotalMilliseconds)), cancellationToken);
@@ -368,8 +370,10 @@ internal static partial class AuthEndpoints
         ApiProblems.Problem(StatusCodes.Status400BadRequest, ApiProblems.InvalidToken);
 
     // Warning: conta ocupada isolada é contenção normal, mas em série indica lock longo ou rajada contra uma conta.
-    // Sem e-mail, id nem exceção (cuja mensagem um chamador poderia preencher).
+    // Sem e-mail, id nem exceção (cuja mensagem um chamador poderia preencher); motivo e teto como no 503.
     [LoggerMessage(Level = LogLevel.Warning,
-        Message = "Email confirmation resend skipped: account busy; answered 202 to stay neutral")]
-    private static partial void LogResendSkippedAccountBusy(ILogger logger);
+        Message = "Email confirmation resend skipped: account busy ({Reason}), ceiling {CeilingMilliseconds} ms; "
+            + "answered 202 to stay neutral")]
+    private static partial void LogResendSkippedAccountBusy(
+        ILogger logger, AccountBusyReason reason, long ceilingMilliseconds);
 }

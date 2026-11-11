@@ -120,7 +120,8 @@ public sealed class EmailConfirmationResendTimingTests : IAsyncDisposable
     private static async Task<TimeSpan> TimeResendAsync(Browser browser, string email)
     {
         var elapsed = Stopwatch.StartNew();
-        using var response = await browser.PostJsonAsync(Requests, new { email, password = IdentityScenario.ValidPassword });
+        using var response = await browser.PostJsonAsync(
+            Requests, new { email, password = IdentityScenario.ValidPassword });
         elapsed.Stop();
         Assert.Equal(HttpStatusCode.Accepted, response.StatusCode);
         return elapsed.Elapsed;
