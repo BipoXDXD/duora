@@ -107,9 +107,12 @@ _apt_options=()
 # apt_recover_install: antes de repetir um install, troca o espelho, refaz o update (as listas baixadas do host
 # antigo não valem para as fontes novas, e o install responderia "Unable to locate package") e conclui o dpkg
 # deixado pela metade. O update é best effort: se falhar, a próxima tentativa do install é quem decide.
+# Com CI_RETRY_ATTEMPT_TIMEOUT, o update obedece ao mesmo teto das tentativas, porque o espelho também trava.
 apt_recover_install() {
+  local -a limit=()
+  [ -z "${CI_RETRY_ATTEMPT_TIMEOUT:-}" ] || limit=(timeout -k 10 "$CI_RETRY_ATTEMPT_TIMEOUT")
   apt_use_fallback_mirror "${_apt_sourceparts[@]}"
-  sudo apt-get -o Acquire::Retries=5 -o Acquire::http::Timeout=30 -o Acquire::https::Timeout=30 \
+  "${limit[@]}" sudo apt-get -o Acquire::Retries=5 -o Acquire::http::Timeout=30 -o Acquire::https::Timeout=30 \
     "${_apt_options[@]}" update -qq || true
   apt_recover_dpkg
 }
