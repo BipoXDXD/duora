@@ -292,11 +292,11 @@ public sealed class PhotoUploadTests : IAsyncDisposable
         var account = await NewAccountAsync();
         using var browser = await SignInAsync(account);
         const int Attempts = 6;
-        using var barrier = new Barrier(Attempts);
+        var gate = new StartingGate(Attempts);
 
         var responses = await Task.WhenAll(Enumerable.Range(0, Attempts).Select(i => Task.Run(async () =>
         {
-            barrier.SignalAndWait(TestContext.Current.CancellationToken);
+            await gate.ArriveAndWaitAsync(StartingGate.DefaultCeiling, TestContext.Current.CancellationToken);
             return await MediaScenario.UploadAsync(browser, MediaScenario.JpegLike(fill: (byte)i));
         })));
 

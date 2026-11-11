@@ -70,10 +70,10 @@ public sealed class UploadQueueLimitTests(PostgresFixture postgres) : IAsyncLife
             browsers.Add(await NewBrowserAsync());
         }
 
-        using var barrier = new Barrier(Attempts);
+        var gate = new StartingGate(Attempts);
         var responses = await Task.WhenAll(browsers.Select((browser, i) => Task.Run(async () =>
         {
-            barrier.SignalAndWait(TestContext.Current.CancellationToken);
+            await gate.ArriveAndWaitAsync(StartingGate.DefaultCeiling, TestContext.Current.CancellationToken);
             return await MediaScenario.UploadAsync(browser, MediaScenario.JpegLike(fill: (byte)i));
         })));
 
