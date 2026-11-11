@@ -90,7 +90,7 @@ Valores (decisão da coordenação, 10/11):
 | Falha | SQLSTATE | `Retry-After` fora de `/auth` | `Retry-After` em `/auth` |
 |---|---|---|---|
 | Contenção: serialização, deadlock, `lock_timeout` (crua ou embrulhada pelo Npgsql ou pelo EF) | `40001`, `40P01`, `55P03` | `2` | `30` |
-| Banco fora do alcance: rede, pool esgotado, servidor sem conexões ou desligando | `53300`, `57P01`–`57P03`, `08*`, falha transitória do cliente | `5` | `30` |
+| Banco fora do alcance: rede, pool, servidor sem recurso (conexões, memória, E/S) ou desligando | `53300`, `53200`, `53400`, `55006`, `58030`, `57P01`–`57P03`, `08*`, falha do cliente | `5` | `30` |
 | Timeout de comando (`statement_timeout`) | `57014` | regra da rota (mídia e revisão de foto: `503`; outras: `500`) | `30` |
 | Conta ocupada (`AccountBusyException`: fila, lock ou prazo) | — | o da exceção (na conta, `30`) | `30`; no cadastro e no reenvio, não é `503` (abaixo) |
 | Documentos legais indisponíveis no cadastro | — | — | `30` |
@@ -117,8 +117,9 @@ marcador; o teste falha se uma nascer fora do grupo.
 Entra numa release só com o #451, que é a base deste PR: o #451 dá ao handler global o Warning estruturado
 (SQLSTATE, tipo da exceção, padrão da rota e trace, nunca a mensagem do Npgsql nem a connection string) e trata o
 erro passageiro do servidor embrulhado pelo Npgsql como indisponibilidade. O #465 parte daí, separa o Warning em
-dois eventos e unifica cru e embrulhado na contenção (`40001`, `40P01`, `55P03`). Fora dela, `53200`, `53400`,
-`55006` e `58030` ainda divergem (embrulhado `503` com `5`, cru `500`): issue #476.
+dois eventos e unifica cru e embrulhado na contenção (`40001`, `40P01`, `55P03`). O #476 unifica também `53200`,
+`53400`, `55006` e `58030`, os estados que o `IsTransient` do Npgsql considera passageiros: antes, embrulhados davam
+`503` com `5` e crus davam `500`.
 
 Mudança de contrato, sem mudança de schema (o OpenAPI não lista o `Retry-After` desses 503):
 
@@ -126,6 +127,8 @@ Mudança de contrato, sem mudança de schema (o OpenAPI não lista o `Retry-Afte
 - Contenção embrulhada pelo Npgsql: era `503` com `Retry-After: 5`, passa a `2`.
 - Rotas de Participation, Catalog, PhotoReview e Media: continuam `503` com `Retry-After: 2`; a resposta ganha
   `Expires: -1`, como todo erro tratado pelo handler global, e a falha passa a gerar o Warning com o SQLSTATE.
+- `53200`, `53400`, `55006` e `58030` crus (`PostgresException`): eram `500` `INTERNAL_ERROR`, passam a `503` com
+  `Retry-After: 5` (`30` sob `/auth`), igual ao embrulhado pelo Npgsql ou pelo EF (#476).
 - Rotas sob `/auth`: todo `503` passa a `Retry-After: 30`; o `57014` passa de `500` a `503`; o `503` legal do
   cadastro e os `503` do Google passam a levar `Retry-After`.
 
