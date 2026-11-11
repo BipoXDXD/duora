@@ -55,6 +55,33 @@ public sealed partial class EmailConfirmationResendBusyTests(PostgresFixture pos
     }
 
     /// <summary>
+    /// Contrato do reenvio (#470): conta existente livre, e-mail inexistente e conta ocupada recebem a mesma resposta
+    /// inteira, 202 sem corpo. Antes do #470 a conta ocupada recebia o 503 com <c>Retry-After</c>.
+    /// </summary>
+    [Fact]
+    public async Task ExistingMissingAndBusyAccountsGetTheSameEmptyAccepted()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        await using var factory = ShortLockFactory();
+        var pending = await RegisterPendingAsync(factory);
+
+        using var existing = await ResendAsync(factory, pending.Email);
+        var existingAccount = await DescribeAsync(existing, ct);
+        using var missing = await ResendAsync(factory, IdentityScenario.NewEmail());
+        var missingEmail = await DescribeAsync(missing, ct);
+        string busyAccount;
+        await using (await RowHolder.HoldAsync(postgres.ConnectionString, pending.UserId))
+        {
+            using var busy = await ResendAsync(factory, pending.Email);
+            busyAccount = await DescribeAsync(busy, ct);
+        }
+
+        Assert.StartsWith("202||", missingEmail, StringComparison.Ordinal);
+        Assert.Equal(missingEmail, existingAccount);
+        Assert.Equal(missingEmail, busyAccount);
+    }
+
+    /// <summary>
     /// A vez da conta na fila em memória também é espera curta: com outra verificação segurando a vez, o reenvio
     /// desiste dentro do piso, sem e-mail, e responde como o e-mail inexistente. Se a fila esperasse o teto do login
     /// (<c>Identity:AccountQueueTimeout</c>), a demora diria que a conta existe.
