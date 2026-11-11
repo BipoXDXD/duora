@@ -56,7 +56,8 @@ public sealed partial class LoginBusyNeutralityTests(PostgresFixture postgres)
         Assert.True(EmailAddress.TryParse(missing, out var address));
         string missingEmail;
         using (var scope = factory.Services.CreateScope())
-        await using (await scope.ServiceProvider.GetRequiredService<AccountSecurityService>().EnterLoginAsync(address, ct))
+        await using (await scope.ServiceProvider.GetRequiredService<AccountSecurityService>()
+            .EnterLoginAsync(address, ct))
         {
             using var browser = new Browser(factory);
             using var response = await IdentityScenario.LoginAsync(browser, missing, WrongPassword);
@@ -91,9 +92,11 @@ public sealed partial class LoginBusyNeutralityTests(PostgresFixture postgres)
         using var missingBrowser = new Browser(factory);
         await missingBrowser.FetchCsrfTokenAsync();
 
-        await using var onlyConnection = await factory.Services.GetRequiredService<NpgsqlDataSource>().OpenConnectionAsync(ct);
+        await using var onlyConnection =
+            await factory.Services.GetRequiredService<NpgsqlDataSource>().OpenConnectionAsync(ct);
         using var existing = await IdentityScenario.LoginAsync(existingBrowser, account.Email, WrongPassword);
-        using var missing = await IdentityScenario.LoginAsync(missingBrowser, IdentityScenario.NewEmail(), WrongPassword);
+        using var missing =
+            await IdentityScenario.LoginAsync(missingBrowser, IdentityScenario.NewEmail(), WrongPassword);
         var existingEmail = await DescribeAsync(existing, ct);
 
         Assert.StartsWith("503|", existingEmail, StringComparison.Ordinal);
@@ -101,7 +104,9 @@ public sealed partial class LoginBusyNeutralityTests(PostgresFixture postgres)
         Assert.Equal(await DescribeAsync(missing, ct), existingEmail);
     }
 
-    /// <summary>Status, tipo, corpo sem <c>traceId</c> e todos os headers, exceto <c>Date</c> e <c>Set-Cookie</c>.</summary>
+    /// <summary>
+    /// Status, tipo, corpo sem <c>traceId</c> e todos os headers, exceto <c>Date</c> e <c>Set-Cookie</c>.
+    /// </summary>
     private static async Task<string> DescribeAsync(HttpResponseMessage response, CancellationToken ct)
     {
         var body = TraceId().Replace(await response.Content.ReadAsStringAsync(ct), string.Empty);
