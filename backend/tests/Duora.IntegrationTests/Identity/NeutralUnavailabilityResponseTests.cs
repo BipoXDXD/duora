@@ -14,8 +14,8 @@ namespace Duora.IntegrationTests.Identity;
 /// <c>Retry-After</c> da conta ocupada (<see cref="AccountLockOptions.BusyRetryAfter"/>, 30 s por padrão), qualquer
 /// que seja a causa. Um valor por causa diria ao cliente o que falhou e, no lock da linha, que a conta existe
 /// (decisão da coordenação, 10/11; #465 e #468). A falha sai do primeiro comando do EF de cada rota.
-/// A conta ocupada no cadastro não é um 503: o cadastro desiste sem gravar e responde o 202 sem corpo de sempre,
-/// igual a um e-mail novo (API-A02; #461).
+/// A conta ocupada no cadastro e no reenvio não é um 503: os dois desistem sem gravar e respondem o 202 sem corpo de
+/// sempre, igual a um e-mail novo (cadastro: API-A02, #461; reenvio: #470).
 /// </summary>
 [Trait("Threat", "TM-06")]
 public sealed class NeutralUnavailabilityResponseTests(NeutralUnavailabilityResponseTests.FailingDatabase database)
@@ -27,8 +27,11 @@ public sealed class NeutralUnavailabilityResponseTests(NeutralUnavailabilityResp
         "503|{\"code\":\"TEMPORARILY_UNAVAILABLE\",\"status\":503,\"title\":\"Service temporarily unavailable. Try again later.\","
         + "\"type\":\"urn:duora:problem:temporarily-unavailable\"}|Retry-After=" + BusyRetryAfterSeconds;
 
-    /// <summary>O cadastro de sempre (API-A02): 202 sem corpo e sem <c>Retry-After</c>.</summary>
-    private const string NeutralRegistration = "202||Retry-After=(nenhum)";
+    /// <summary>O cadastro (API-A02) e o reenvio de sempre: 202 sem corpo e sem <c>Retry-After</c>.</summary>
+    private const string NeutralAccepted = "202||Retry-After=(nenhum)";
+
+    /// <summary>Rotas que desistem da conta ocupada em silêncio, com o 202 de sempre.</summary>
+    private static readonly string[] GiveUpOnBusyRoutes = ["register", "email-confirmation-requests"];
 
     private static readonly string[] IdentityRoutes = ["login", "register", "email-confirmation-requests"];
 
@@ -93,7 +96,9 @@ public sealed class NeutralUnavailabilityResponseTests(NeutralUnavailabilityResp
     }
 
     private static string ExpectedFor(string route, string cause) =>
-        route == "register" && cause.StartsWith("busy-", StringComparison.Ordinal) ? NeutralRegistration : Expected;
+        GiveUpOnBusyRoutes.Contains(route) && cause.StartsWith("busy-", StringComparison.Ordinal)
+            ? NeutralAccepted
+            : Expected;
 
     private static Exception Failure(string cause) => cause switch
     {

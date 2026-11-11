@@ -38,6 +38,42 @@ public sealed class AccountLockOptions
 }
 
 /// <summary>
+/// Piso de tempo das rotas públicas que respondem igual exista a conta ou não (reenvio da confirmação, #470): toda
+/// resposta sai depois de <see cref="Floor"/> mais um jitter uniforme de até <see cref="MaxJitter"/>. A espera curta
+/// pela conta (<c>Identity:ShortWait</c>) tem de caber dentro dele.
+/// </summary>
+public static class NeutralResponseFloor
+{
+    public static readonly TimeSpan Floor = TimeSpan.FromMilliseconds(500);
+
+    public static readonly TimeSpan MaxJitter = TimeSpan.FromMilliseconds(100);
+}
+
+/// <summary>
+/// Espera curta pela conta (seção <c>Identity:ShortWait</c>) para as rotas públicas que respondem igual exista a conta
+/// ou não. O e-mail inexistente nem chega à trava e responde no piso de tempo; a conta ocupada tem de desistir dentro
+/// dele, ou a demora diria que ela existe (TM-06, #470). A fila em memória e o <c>lock_timeout</c> esperam, cada um, o
+/// teto inteiro, um depois do outro.
+/// </summary>
+internal sealed class IdentityShortWaitOptions
+{
+    public const string Section = "Identity:ShortWait";
+
+    private static readonly TimeSpan Minimum = TimeSpan.FromMilliseconds(1);
+    /// <summary>
+    /// 125 ms. A conta ocupada pode esperar a fila e depois o lock, então o pior caso é o dobro: 250 ms, metade do
+    /// <see cref="NeutralResponseFloor.Floor"/>, e a outra metade fica para o resto do pedido. Um teto maior voltaria
+    /// a aparecer no tempo de resposta.
+    /// </summary>
+    private static readonly TimeSpan Maximum = NeutralResponseFloor.Floor / 4;
+
+    /// <summary>Teto de cada espera (100 ms), da fila e do lock.</summary>
+    public TimeSpan LockTimeout { get; set; } = TimeSpan.FromMilliseconds(100);
+
+    public bool IsValid() => LockTimeout >= Minimum && LockTimeout <= Maximum;
+}
+
+/// <summary>
 /// A conta está ocupada por outra verificação além de um teto: a fila em memória
 /// (<see cref="AccountLockOptions.AccountQueueTimeout"/>), o lock no PostgreSQL
 /// (<see cref="AccountLockOptions.AccountLockTimeout"/>, <c>lock_timeout</c>, 55P03) ou o prazo total do login
@@ -280,6 +316,11 @@ public sealed class AccountSecurityService
     /// <summary>Padrão do PostgreSQL: sem teto para esperar lock; o timeout do comando continua valendo.</summary>
     private const string NoLockTimeout = "0";
 
+    /// <summary>
+    /// Menor teto aceito por <c>WithLockCeilingAsync</c>: abaixo de 1 ms, o valor em ms vira <c>0</c>.
+    /// </summary>
+    private static readonly TimeSpan MinimumLockCeiling = TimeSpan.FromMilliseconds(1);
+
     // Os mesmos motivos que a revogação pela chave (ticket store) e a de A10 já gravavam.
     private const string LogoutReason = "logout";
     private const string RevokedByOwnerReason = "revoked-by-owner";
@@ -289,6 +330,7 @@ public sealed class AccountSecurityService
     private readonly AuditTrail _audit;
     private readonly TimeProvider _time;
     private readonly AccountLockOptions _lock;
+    private readonly IdentityShortWaitOptions _shortWait;
     private readonly AccountCheckGate _gate;
 
     internal AccountSecurityService(
@@ -296,9 +338,11 @@ public sealed class AccountSecurityService
         UserManager<DuoraUser> users,
         TimeProvider time,
         AccountLockOptions accountLock,
+        IdentityShortWaitOptions shortWait,
         AccountCheckGate gate)
     {
         _gate = gate;
+        _shortWait = shortWait;
         _db = db;
         _users = users;
         _audit = new AuditTrail(db, time);
@@ -332,12 +376,26 @@ public sealed class AccountSecurityService
     {
         ArgumentNullException.ThrowIfNull(user);
         var enteringTurn = _gate.EnterAsync(user.Id, _lock.AccountQueueTimeout, cancellationToken);
-        return OpenCheckAsync(user, enteringTurn, cancellationToken);
+        return OpenCheckAsync(user, enteringTurn, _lock.AccountLockTimeout, cancellationToken);
+    }
+
+    /// <summary>
+    /// Como <see cref="LockAccountAsync"/>, mas a fila e o lock esperam só
+    /// <see cref="IdentityShortWaitOptions.LockTimeout"/>: para a rota pública que desiste em silêncio da conta ocupada
+    /// e precisa responder dentro do piso de tempo.
+    /// </summary>
+    /// <exception cref="AccountBusyException">A espera curta estourou; a transação não gravou nada.</exception>
+    public Task<AccountCheck> LockAccountBrieflyAsync(DuoraUser user, CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(user);
+        var enteringTurn = _gate.EnterAsync(user.Id, _shortWait.LockTimeout, cancellationToken);
+        return OpenCheckAsync(user, enteringTurn, _shortWait.LockTimeout, cancellationToken);
     }
 
     private async Task<AccountCheck> OpenCheckAsync(
         DuoraUser user,
         Task<IAsyncDisposable> enteringTurn,
+        TimeSpan lockTimeout,
         CancellationToken cancellationToken)
     {
         var turn = await enteringTurn;
@@ -346,7 +404,7 @@ public sealed class AccountSecurityService
             var transaction = await _db.Database.BeginTransactionAsync(cancellationToken);
             try
             {
-                await LockAndReloadAsync(user, cancellationToken);
+                await LockAndReloadAsync(user, lockTimeout, cancellationToken);
             }
             catch
             {
@@ -745,7 +803,7 @@ public sealed class AccountSecurityService
     {
         var user = await _users.FindByIdAsync(userId.ToString("D"))
             ?? throw new InvalidOperationException("Conta da sessão não existe mais.");
-        await LockAndReloadAsync(user, cancellationToken);
+        await LockAndReloadAsync(user, _lock.AccountLockTimeout, cancellationToken);
         return user;
     }
 
@@ -756,9 +814,10 @@ public sealed class AccountSecurityService
     /// de verificações da mesma conta seguraria conexões do pool até o timeout do comando.
     /// </summary>
     /// <exception cref="AccountBusyException">A espera passou do teto; a transação não gravou nada.</exception>
-    private async Task LockAndReloadAsync(DuoraUser user, CancellationToken cancellationToken)
+    private async Task LockAndReloadAsync(DuoraUser user, TimeSpan lockTimeout, CancellationToken cancellationToken)
     {
         await WithLockCeilingAsync(
+            lockTimeout,
             () => _db.Database.ExecuteSqlAsync(
                 $"select 1 from identity.users where id = {user.Id} for no key update",
                 cancellationToken),
@@ -767,18 +826,33 @@ public sealed class AccountSecurityService
     }
 
     /// <summary>
-    /// Roda <paramref name="takeLock"/> com <c>lock_timeout</c> no teto da conta. Passou do teto,
-    /// <see cref="AccountBusyException"/> em vez de segurar a conexão até o timeout do comando (o login responde 503; o
-    /// cadastro desiste sem gravar e responde como sempre). O teto vale só
-    /// para essa espera: o <c>set_config(..., true)</c> duraria a transação inteira, e um comando seguinte que esperasse
-    /// outra linha (as sessões, no reset) estouraria no meio da operação, como 500. Depois do lock, volta ao padrão.
-    /// Pré-condição: <paramref name="takeLock"/> roda no mesmo <see cref="DuoraDbContext"/> (o do escopo) e dentro de uma
-    /// transação já aberta por quem chama. Fora dela, o <c>set_config(..., true)</c> morre com o próprio comando e o lock
-    /// fica sem teto; em outro contexto, o teto vale para a conexão errada.
+    /// Atalho de <see cref="WithLockCeilingAsync{T}(TimeSpan, Func{Task{T}}, CancellationToken)"/> com o teto do
+    /// login, <c>Identity:AccountLockTimeout</c>: o das operações que esperam a conta pelo tempo normal (login,
+    /// cadastro, revogação de sessão). As mesmas pré-condições e a mesma <see cref="AccountBusyException"/> valem aqui.
     /// </summary>
-    internal async Task<T> WithLockCeilingAsync<T>(Func<Task<T>> takeLock, CancellationToken cancellationToken)
+    internal Task<T> WithLockCeilingAsync<T>(Func<Task<T>> takeLock, CancellationToken cancellationToken) =>
+        WithLockCeilingAsync(_lock.AccountLockTimeout, takeLock, cancellationToken);
+
+    /// <summary>
+    /// Roda <paramref name="takeLock"/> com <c>lock_timeout</c> em <paramref name="ceiling"/>. Passou do teto,
+    /// <see cref="AccountBusyException"/> em vez de segurar a conexão até o timeout do comando (o login responde 503;
+    /// o cadastro e o reenvio desistem sem gravar e respondem como sempre). O teto vale só para essa espera: o
+    /// <c>set_config(..., true)</c> duraria a transação inteira, e um comando seguinte que esperasse outra linha (as
+    /// sessões, no reset) estouraria no meio da operação, como 500. Depois do lock, volta ao padrão.
+    /// Pré-condição: <paramref name="takeLock"/> roda no mesmo <see cref="DuoraDbContext"/> (o do escopo) e dentro de
+    /// uma transação já aberta por quem chama. Fora dela, o <c>set_config(..., true)</c> morre com o próprio comando e
+    /// o lock fica sem teto; em outro contexto, o teto vale para a conexão errada.
+    /// O teto é arredondado para baixo em ms inteiros: o <c>lock_timeout</c> recebe esse valor, e a
+    /// <see cref="AccountBusyException.WaitCeiling"/> leva o mesmo. Arredondado, precisa ter ao menos
+    /// <see cref="MinimumLockCeiling"/>, porque <c>0</c> desliga o teto.
+    /// </summary>
+    /// <exception cref="ArgumentOutOfRangeException">O teto arredondado ficou abaixo de 1 ms.</exception>
+    internal async Task<T> WithLockCeilingAsync<T>(
+        TimeSpan ceiling, Func<Task<T>> takeLock, CancellationToken cancellationToken)
     {
-        await SetLockTimeoutAsync($"{(long)_lock.AccountLockTimeout.TotalMilliseconds}ms", cancellationToken);
+        var appliedCeiling = TimeSpan.FromMilliseconds(Math.Floor(ceiling.TotalMilliseconds));
+        ArgumentOutOfRangeException.ThrowIfLessThan(appliedCeiling, MinimumLockCeiling, nameof(ceiling));
+        await SetLockTimeoutAsync($"{(long)appliedCeiling.TotalMilliseconds}ms", cancellationToken);
         T locked;
         try
         {
@@ -787,7 +861,7 @@ public sealed class AccountSecurityService
         catch (Exception error) when (LockTimeoutIn(error) is { } timeout)
         {
             throw new AccountBusyException(
-                _lock.BusyRetryAfter, AccountBusyReason.AccountLock, _lock.AccountLockTimeout, timeout);
+                _lock.BusyRetryAfter, AccountBusyReason.AccountLock, appliedCeiling, timeout);
         }
 
         await SetLockTimeoutAsync(NoLockTimeout, cancellationToken);
