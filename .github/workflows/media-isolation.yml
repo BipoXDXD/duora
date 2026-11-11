@@ -87,6 +87,9 @@ jobs:
             -o "APT::Update::Error-Mode=any")
           # Mirror com falha transitória de DNS não derruba o passo: 3 tentativas (15 s, 45 s); a persistente falha.
           source "$GITHUB_WORKSPACE/scripts/ci/apt-retry.sh"
+          # Teto por tentativa: em 11/11 o update travou sem erro até o timeout do job; estourado o teto,
+          # a nova tentativa já vai para o espelho de fallback.
+          export CI_RETRY_ATTEMPT_TIMEOUT=300
           apt_retry "${apt_options[@]}" update -qq
           apt_retry "${apt_options[@]}" install -y uidmap dbus-user-session slirp4netns docker-ce-rootless-extras
           sudo useradd --create-home --shell /bin/bash duora-sanitizer-ci
