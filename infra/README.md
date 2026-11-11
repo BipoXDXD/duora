@@ -26,9 +26,9 @@ digest do índice multiarquitetura; atualizar as duas juntas.
 
 | Imagem | Base de execução | Usuário | Observações |
 |---|---|---|---|
-| web | `aspnet:10.0.14-noble-chiseled-extra` | 1654 | Sem shell nem gerenciador de pacotes; `-extra` traz ICU e tzdata |
-| worker | `runtime:10.0.14-noble-chiseled-extra` | 1654 | Sem ASP.NET Core; nenhuma porta |
-| migrator | `runtime-deps:10.0.14-noble` | 1654 | Bundle do EF Core self-contained + `migrate.sh` (lê o segredo) |
+| web | `aspnet:10.0.15-noble-chiseled-extra` | 1654 | Sem shell nem gerenciador de pacotes; `-extra` traz ICU e tzdata |
+| worker | `runtime:10.0.15-noble-chiseled-extra` | 1654 | Sem ASP.NET Core; nenhuma porta |
+| migrator | `runtime-deps:10.0.15-noble` | 1654 | Bundle do EF Core self-contained + `migrate.sh` (lê o segredo) |
 | edge | `caddy:2.11.7-alpine` | 10001 | Binário recompilado (xcaddy, Go 1.26.10, x/net 0.62.0); portas baixas por sysctl |
 | postgres | `postgres:18.6-trixie` | 999 | pgBackRest do PGDG em versão exata; `pgbackrest version` roda no build; sem `gosu` |
 

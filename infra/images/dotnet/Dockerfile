@@ -6,7 +6,7 @@
 # --- Build: roda na arquitetura da máquina de build (sem emulação) ---------------------------------------------
 # A saída de web e worker é IL portátil (UseAppHost=false), igual para amd64 e arm64; só o bundle de migração tem
 # código nativo e por isso é gerado com o RID do alvo.
-FROM --platform=$BUILDPLATFORM mcr.microsoft.com/dotnet/sdk:10.0.403-noble@sha256:de4fe90a98845d75910b9769662465c84de1a934665c431279d1382b2bddc02b AS build
+FROM --platform=$BUILDPLATFORM mcr.microsoft.com/dotnet/sdk:10.0.404-noble@sha256:fe0fd4e93bd2fbb47c883b7a6369e5c8d3db8bf01cdc5981f6ee35fbdf3ff4fb AS build
 WORKDIR /src
 ENV DOTNET_CLI_TELEMETRY_OPTOUT=true \
     DOTNET_NOLOGO=true
@@ -57,7 +57,7 @@ RUN case "$TARGETARCH" in \
 
 # --- web: ASP.NET Core em Ubuntu chiseled (sem shell, sem gerenciador de pacotes, usuário app 1654) ----------------
 # A variante -extra traz ICU e tzdata: o app não roda em modo de globalização invariante.
-FROM mcr.microsoft.com/dotnet/aspnet:10.0.14-noble-chiseled-extra@sha256:9b755ea799ae649141a073e30d8b62d8095a5465af2b7694d17866e8c05131d8 AS web
+FROM mcr.microsoft.com/dotnet/aspnet:10.0.15-noble-chiseled-extra@sha256:cae5b962bfb786606def03d250c6a645cc98839095c89e806e4bd8978a68115b AS web
 ARG GIT_COMMIT=unknown
 LABEL org.opencontainers.image.title="duora-web" \
       org.opencontainers.image.source="https://github.com/BipoXDXD/duora" \
@@ -75,7 +75,7 @@ ENTRYPOINT ["dotnet", "Duora.Web.dll"]
 # --- worker: runtime .NET puro (sem ASP.NET Core), mesmo hardening -----------------------------------------------
 # O runtimeconfig do worker não pode exigir Microsoft.AspNetCore.App (ADR-0019, "Revisão: separação do runtime
 # web"); Duora.ArchitectureTests falha no build se isso mudar, antes de a imagem quebrar no start.
-FROM mcr.microsoft.com/dotnet/runtime:10.0.14-noble-chiseled-extra@sha256:2fbc014e87df3d50948f8710f200ddca0183388904ec35c8ad7e481ef6f8a230 AS worker
+FROM mcr.microsoft.com/dotnet/runtime:10.0.15-noble-chiseled-extra@sha256:b64d614c3c1c440abe6d57f510c5a4cfc0ccd56a9b96f96c1503efe4a7ac3e56 AS worker
 ARG GIT_COMMIT=unknown
 LABEL org.opencontainers.image.title="duora-worker" \
       org.opencontainers.image.source="https://github.com/BipoXDXD/duora" \
@@ -87,7 +87,7 @@ ENTRYPOINT ["dotnet", "Duora.Worker.dll"]
 
 # --- migrator: bundle do EF Core, executado por job exclusivo (nunca no startup do web/worker) --------------------
 # runtime-deps não chiseled: o bundle é self-contained e o wrapper em sh lê a connection string do arquivo de segredo.
-FROM mcr.microsoft.com/dotnet/runtime-deps:10.0.14-noble@sha256:62028293921f5bd6db3d9f9119cd29cd926dfd3c2336da23b09f425e40c3c832 AS migrator
+FROM mcr.microsoft.com/dotnet/runtime-deps:10.0.15-noble@sha256:9cab4d7d886226d47b5489ef9abf0544e2f109fde11a8acc190217610af26c00 AS migrator
 # apt/libapt-pkg6.0t64 corrigidos: o digest acima traz 2.8.3, com CVE-2026-109518 (HIGH, corrigível). Sem versão exata
 # porque o Ubuntu só mantém a mais nova no arquivo, e fixar quebraria o build seguinte; sai quando a base trouxer a
 # correção.
