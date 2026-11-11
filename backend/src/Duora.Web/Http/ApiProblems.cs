@@ -1,5 +1,8 @@
 using System.Globalization;
+using Duora.Infrastructure.Identity;
+using Microsoft.AspNetCore.Diagnostics;
 using Microsoft.AspNetCore.Http.HttpResults;
+using Microsoft.Extensions.Options;
 
 namespace Duora.Web.Http;
 
@@ -71,6 +74,37 @@ internal static class ApiProblems
     {
         SetRetryAfter(context, retryAfter);
         return Problem(StatusCodes.Status429TooManyRequests, RateLimited);
+    }
+
+    /// <summary>
+    /// 503 <c>TEMPORARILY_UNAVAILABLE</c> com o <c>Retry-After</c> que a rota admite. Nas rotas marcadas com
+    /// <see cref="NeutralUnavailabilityEndpoint"/> (o grupo <c>/auth</c>) vale sempre o da conta ocupada, qualquer que
+    /// seja a causa; nas outras, <paramref name="standard"/>, ou nenhum header se ele for nulo.
+    /// </summary>
+    public static ProblemHttpResult Unavailable(HttpContext context, TimeSpan? standard)
+    {
+        if (UnavailableRetryAfter(context, standard) is { } retryAfter)
+        {
+            SetRetryAfter(context, retryAfter);
+        }
+
+        return Problem(StatusCodes.Status503ServiceUnavailable, TemporarilyUnavailable);
+    }
+
+    /// <summary>O <c>Retry-After</c> de um 503 nesta rota: ver <see cref="Unavailable"/>.</summary>
+    public static TimeSpan? UnavailableRetryAfter(HttpContext context, TimeSpan? standard) =>
+        IsNeutralUnavailability(context)
+            ? context.RequestServices.GetRequiredService<IOptions<AccountLockOptions>>().Value.BusyRetryAfter
+            : standard;
+
+    /// <summary>
+    /// A rota pede indisponibilidade neutra. Dentro do handler de exceção o endpoint do contexto já foi limpo, e quem
+    /// o guarda é a <see cref="IExceptionHandlerFeature"/>.
+    /// </summary>
+    public static bool IsNeutralUnavailability(HttpContext context)
+    {
+        var endpoint = context.GetEndpoint() ?? context.Features.Get<IExceptionHandlerFeature>()?.Endpoint;
+        return endpoint?.Metadata.GetMetadata<NeutralUnavailabilityEndpoint>() is not null;
     }
 
     public static void SetRetryAfter(HttpContext context, TimeSpan retryAfter) =>
