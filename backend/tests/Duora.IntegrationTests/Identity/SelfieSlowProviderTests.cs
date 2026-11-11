@@ -67,7 +67,7 @@ public sealed class SelfieSlowProviderTests(PostgresFixture postgres)
 
     private static CancellationToken Ct => TestContext.Current.CancellationToken;
 
-    private readonly FakeTimeProvider _time = new(DateTimeOffset.FromUnixTimeSeconds(DateTimeOffset.UtcNow.ToUnixTimeSeconds()));
+    private readonly ClockWithPendingJump _time = new(DateTimeOffset.FromUnixTimeSeconds(DateTimeOffset.UtcNow.ToUnixTimeSeconds()));
 
     /// <summary>Onde o teste está, para a falha por teto dizer onde parou. Escrito na tarefa do corpo e lido na do teto.</summary>
     private volatile string _step = "corpo do teste";
@@ -118,6 +118,43 @@ public sealed class SelfieSlowProviderTests(PostgresFixture postgres)
         Assert.Equal(2, transport.Calls);
         Assert.Equal("Capturing|has-reference|no-feedback|open", await AttemptAsync(scenario));
         await AssertNotReleasedAsync(scenario, host, account.UserId);
+    });
+
+    /// <summary>
+    /// O prazo do corte fica fixo quando a chamada sai. O avanço do relógio que cai enquanto o dispatcher monta a espera
+    /// pela chamada, no instante em que ele arma um timer, ainda corta no prazo: o lote não espera um segundo prazo
+    /// inteiro com a chamada viva. O lote roda numa thread só, para o salto cair depois de todo o trecho síncrono que fez
+    /// a chamada, e não antes dele.
+    /// </summary>
+    [Fact]
+    public Task AClockJumpWhileTheCutIsBeingArmedStillCutsAtTheDeadline() => WithinTheWholeTestCeilingAsync(async () =>
+    {
+        var provider = new FaultySelfieProvider(_time);
+        var connection = await postgres.CreateMigratedDatabaseAsync(Ct);
+        var host = FakeProviderHost(connection, provider);
+        var scenario = new IdentityScenario(connection, host);
+        var account = await scenario.CreateConfirmedAccountAsync();
+        await SelfieConcurrencyHarness.RequestAsync(host, account.UserId, Ct);
+        var release = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        provider.StartFault = _ =>
+        {
+            _time.JumpAtTheNextTimerOnThisThread(CallTimeout);
+            return release.Task;
+        };
+        using var pump = new SingleThreadPump();
+
+        _step = "esperando a chamada chegar ao fornecedor";
+        var batch = pump.Run(() => SelfieConcurrencyHarness.DispatchAsync(host, Ct));
+        await WaitUntilAsync(() => provider.StartCalls == 1, batch);
+        await pump.DrainAsync().WaitAsync(CallCeiling, Ct);
+        _time.FinishThePendingJump();
+        _step = "esperando o lote encerrar depois do corte";
+        await batch.WaitAsync(CallCeiling, Ct);
+        _step = "seguindo depois do corte";
+
+        Assert.Equal("Pending|no-reference|PROVIDER_UNAVAILABLE|open", await AttemptAsync(scenario));
+        Assert.Equal("Pending|ProviderUnavailable|1", await DeliveryAsync(scenario));
+        release.TrySetResult();
     });
 
     [Fact]
@@ -1441,6 +1478,105 @@ public sealed class SelfieSlowProviderTests(PostgresFixture postgres)
         {
             _closed.TrySetResult();
             base.Dispose(disposing);
+        }
+    }
+
+    /// <summary>
+    /// Relógio falso que pode saltar no instante em que um timer é armado, na thread que pediu o salto: reproduz o avanço do
+    /// teste caindo entre a leitura do relógio e a criação do timer de quem o leu. O salto acontece uma vez só, no timer ou
+    /// em <see cref="FinishThePendingJump"/>, o que vier primeiro.
+    /// </summary>
+    private sealed class ClockWithPendingJump(DateTimeOffset start) : FakeTimeProvider(start)
+    {
+        private readonly Lock _gate = new();
+        private TimeSpan? _jump;
+        private int _jumpingThread;
+
+        public void JumpAtTheNextTimerOnThisThread(TimeSpan jump)
+        {
+            lock (_gate)
+            {
+                _jump = jump;
+                _jumpingThread = Environment.CurrentManagedThreadId;
+            }
+        }
+
+        public void FinishThePendingJump()
+        {
+            if (TakeJump(anyThread: true) is { } jump)
+            {
+                Advance(jump);
+            }
+        }
+
+        public override ITimer CreateTimer(TimerCallback callback, object? state, TimeSpan dueTime, TimeSpan period)
+        {
+            if (TakeJump(anyThread: false) is { } jump)
+            {
+                Advance(jump);
+            }
+
+            return base.CreateTimer(callback, state, dueTime, period);
+        }
+
+        private TimeSpan? TakeJump(bool anyThread)
+        {
+            lock (_gate)
+            {
+                if (_jump is not { } jump || (!anyThread && _jumpingThread != Environment.CurrentManagedThreadId))
+                {
+                    return null;
+                }
+
+                _jump = null;
+                return jump;
+            }
+        }
+    }
+
+    /// <summary>
+    /// Uma thread só, em ordem, para o lote: o que o teste posta depois de ver a chamada só roda quando o trecho síncrono
+    /// que a fez, até o lote parar à espera do corte, já terminou. Depois do descarte, o que ainda chegar não roda.
+    /// </summary>
+    private sealed class SingleThreadPump : SynchronizationContext, IDisposable
+    {
+        private readonly BlockingCollection<(SendOrPostCallback Callback, object? State)?> _work = [];
+
+        public SingleThreadPump() => new Thread(RunAll) { IsBackground = true, Name = "lote do teste" }.Start();
+
+        public Task<T> Run<T>(Func<Task<T>> work)
+        {
+            var started = new TaskCompletionSource<Task<T>>(TaskCreationOptions.RunContinuationsAsynchronously);
+            Post(_ => started.SetResult(work()), null);
+            return started.Task.Unwrap();
+        }
+
+        public Task DrainAsync()
+        {
+            var drained = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+            Post(_ => drained.SetResult(), null);
+            return drained.Task;
+        }
+
+        public override void Post(SendOrPostCallback d, object? state) => _work.Add((d, state));
+
+        public override void Send(SendOrPostCallback d, object? state) =>
+            throw new NotSupportedException("O lote do teste só recebe trabalho em fila.");
+
+        public void Dispose() => _work.Add(null);
+
+        private void RunAll()
+        {
+            SetSynchronizationContext(this);
+            foreach (var item in _work.GetConsumingEnumerable())
+            {
+                if (item is not { } work)
+                {
+                    return;
+                }
+
+                work.Callback(work.State);
+            }
         }
     }
 
