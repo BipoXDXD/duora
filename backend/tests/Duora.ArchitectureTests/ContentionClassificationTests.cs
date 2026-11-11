@@ -4,9 +4,9 @@ namespace Duora.ArchitectureTests;
 
 /// <summary>
 /// Serialização, deadlock e <c>lock_timeout</c> que chegam à camada HTTP são classificados num lugar só,
-/// <c>Http/DatabaseUnavailability.cs</c>, que também decide o <c>Retry-After</c> (#465). Um filtro de endpoint que volte
-/// a capturar esses estados responderia diferente das outras rotas; este teste lê o fonte dos projetos web e falha se
-/// algum outro arquivo citar os três estados.
+/// <c>Http/DatabaseUnavailability.cs</c>, que também decide o <c>Retry-After</c> (#465). Um filtro de endpoint que
+/// volte a capturar esses estados responderia diferente das outras rotas; este teste lê o fonte dos projetos web e
+/// falha se algum outro arquivo citar os três estados.
 /// </summary>
 public sealed partial class ContentionClassificationTests
 {
@@ -19,7 +19,8 @@ public sealed partial class ContentionClassificationTests
     {
         var sources = SourceRoot();
         var files = WebProjects
-            .SelectMany(project => Directory.EnumerateFiles(Path.Combine(sources, project), "*.cs", SearchOption.AllDirectories))
+            .SelectMany(project =>
+                Directory.EnumerateFiles(Path.Combine(sources, project), "*.cs", SearchOption.AllDirectories))
             .Where(file => !IsBuildOutput(file))
             .ToList();
         Assert.Contains(files, file => Relative(sources, file) == Owner);
@@ -44,7 +45,9 @@ public sealed partial class ContentionClassificationTests
     /// <summary>O <c>backend/src</c> do checkout, subindo a partir da pasta de saída do teste.</summary>
     private static string SourceRoot()
     {
-        for (var directory = new DirectoryInfo(AppContext.BaseDirectory); directory is not null; directory = directory.Parent)
+        for (var directory = new DirectoryInfo(AppContext.BaseDirectory);
+             directory is not null;
+             directory = directory.Parent)
         {
             var candidate = Path.Combine(directory.FullName, "src", "Duora.Web");
             if (Directory.Exists(candidate))
