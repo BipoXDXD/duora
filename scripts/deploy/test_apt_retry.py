@@ -94,8 +94,8 @@ class AptRetryTests(unittest.TestCase):
         self.assertNotIn("depois-do-install", result.stdout)
 
     def test_a_retried_install_first_finishes_a_half_configured_dpkg(self):
-        result = self.run_helper('apt_retry install -y pacote', failures=2)
-        self.assertEqual(0, result.returncode, result.stderr)
+        # Falha persistente: 3 tentativas, logo 2 recuperações antes das repetições.
+        self.run_helper('apt_retry install -y pacote', failures=99)
         self.assertEqual(["dpkg --configure -a"] * 2, self.dpkg_recoveries())
 
     def test_dpkg_recovery_failure_does_not_abort_the_retry(self):
@@ -132,7 +132,7 @@ class AptRetryTests(unittest.TestCase):
         mirrors = self.root / "apt-mirrors.txt"
         mirrors.write_text("http://azure.archive.ubuntu.com/ubuntu/\tpriority:1\n")
         (scoped / "ubuntu.sources").write_text(
-            "URIs: http://archive.ubuntu.com/ubuntu\nURIs: http://security.ubuntu.com/ubuntu/\n"
+            "URIs: http://archive.ubuntu.com/ubuntu\nURIs: http://ec2-1.archive.ubuntu.com/ubuntu\nURIs: http://security.ubuntu.com/ubuntu/\n"
             "URIs: http://ports.ubuntu.com/ubuntu-ports/\nURIs: mirror+file:/etc/apt/apt-mirrors.txt\n")
         docker = "deb [arch=amd64] https://download.docker.com/linux/ubuntu noble stable\n"
         (scoped / "docker.list").write_text(docker)
@@ -142,12 +142,28 @@ class AptRetryTests(unittest.TestCase):
                 f'apt_retry -o Dir::Etc::sourceparts={scoped} update -qq')
         result = self.run_helper(body, failures=0, extra_env={"CI_APT_MIRROR_FILES": str(mirrors)})
         self.assertEqual(0, result.returncode, result.stderr)
-        self.assertEqual("http://mirrors.edge.kernel.org/ubuntu/\tpriority:1\n", mirrors.read_text())
+        self.assertEqual("https://mirrors.edge.kernel.org/ubuntu/\tpriority:1\n", mirrors.read_text())
         self.assertEqual(
-            "URIs: http://mirrors.edge.kernel.org/ubuntu\nURIs: http://mirrors.edge.kernel.org/ubuntu/\n"
-            "URIs: http://mirrors.ocf.berkeley.edu/ubuntu-ports/\nURIs: mirror+file:/etc/apt/apt-mirrors.txt\n",
+            "URIs: https://mirrors.edge.kernel.org/ubuntu\nURIs: https://mirrors.edge.kernel.org/ubuntu\n"
+            "URIs: https://mirrors.edge.kernel.org/ubuntu/\n"
+            "URIs: https://mirrors.ocf.berkeley.edu/ubuntu-ports/\nURIs: mirror+file:/etc/apt/apt-mirrors.txt\n",
             (scoped / "ubuntu.sources").read_text())
         self.assertEqual(docker, (scoped / "docker.list").read_text())
+
+    def test_a_retried_install_refreshes_the_lists_with_the_caller_options(self):
+        result = self.run_helper('apt_retry -o Dir::Etc::sourceparts=/x -o Foo=bar install -y pacote', failures=1)
+        self.assertEqual(0, result.returncode, result.stderr)
+        install, refresh, retry = self.calls()
+        self.assertTrue(install.endswith("install -y pacote"), install)
+        self.assertTrue(refresh.endswith("-o Dir::Etc::sourceparts=/x -o Foo=bar update -qq"), refresh)
+        self.assertEqual(install, retry)
+
+    def test_a_retried_install_without_scoped_sources_still_recovers(self):
+        # Caso do Playwright: install-deps chama o apt por conta própria, sem -o nem sourceparts.
+        body = 'CI_RETRY_RECOVER=apt_recover_install retry_with_backoff sudo apt-get install -y pacote'
+        result = self.run_helper(body, failures=1)
+        self.assertEqual(0, result.returncode, result.stderr)
+        self.assertEqual(["dpkg --configure -a"], self.dpkg_recoveries())
 
     def test_fallback_mirror_ignores_missing_files(self):
         body = 'sudo() { [ "$1" = perl ] && { "$@"; return; }; return 0; }\napt_use_fallback_mirror'

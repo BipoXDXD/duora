@@ -50,28 +50,40 @@ apt_recover_dpkg() {
 # O runner já passou horas sem resolver só *.ubuntu.com (o resto da rede respondia); repetir no mesmo host não
 # adianta. As assinaturas do Release continuam conferidas pelo apt, então o espelho não ganha confiança extra.
 # kernel.org não serve ubuntu-ports (arm64), que vai para a OCF/Berkeley. Idempotente; arquivo ausente é ignorado.
-# CI_APT_MIRROR_FILES troca a lista padrão de arquivos (testes usam arquivos temporários).
+# CI_APT_MIRROR_FILES troca toda a lista padrão de arquivos do sistema (testes usam só arquivos temporários).
 apt_use_fallback_mirror() {
   local -a candidates files=()
-  read -r -a candidates <<< "${CI_APT_MIRROR_FILES:-/etc/apt/apt-mirrors.txt /etc/apt/sources.list}"
-  candidates+=(/etc/apt/sources.list.d/*.sources)
+  if [ -n "${CI_APT_MIRROR_FILES:-}" ]; then
+    read -r -a candidates <<< "$CI_APT_MIRROR_FILES"
+  else
+    candidates=(/etc/apt/apt-mirrors.txt /etc/apt/sources.list /etc/apt/sources.list.d/*.sources)
+  fi
   local dir
   for dir in "$@"; do candidates+=("$dir"/*.sources "$dir"/*.list); done
   local file
   for file in "${candidates[@]}"; do [ -f "$file" ] && files+=("$file"); done
   [ "${#files[@]}" -gt 0 ] || return 0
   # ubuntu-ports primeiro: o padrão de /ubuntu também casaria com o começo de /ubuntu-ports.
-  sudo perl -pi -e 's#https?://[a-z.]*ubuntu\.com/ubuntu-ports#http://mirrors.ocf.berkeley.edu/ubuntu-ports#g;' \
-    -e 's#https?://[a-z.]*ubuntu\.com/ubuntu#http://mirrors.edge.kernel.org/ubuntu#g' "${files[@]}" || true
-  echo "::warning::apt: espelhos *.ubuntu.com trocados pelos de fallback antes da nova tentativa" >&2
+  if sudo perl -pi -e 's#https?://[a-z0-9.-]*ubuntu\.com/ubuntu-ports#https://mirrors.ocf.berkeley.edu/ubuntu-ports#g;' \
+    -e 's#https?://[a-z0-9.-]*ubuntu\.com/ubuntu#https://mirrors.edge.kernel.org/ubuntu#g' "${files[@]}"; then
+    echo "::warning::apt: fontes *.ubuntu.com apontadas para os espelhos de fallback antes da nova tentativa" >&2
+  else
+    echo "::warning::apt: não consegui trocar o espelho; a nova tentativa usa as fontes atuais" >&2
+  fi
 }
 
-# Diretórios Dir::Etc::sourceparts do apt_retry em curso; vazio fora dele (ex.: playwright install-deps).
+# Do apt_retry em curso: diretórios Dir::Etc::sourceparts e os pares `-o` do chamador. Vazios fora dele
+# (ex.: playwright install-deps).
 _apt_sourceparts=()
+_apt_options=()
 
-# apt_recover_install: antes de repetir um install, troca o espelho e conclui o dpkg deixado pela metade.
+# apt_recover_install: antes de repetir um install, troca o espelho, refaz o update (as listas baixadas do host
+# antigo não valem para as fontes novas, e o install responderia "Unable to locate package") e conclui o dpkg
+# deixado pela metade. O update é best effort: se falhar, a próxima tentativa do install é quem decide.
 apt_recover_install() {
   apt_use_fallback_mirror "${_apt_sourceparts[@]}"
+  sudo apt-get -o Acquire::Retries=5 -o Acquire::http::Timeout=30 -o Acquire::https::Timeout=30 \
+    "${_apt_options[@]}" update -qq || true
   apt_recover_dpkg
 }
 
@@ -85,10 +97,15 @@ apt_recover_update() {
 # Antes de cada nova tentativa, o apt troca para o espelho de fallback, inclusive nas fontes do diretório passado em
 # Dir::Etc::sourceparts; só o install também conclui o dpkg.
 apt_retry() {
-  local recover=apt_recover_update arg
+  local recover=apt_recover_update arg previous=""
   _apt_sourceparts=()
+  _apt_options=()
   for arg in "$@"; do
-    case "$arg" in Dir::Etc::sourceparts=*) _apt_sourceparts+=("${arg#Dir::Etc::sourceparts=}") ;; esac
+    if [ "$previous" = -o ]; then
+      _apt_options+=(-o "$arg")
+      case "$arg" in Dir::Etc::sourceparts=*) _apt_sourceparts+=("${arg#Dir::Etc::sourceparts=}") ;; esac
+    fi
+    previous=$arg
   done
   case " $* " in
     *" install "*) recover=apt_recover_install ;;
