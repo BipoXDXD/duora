@@ -118,23 +118,34 @@ public sealed class DatabaseUnavailableExceptionHandlerTests
     }
 
     // 08P01 (protocol_violation) costuma ser defeito de código ou de proxy, como um bind com o número de parâmetros
-    // errado, e 08002 (connection_name_in_use) não é falha de rede: fora da lista, crus ou embrulhados pelo EF seguem
-    // para o 500 com log Error, sem Retry-After (#497).
+    // errado, e 08002 (connection_name_in_use) não é falha de rede: fora da lista, o handler os recusa (handled ==
+    // false) e não toca na resposta, crus ou embrulhados pelo EF ou pelo Npgsql, que é o caminho do IsTransient (#497).
+    // Quem produz o 500 com log Error é o middleware de exceção; este teste prova só a recusa do handler. SqlState
+    // vazio é o mais próximo de "sem SQLSTATE" que o PostgresException aceita, e também não é indisponibilidade.
     [Theory]
-    [InlineData("08P01", false)]
-    [InlineData("08002", false)]
-    [InlineData("08P01", true)]
-    [InlineData("08002", true)]
-    public async Task AClass08ErrorOutsideTheExplicitListIsNotUnavailability(string sqlState, bool wrappedByEf)
+    [InlineData("08P01", "cru")]
+    [InlineData("08002", "cru")]
+    [InlineData("08P01", "ef")]
+    [InlineData("08002", "ef")]
+    [InlineData("08P01", "npgsql")]
+    [InlineData("08002", "npgsql")]
+    [InlineData("", "cru")]
+    [InlineData("", "npgsql")]
+    public async Task TheHandlerDeclinesAServerErrorOutsideTheExplicitListAndLeavesTheResponseUntouched(
+        string sqlState, string envelope)
     {
         using var services = new ServiceCollection().AddLogging().BuildServiceProvider();
+        using var body = new MemoryStream();
         var context = new DefaultHttpContext { RequestServices = services };
-        Exception failure = new PostgresException(_canary, "ERROR", "ERROR", sqlState);
-        if (wrappedByEf)
+        context.Response.Body = body;
+        var server = new PostgresException(_canary, "ERROR", "ERROR", sqlState);
+        Exception failure = envelope switch
         {
-            failure = new InvalidOperationException("transient", failure);
-        }
-
+            "cru" => server,
+            "ef" => new InvalidOperationException("transient", server),
+            "npgsql" => new NpgsqlException(_canary, server),
+            _ => throw new ArgumentOutOfRangeException(nameof(envelope), envelope, null),
+        };
         var handler = new DatabaseUnavailableExceptionHandler(
             services.GetRequiredService<ILogger<DatabaseUnavailableExceptionHandler>>());
 
@@ -142,7 +153,10 @@ public sealed class DatabaseUnavailableExceptionHandlerTests
 
         Assert.False(handled);
         Assert.False(DatabaseUnavailability.IsTemporary(failure));
-        Assert.False(context.Response.Headers.ContainsKey("Retry-After"));
+        Assert.False(context.Response.HasStarted);
+        Assert.Equal(StatusCodes.Status200OK, context.Response.StatusCode);
+        Assert.Empty(context.Response.Headers);
+        Assert.Equal(0, body.Length);
     }
 
     // Já embrulhados, 55000 e 58000 seguem 503: quem decide é o IsTransient do Npgsql sobre a NpgsqlException, não a
