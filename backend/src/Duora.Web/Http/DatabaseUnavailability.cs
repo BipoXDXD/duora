@@ -7,9 +7,9 @@ namespace Duora.Web.Http;
 /// <summary>
 /// Banco temporariamente fora do alcance: conexão recusada ou caída, pool esgotado (o <c>Timeout</c> do pool venceu)
 /// ou servidor sem conexões livres (53300) ou desligando (57P01 a 57P03, classe 08). Também a contenção, que passa
-/// sozinha: serialização (40001), deadlock (40P01) e <c>lock_timeout</c> (55P03), crua ou embrulhada pelo Npgsql (#465).
-/// O EF costuma embrulhar a causa numa <see cref="InvalidOperationException"/> ("transient failure"), então a cadeia
-/// inteira é examinada.
+/// sozinha: serialização (40001), deadlock (40P01) e <c>lock_timeout</c> (55P03), crua ou embrulhada pelo Npgsql
+/// (#465). O EF costuma embrulhar a causa numa <see cref="InvalidOperationException"/> ("transient failure"), então
+/// a cadeia inteira é examinada.
 /// </summary>
 internal static class DatabaseUnavailability
 {
@@ -28,9 +28,9 @@ internal static class DatabaseUnavailability
                     // Erro de SQL comum (constraint, sintaxe): não é indisponibilidade.
                     return null;
                 case NpgsqlException client when client.IsTransient:
-                    // Falha de rede, conexão recusada ou pool esgotado: o servidor nem respondeu. Ou um erro do servidor
-                    // que o Npgsql embrulhou e considera passageiro: o erro do servidor é a causa, para o Warning levar
-                    // o SqlState dele e a contenção embrulhada responder igual à crua.
+                    // Falha de rede, conexão recusada ou pool esgotado: o servidor nem respondeu. Ou um erro do
+                    // servidor que o Npgsql embrulhou e considera passageiro: o erro do servidor é a causa, para o
+                    // Warning levar o SqlState dele e a contenção embrulhada responder igual à crua.
                     return ServerErrorWrappedBy(client) ?? client;
             }
         }
@@ -38,10 +38,10 @@ internal static class DatabaseUnavailability
         return null;
     }
 
-    // O IsTransient da NpgsqlException vem da interna imediata e, se ela também é NpgsqlException, desce por ela até a
-    // primeira interna de outro tipo (comportamento observado no Npgsql 10.0.3). Se essa interna é o erro do servidor, foi
-    // o IsTransient dele que decidiu; se é outra (um timeout do cliente, por exemplo), um PostgresException mais fundo não
-    // é a causa.
+    // O IsTransient da NpgsqlException vem da interna imediata e, se ela também é NpgsqlException, desce por ela até
+    // a primeira interna de outro tipo (comportamento observado no Npgsql 10.0.3). Se essa interna é o erro do
+    // servidor, foi o IsTransient dele que decidiu; se é outra (um timeout do cliente, por exemplo), um
+    // PostgresException mais fundo não é a causa.
     private static PostgresException? ServerErrorWrappedBy(NpgsqlException client)
     {
         var inner = client.InnerException;
@@ -72,9 +72,9 @@ internal static class DatabaseUnavailability
 
 /// <summary>
 /// Banco indisponível vira 503 <c>TEMPORARILY_UNAVAILABLE</c> com <c>Retry-After</c>, sem detalhe (spec 11; auth.md,
-/// "Banco indisponível"), em qualquer rota: nenhum filtro de endpoint trata contenção por conta própria (#465). As outras
-/// falhas inesperadas continuam 500. O Warning leva só o que identifica a falha e a
-/// requisição: a mensagem do Npgsql pode trazer host, porta e usuário, então nem ela nem a exceção vão para o log.
+/// "Banco indisponível"), em qualquer rota: nenhum filtro de endpoint trata contenção por conta própria (#465). As
+/// outras falhas inesperadas continuam 500. O Warning leva só o que identifica a falha e a requisição: a mensagem do
+/// Npgsql pode trazer host, porta e usuário, então nem ela nem a exceção vão para o log.
 /// </summary>
 internal sealed partial class DatabaseUnavailableExceptionHandler(ILogger<DatabaseUnavailableExceptionHandler> logger)
     : IExceptionHandler

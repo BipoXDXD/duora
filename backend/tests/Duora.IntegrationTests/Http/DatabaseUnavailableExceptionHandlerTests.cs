@@ -10,8 +10,8 @@ using Npgsql;
 namespace Duora.IntegrationTests.Http;
 
 /// <summary>
-/// O Warning do 503 de banco indisponível, sem servidor nem banco: o handler roda sobre um <see cref="DefaultHttpContext"/>
-/// com a falha que o middleware de exceção entregaria.
+/// O Warning do 503 de banco indisponível, sem servidor nem banco: o handler roda sobre um
+/// <see cref="DefaultHttpContext"/> com a falha que o middleware de exceção entregaria.
 /// </summary>
 public sealed class DatabaseUnavailableExceptionHandlerTests
 {
@@ -52,8 +52,8 @@ public sealed class DatabaseUnavailableExceptionHandlerTests
         Assert.DoesNotContain(_canary, warning.Text, StringComparison.Ordinal);
     }
 
-    // O embrulhado, uma ou duas vezes, responde como o mesmo erro cru (#465): a resposta inteira é igual, fora o traceId
-    // do corpo e o Date. A mensagem dos embrulhos e do erro do servidor não vai para o Warning.
+    // O embrulhado, uma ou duas vezes, responde como o mesmo erro cru (#465): a resposta inteira é igual, fora o
+    // traceId do corpo e o Date. A mensagem dos embrulhos e do erro do servidor não vai para o Warning.
     [Theory]
     [InlineData("40001", 1)]
     [InlineData("40P01", 1)]
@@ -93,7 +93,8 @@ public sealed class DatabaseUnavailableExceptionHandlerTests
         context.Request.Path = path;
         context.Features.Set<IExceptionHandlerFeature>(
             new ExceptionHandlerFeature { Error = exception, Path = path, Endpoint = null });
-        var handler = new DatabaseUnavailableExceptionHandler(loggerFactory.CreateLogger<DatabaseUnavailableExceptionHandler>());
+        var handler = new DatabaseUnavailableExceptionHandler(
+            loggerFactory.CreateLogger<DatabaseUnavailableExceptionHandler>());
 
         var handled = await handler.TryHandleAsync(context, exception, TestContext.Current.CancellationToken);
 
@@ -104,7 +105,9 @@ public sealed class DatabaseUnavailableExceptionHandlerTests
         return (WholeResponse(context, body), warning);
     }
 
-    /// <summary>Status, todos os headers menos <c>Date</c> e o corpo sem <c>traceId</c>, que muda a cada requisição.</summary>
+    /// <summary>
+    /// Status, todos os headers menos <c>Date</c> e o corpo sem <c>traceId</c>, que muda a cada requisição.
+    /// </summary>
     private static WholeProblemResponse WholeResponse(HttpContext context, MemoryStream body)
     {
         var headers = context.Response.Headers
@@ -113,7 +116,8 @@ public sealed class DatabaseUnavailableExceptionHandlerTests
             .Select(header => $"{header.Key}: {header.Value}");
         var problem = JsonNode.Parse(body.ToArray())?.AsObject() ?? throw new InvalidOperationException("Sem corpo.");
         problem.Remove("traceId");
-        return new WholeProblemResponse(context.Response.StatusCode, string.Join("\n", headers), problem.ToJsonString());
+        return new WholeProblemResponse(
+            context.Response.StatusCode, string.Join("\n", headers), problem.ToJsonString());
     }
 
     private sealed record WholeProblemResponse(int Status, string Headers, string Body);
