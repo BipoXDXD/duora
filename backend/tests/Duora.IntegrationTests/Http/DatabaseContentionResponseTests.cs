@@ -40,7 +40,9 @@ public sealed class DatabaseContentionResponseTests(EnabledPhotoUploads media)
         ["media"] = route => route.RequireMediaAdmission(),
     };
 
-    /// <summary>Como a falha do servidor chega ao pipeline: crua, embrulhada pelo Npgsql (1 ou 2 vezes) ou pelo EF.</summary>
+    /// <summary>
+    /// Como a falha do servidor chega ao pipeline: crua, embrulhada pelo Npgsql (1 ou 2 vezes) ou pelo EF.
+    /// </summary>
     private static readonly string[] Envelopes = ["cru", "npgsql", "npgsql-npgsql", "ef"];
 
     public static TheoryData<string, string, string> ContentionCases()
@@ -91,7 +93,9 @@ public sealed class DatabaseContentionResponseTests(EnabledPhotoUploads media)
         Assert.Contains($"({sqlState}, {nameof(PostgresException)})", warning.Text, StringComparison.Ordinal);
     }
 
-    /// <summary>Banco fora do alcance tem <c>Retry-After</c> próprio: trocar o valor para o da contenção quebra aqui.</summary>
+    /// <summary>
+    /// Banco fora do alcance tem <c>Retry-After</c> próprio: trocar o valor para o da contenção quebra aqui.
+    /// </summary>
     [Theory]
     [MemberData(nameof(UnreachableCases))]
     public async Task AnUnreachableDatabaseIsTheSameLongerUnavailabilityOnEveryRoute(string route, string cause)
@@ -107,7 +111,9 @@ public sealed class DatabaseContentionResponseTests(EnabledPhotoUploads media)
         var warning = SingleHandlerWarning(logs);
         Assert.Equal("DatabaseUnavailable", warning.EventId.Name);
         Assert.Equal(1, warning.EventId.Id);
-        var described = cause == "cliente-timeout" ? $"(-, {nameof(NpgsqlException)})" : $"({cause}, {nameof(PostgresException)})";
+        var described = cause == "cliente-timeout"
+            ? $"(-, {nameof(NpgsqlException)})"
+            : $"({cause}, {nameof(PostgresException)})";
         Assert.Contains(described, warning.Text, StringComparison.Ordinal);
     }
 
@@ -121,7 +127,8 @@ public sealed class DatabaseContentionResponseTests(EnabledPhotoUploads media)
         _ => throw new ArgumentOutOfRangeException(nameof(envelope), envelope, null),
     };
 
-    private async Task<(WholeProblemResponse Whole, CapturingLoggerProvider Logs)> RespondAsync(string route, Exception failure)
+    private async Task<(WholeProblemResponse Whole, CapturingLoggerProvider Logs)> RespondAsync(
+        string route, Exception failure)
     {
         var logs = new CapturingLoggerProvider();
         await using var app = await StartAsync(route, failure, logs);
@@ -174,7 +181,9 @@ public sealed class DatabaseContentionResponseTests(EnabledPhotoUploads media)
         return app;
     }
 
-    /// <summary>Status, todos os headers menos <c>Date</c> e o corpo sem <c>traceId</c>, que muda a cada requisição.</summary>
+    /// <summary>
+    /// Status, todos os headers menos <c>Date</c> e o corpo sem <c>traceId</c>, que muda a cada requisição.
+    /// </summary>
     private static async Task<WholeProblemResponse> WholeResponseAsync(HttpResponseMessage response)
     {
         var headers = response.Headers.Concat<KeyValuePair<string, IEnumerable<string>>>(response.Content.Headers)
@@ -196,7 +205,9 @@ public sealed class DatabaseContentionResponseTests(EnabledPhotoUploads media)
         };
     }
 
-    /// <summary><see cref="RawBody"/> fica fora da igualdade: serve só para procurar o canário no corpo inteiro.</summary>
+    /// <summary>
+    /// <see cref="RawBody"/> fica fora da igualdade: serve só para procurar o canário no corpo inteiro.
+    /// </summary>
     private sealed record WholeProblemResponse(int Status, string Headers, string Body, string RawBody = "")
     {
         public bool Equals(WholeProblemResponse? other) =>

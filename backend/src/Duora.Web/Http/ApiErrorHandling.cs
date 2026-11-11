@@ -24,7 +24,9 @@ internal static class ApiErrorHandling
         return app;
     }
 
-    /// <summary>Respostas da API carregam dado privado ou token: nada de cache em navegador ou proxy (spec 8.1).</summary>
+    /// <summary>
+    /// Respostas da API carregam dado privado ou token: nada de cache em navegador ou proxy (spec 8.1).
+    /// </summary>
     private static Task PreventCachingOfApiResponses(HttpContext context, Func<Task> next)
     {
         if (context.Request.Path.StartsWithSegments("/api", StringComparison.OrdinalIgnoreCase))
