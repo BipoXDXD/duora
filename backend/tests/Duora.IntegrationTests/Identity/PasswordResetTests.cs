@@ -1,4 +1,10 @@
+using System.Buffers.Binary;
+using System.Buffers.Text;
 using System.Net;
+using System.Text;
+using Duora.Infrastructure.Identity;
+using Microsoft.AspNetCore.DataProtection;
+using Microsoft.Extensions.DependencyInjection;
 
 namespace Duora.IntegrationTests.Identity;
 
@@ -126,6 +132,52 @@ public sealed class PasswordResetTests(PostgresFixture postgres) : IAsyncDisposa
 
         Assert.Equal(HttpStatusCode.NoContent, reset.StatusCode);
         Assert.Equal(HttpStatusCode.NoContent, login.StatusCode);
+    }
+
+    [Theory]
+    [InlineData(29, true)]
+    [InlineData(31, false)]
+    public async Task ResetLinkExpiresThirtyMinutesAfterItWasIssued(int ageMinutes, bool accepted)
+    {
+        var account = await Scenario.CreateConfirmedAccountAsync();
+        using var browser = new Browser(_factory);
+        var link = await RequestResetLinkAsync(browser, account.Email);
+        var aged = AgeToken(link.Token, TimeSpan.FromMinutes(ageMinutes));
+
+        using var reset = await browser.PostJsonAsync(
+            "/api/v1/auth/password-resets",
+            new { userId = link.UserId, token = aged, newPassword = NewPassword });
+        using var withNewPassword = await IdentityScenario.LoginAsync(browser, account.Email, NewPassword);
+        using var withOldPassword = await IdentityScenario.LoginAsync(browser, account.Email, account.Password);
+
+        if (accepted)
+        {
+            Assert.Equal(HttpStatusCode.NoContent, reset.StatusCode);
+            Assert.Equal(HttpStatusCode.NoContent, withNewPassword.StatusCode);
+            await ProblemAssert.IsProblemAsync(withOldPassword, HttpStatusCode.Unauthorized, "INVALID_CREDENTIALS");
+        }
+        else
+        {
+            await ProblemAssert.IsProblemAsync(reset, HttpStatusCode.BadRequest, "INVALID_TOKEN");
+            await ProblemAssert.IsProblemAsync(withNewPassword, HttpStatusCode.Unauthorized, "INVALID_CREDENTIALS");
+            Assert.Equal(HttpStatusCode.NoContent, withOldPassword.StatusCode);
+        }
+    }
+
+    /// <summary>
+    /// O provider do Identity lê o relógio do sistema (não o <see cref="TimeProvider"/> da aplicação), então o teste
+    /// não consegue avançar o tempo. Em vez disso recua o instante de emissão gravado no token real: os 8 primeiros
+    /// bytes do payload protegido são os ticks UTC da emissão. O caso de 29 minutos prova que o token regravado
+    /// continua no formato aceito; só assim o de 31 minutos prova a validade e não um token malformado.
+    /// </summary>
+    private string AgeToken(string linkToken, TimeSpan age)
+    {
+        var protector = _factory.Services.GetRequiredService<IDataProtectionProvider>()
+            .CreateProtector(AccountTokenProviders.PasswordReset);
+        var identityToken = Encoding.UTF8.GetString(Base64Url.DecodeFromChars(linkToken));
+        var payload = protector.Unprotect(Convert.FromBase64String(identityToken));
+        BinaryPrimitives.WriteInt64LittleEndian(payload, (DateTimeOffset.UtcNow - age).UtcTicks);
+        return Base64Url.EncodeToString(Encoding.UTF8.GetBytes(Convert.ToBase64String(protector.Protect(payload))));
     }
 
     private async Task<AccountLink> RequestResetLinkAsync(Browser browser, string email)

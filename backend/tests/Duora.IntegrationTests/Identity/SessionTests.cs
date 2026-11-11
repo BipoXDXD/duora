@@ -21,8 +21,9 @@ public sealed class SessionTests : IAsyncDisposable
     {
         _postgres = postgres;
         // Instante real só como ponto de partida, para as chaves de Data Protection não nascerem "no futuro"; os
-        // testes dependem apenas dos avanços explícitos.
-        _time = new FakeTimeProvider(DateTimeOffset.UtcNow);
+        // testes dependem apenas dos avanços explícitos. Truncado ao segundo: o cookie guarda a expiração em segundos
+        // inteiros, e uma fração faria o handler recusar o ticket um instante antes do limite que o banco decide.
+        _time = TestClock.StartingNow();
         _factory = new DuoraWebFactory(postgres.ConnectionString) { Time = _time };
     }
 
@@ -198,6 +199,65 @@ public sealed class SessionTests : IAsyncDisposable
         await ProblemAssert.IsProblemAsync(pastAbsolute, HttpStatusCode.Unauthorized, "UNAUTHENTICATED");
     }
 
+    [Theory]
+    [InlineData(1, true)]
+    [InlineData(0, false)]
+    public async Task SessionLastsUntilTheTwelveHourAbsoluteLimitAndStopsExactlyAtIt(int secondsBeforeLimit, bool valid)
+    {
+        var account = await Scenario.CreateConfirmedAccountAsync();
+        using var browser = await Scenario.SignedInBrowserAsync(account);
+        var step = TimeSpan.FromMinutes(25);
+        var elapsed = TimeSpan.Zero;
+        while (elapsed + step < TimeSpan.FromHours(12))
+        {
+            _time.Advance(step);
+            elapsed += step;
+            using var active = await browser.GetAsync("/api/v1/me");
+            Assert.True(active.StatusCode == HttpStatusCode.OK, $"Sessão caiu com {elapsed} de uso contínuo.");
+        }
+
+        _time.Advance(TimeSpan.FromHours(12) - elapsed - TimeSpan.FromSeconds(secondsBeforeLimit));
+        using var response = await browser.GetAsync("/api/v1/me");
+
+        if (valid)
+        {
+            Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        }
+        else
+        {
+            await ProblemAssert.IsProblemAsync(response, HttpStatusCode.Unauthorized, "UNAUTHENTICATED");
+        }
+    }
+
+    [Fact]
+    public async Task SessionListOmitsRevokedAndIdleExpiredSessionsButKeepsTheirRows()
+    {
+        var account = await Scenario.CreateConfirmedAccountAsync();
+        using var viewer = await Scenario.SignedInBrowserAsync(account);
+        using var revoked = await Scenario.SignedInBrowserAsync(account);
+        using var expired = await Scenario.SignedInBrowserAsync(account);
+        using var atIdleLimit = await Scenario.SignedInBrowserAsync(account);
+        using var lastValid = await Scenario.SignedInBrowserAsync(account);
+        var viewerId = await CurrentSessionIdAsync(viewer);
+        var revokedId = await CurrentSessionIdAsync(revoked);
+        var expiredId = await CurrentSessionIdAsync(expired);
+        var atIdleLimitId = await CurrentSessionIdAsync(atIdleLimit);
+        var lastValidId = await CurrentSessionIdAsync(lastValid);
+        using var revocation = await viewer.DeleteAsync($"/api/v1/me/sessions/{revokedId}");
+        var now = _time.GetUtcNow();
+        await SetIdleExpiryAsync(expiredId, now.AddSeconds(-1));
+        await SetIdleExpiryAsync(atIdleLimitId, now);
+        await SetIdleExpiryAsync(lastValidId, now.AddSeconds(1));
+
+        var listed = await ListSessionsAsync(viewer);
+
+        Assert.Equal(HttpStatusCode.NoContent, revocation.StatusCode);
+        Assert.Equal(new[] { viewerId, lastValidId }.Order(), listed.Select(session => session.Id).Order());
+        Assert.Equal(viewerId, Assert.Single(listed, session => session.Current).Id);
+        Assert.Equal(5, await Scenario.ScalarAsync(
+            "select count(*) from identity.login_sessions where user_id = $1", account.UserId));
+    }
+
     [Fact]
     public async Task SessionListMarksTheCurrentSessionAndShowsOnlyContractFields()
     {
@@ -246,6 +306,15 @@ public sealed class SessionTests : IAsyncDisposable
         var list = await response.Content.ReadFromJsonAsync<SessionListResponse>(TestContext.Current.CancellationToken);
         return list?.Items ?? throw new InvalidOperationException("Lista de sessões vazia.");
     }
+
+    private static async Task<Guid> CurrentSessionIdAsync(Browser browser) =>
+        Assert.Single(await ListSessionsAsync(browser), session => session.Current).Id;
+
+    private Task<long> SetIdleExpiryAsync(Guid sessionId, DateTimeOffset idleExpiresAt) =>
+        Scenario.ScalarAsync(
+            "update identity.login_sessions set idle_expires_at = $2 where id = $1 returning 1",
+            sessionId,
+            idleExpiresAt);
 
     private Browser CloneWithSessionCookie(string? sessionCookie)
     {

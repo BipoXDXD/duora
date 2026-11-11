@@ -85,6 +85,40 @@ public sealed class LoginTests(PostgresFixture postgres) : IAsyncDisposable
         Assert.Null(browser.Cookie("__Host-duora"));
     }
 
+    [Fact]
+    public async Task LockoutStartsAtTheTwentiethFailureLastsFifteenMinutesAndEndsWithTheRightPassword()
+    {
+        const string WrongPassword = "senha errada mas longa";
+        var account = await Scenario.CreateConfirmedAccountAsync();
+        await Scenario.ScalarAsync(
+            "update identity.users set access_failed_count = 19 where id = $1 returning 1", account.UserId);
+        using var browser = new Browser(_factory);
+
+        using var twentiethFailure = await IdentityScenario.LoginAsync(browser, account.Email, WrongPassword);
+        var remainingSeconds = await Scenario.ScalarAsync(
+            "select floor(extract(epoch from lockout_end - now()))::bigint from identity.users where id = $1",
+            account.UserId);
+        using var rightWhileLocked = await IdentityScenario.LoginAsync(browser, account.Email, account.Password);
+
+        await ProblemAssert.IsProblemAsync(twentiethFailure, HttpStatusCode.Unauthorized, "INVALID_CREDENTIALS");
+        Assert.InRange(remainingSeconds, 14 * 60, 15 * 60);
+        await ProblemAssert.IsProblemAsync(rightWhileLocked, HttpStatusCode.Unauthorized, "INVALID_CREDENTIALS");
+        Assert.Null(browser.Cookie("__Host-duora"));
+
+        // O bloqueio vence: o relógio do Identity é o do sistema, então o teste move o fim para o passado.
+        await Scenario.ScalarAsync(
+            "update identity.users set lockout_end = now() - interval '1 second' where id = $1 returning 1",
+            account.UserId);
+        using var wrongAfterExpiry = await IdentityScenario.LoginAsync(browser, account.Email, WrongPassword);
+        var failuresAfterWrong = await FailedCountAsync(account);
+        using var rightAfterExpiry = await IdentityScenario.LoginAsync(browser, account.Email, account.Password);
+
+        await ProblemAssert.IsProblemAsync(wrongAfterExpiry, HttpStatusCode.Unauthorized, "INVALID_CREDENTIALS");
+        Assert.Equal(1, failuresAfterWrong);
+        Assert.Equal(HttpStatusCode.NoContent, rightAfterExpiry.StatusCode);
+        Assert.Equal(0, await FailedCountAsync(account));
+    }
+
     [Theory]
     [InlineData("", "")]
     [InlineData("ana@example.com", "")]
@@ -152,4 +186,7 @@ public sealed class LoginTests(PostgresFixture postgres) : IAsyncDisposable
         await ProblemAssert.IsProblemAsync(limited, HttpStatusCode.TooManyRequests, "RATE_LIMITED");
         ProblemAssert.RetryAfterSeconds(limited);
     }
+
+    private Task<long> FailedCountAsync(TestAccount account) =>
+        Scenario.ScalarAsync("select access_failed_count from identity.users where id = $1", account.UserId);
 }
