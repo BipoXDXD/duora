@@ -63,6 +63,11 @@ Notas:
    decisão e recurso pelas rotas mínimas de moderação.
 3. T-12 é um ensaio de processo: verifica que o agente não tem caminho até segredos ou deploy, não um teste
    automatizado de código. Deve passar antes de qualquer dado real (gate de automação, spec 23.3).
+4. T-17 segue parcial. Sem circuit breaker no laço do worker da selfie por enquanto: decisão da coordenação em 08/11/2026,
+   sob delegação do dono (registro de retomada de 04/11, fora deste repositório). Motivo, pela análise do #382: o worker já
+   limita a carga a uma chamada por vez, com 1 s entre lotes, e a lacuna real é sinal, alerta e proteção da cota, que um
+   breaker não resolve; ele ainda atrasaria a volta e poderia perder a leitura no fim do prazo. A falta de breaker segue
+   como lacuna aberta frente a D-NET-06, `concurrency.md` e TM-56.
 
 **#305 — inscrições de contas suspensas (T-01/T-06/T-28):**
 `AccountSuspensionRegistrationTests` cobre retirada de Confirmed/CheckedIn/Waitlisted, histórico, promoção FIFO

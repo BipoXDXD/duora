@@ -4,7 +4,6 @@ using Duora.Infrastructure.Participation;
 using Duora.Web.Http;
 using Duora.Web.Identity;
 using Duora.Web.Security;
-using Npgsql;
 
 namespace Duora.Web.Participation;
 
@@ -16,7 +15,6 @@ internal static class ParticipationEndpoints
         api.MapRoutesCatalogEndpoints();
         var routes = api.MapGroup("").WithTags("Participation").RequireAuthorization(ParticipationPolicies.EligibleParticipant)
             .ProducesProblem(401).ProducesProblem(403);
-        routes.AddEndpointFilter(AnswerLockContentionAsUnavailableAsync);
         routes.MapGet("/events", async (ParticipationService service, CancellationToken ct) =>
             (await service.EventsAsync(ct)).Select(e => new EventResponse(e.Id, e.Title, e.StartsAt, e.StartsAt.AddMinutes(-10), e.State, e.TimeZone)).ToArray());
         routes.MapPut("/events/{eventId:guid}/registration", async (Guid eventId, HttpContext context, ParticipationService service, CancellationToken ct) =>
@@ -42,7 +40,6 @@ internal static class ParticipationEndpoints
         // API-R04: "sempre permitir saída segura". Sem política própria, vale a fallback de participante: só sai a
         // elegibilidade, e quem não participa da sala continua recebendo 404 (ADR-0052).
         var exit = api.MapGroup("").WithTags("Participation").ProducesProblem(401).ProducesProblem(403);
-        exit.AddEndpointFilter(AnswerLockContentionAsUnavailableAsync);
         exit.MapPost("/rooms/{roomId:guid}/exit", async (Guid roomId, HttpContext context, ParticipationService service, CancellationToken ct) =>
             Result(await service.ExitAsync(roomId, User(context), ct)));
         api.MapPost("/admin/events", async (PublishEventRequest request, HttpContext context, ParticipationService service, CancellationToken ct) =>
@@ -50,17 +47,6 @@ internal static class ParticipationEndpoints
                 ? Results.Created($"/api/v1/events/{id}", new { eventId = id }) : Result(ParticipationOutcome.Invalid))
             .RequireAuthorization(SessionAuthorization.AdministrativeSession)
             .RequireProductAdministrator().RequireRecentMfa().ProducesProblem(401).ProducesProblem(403);
-    }
-
-    private static async ValueTask<object?> AnswerLockContentionAsUnavailableAsync(EndpointFilterInvocationContext context, EndpointFilterDelegate next)
-    {
-        try
-        { return await next(context); }
-        catch (PostgresException e) when (e.SqlState is PostgresErrorCodes.LockNotAvailable or PostgresErrorCodes.DeadlockDetected or PostgresErrorCodes.SerializationFailure)
-        {
-            ApiProblems.SetRetryAfter(context.HttpContext, TimeSpan.FromSeconds(2));
-            return ApiProblems.Problem(503, ApiProblems.TemporarilyUnavailable);
-        }
     }
 
     private static Guid User(HttpContext context) => DuoraClaims.ReadUserId(context.User)!.Value;
