@@ -3,6 +3,7 @@ using System.Runtime.CompilerServices;
 using System.Text.Json.Nodes;
 using Duora.Infrastructure.Identity;
 using Duora.Infrastructure.Persistence;
+using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Diagnostics;
 using Microsoft.Extensions.DependencyInjection;
 using Npgsql;
@@ -35,12 +36,18 @@ public sealed class NeutralUnavailabilityResponseTests(NeutralUnavailabilityResp
 
     private static readonly string[] IdentityRoutes = ["login", "register", "email-confirmation-requests"];
 
+    /// <summary>Estados de recurso do servidor tratados como indisponibilidade (#476, #492).</summary>
+    private static readonly string[] ResourceStates = ["53000", "53100", "53200", "53400", "55006", "57P05", "58030"];
+
+    private static readonly string[] Envelopes = ["cru", "npgsql", "npgsql2", "ef"];
+
     private static readonly string[] Causes =
     [
         "busy-fila", "busy-lock", "busy-prazo",
         "53300", "cliente-timeout",
         "40001-cru", "40P01-cru", "55P03-cru",
         "40001-npgsql", "40P01-npgsql", "55P03-npgsql",
+        .. ResourceStates.SelectMany(state => Envelopes.Select(envelope => $"{state}-{envelope}")),
         "57014-cru",
     ];
 
@@ -113,6 +120,12 @@ public sealed class NeutralUnavailabilityResponseTests(NeutralUnavailabilityResp
             new PostgresException("contenção", "ERROR", "ERROR", cause[..^"-cru".Length]),
         _ when cause.EndsWith("-npgsql", StringComparison.Ordinal) => new NpgsqlException(
             "contenção", new PostgresException("contenção", "ERROR", "ERROR", cause[..^"-npgsql".Length])),
+        _ when cause.EndsWith("-npgsql2", StringComparison.Ordinal) => new NpgsqlException(
+            "contenção", new NpgsqlException(
+                "contenção", new PostgresException("contenção", "ERROR", "ERROR", cause[..^"-npgsql2".Length]))),
+        _ when cause.EndsWith("-ef", StringComparison.Ordinal) => new DbUpdateException(
+            "contenção", new NpgsqlException(
+                "contenção", new PostgresException("contenção", "ERROR", "ERROR", cause[..^"-ef".Length]))),
         _ => throw new ArgumentOutOfRangeException(nameof(cause), cause, null),
     };
 

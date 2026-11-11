@@ -62,14 +62,30 @@ public sealed class DatabaseContentionResponseTests(EnabledPhotoUploads media)
         return cases;
     }
 
-    public static TheoryData<string, string> UnreachableCases()
+    /// <summary>
+    /// Estados de recurso do servidor tratados como indisponibilidade, fora da contenção: 53000 (recursos
+    /// insuficientes), 53100 (disco cheio), 53200 (sem memória), 53400 (limite de configuração), 55006 (objeto em uso),
+    /// 57P05 (sessão ociosa encerrada) e 58030 (erro de E/S). Crus ou embrulhados, a resposta é a mesma (#476, #492).
+    /// </summary>
+    private static readonly string[] TransientServerStates =
+        ["53000", "53100", "53200", "53400", "55006", "57P05", "58030"];
+
+    public static TheoryData<string, string, string> UnreachableCases()
     {
-        var cases = new TheoryData<string, string>();
+        var cases = new TheoryData<string, string, string>();
         foreach (var route in Routes.Keys)
         {
             foreach (var cause in new[] { "53300", "57P01", "08006", "cliente-timeout" })
             {
-                cases.Add(route, cause);
+                cases.Add(route, cause, "cru");
+            }
+
+            foreach (var sqlState in TransientServerStates)
+            {
+                foreach (var envelope in Envelopes)
+                {
+                    cases.Add(route, sqlState, envelope);
+                }
             }
         }
 
@@ -98,11 +114,12 @@ public sealed class DatabaseContentionResponseTests(EnabledPhotoUploads media)
     /// </summary>
     [Theory]
     [MemberData(nameof(UnreachableCases))]
-    public async Task AnUnreachableDatabaseIsTheSameLongerUnavailabilityOnEveryRoute(string route, string cause)
+    public async Task AnUnreachableDatabaseIsTheSameLongerUnavailabilityOnEveryRoute(
+        string route, string cause, string envelope)
     {
         Exception failure = cause == "cliente-timeout"
             ? new NpgsqlException(_canary, new TimeoutException(_canary))
-            : new PostgresException(_canary, "FATAL", "FATAL", cause);
+            : Envelope(new PostgresException(_canary, "FATAL", "FATAL", cause), envelope);
 
         var (whole, logs) = await RespondAsync(route, failure);
 
