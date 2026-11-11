@@ -31,8 +31,10 @@ class AptRetryTests(unittest.TestCase):
         harness = textwrap.dedent(f'''
             sudo() {{
               printf '%s\\n' "$*" >> "$root/calls"
+              # Só as chamadas do apt-get contam para as falhas simuladas; `dpkg --configure -a` sempre funciona.
+              [ "$1" = apt-get ] || return 0
               local n
-              n=$(wc -l < "$root/calls")
+              n=$(grep -c '^apt-get ' "$root/calls")
               [ "$n" -gt {failures} ] || return {TRANSIENT_EXIT}
             }}
             sleep() {{ printf '%s\\n' "$1" >> "$root/sleeps"; }}
@@ -44,7 +46,10 @@ class AptRetryTests(unittest.TestCase):
                               env=env, capture_output=True, text=True, timeout=30)
 
     def calls(self) -> list[str]:
-        return (self.root / "calls").read_text().splitlines()
+        return [line for line in (self.root / "calls").read_text().splitlines() if line.startswith("apt-get ")]
+
+    def dpkg_recoveries(self) -> list[str]:
+        return [line for line in (self.root / "calls").read_text().splitlines() if line.startswith("dpkg ")]
 
     def sleeps(self) -> list[str]:
         return (self.root / "sleeps").read_text().splitlines()
@@ -87,6 +92,33 @@ class AptRetryTests(unittest.TestCase):
         result = self.run_helper('apt_retry install -y pacote\necho depois-do-install', failures=99)
         self.assertNotEqual(0, result.returncode)
         self.assertNotIn("depois-do-install", result.stdout)
+
+    def test_a_retried_install_first_finishes_a_half_configured_dpkg(self):
+        result = self.run_helper('apt_retry install -y pacote', failures=2)
+        self.assertEqual(0, result.returncode, result.stderr)
+        self.assertEqual(["dpkg --configure -a"] * 2, self.dpkg_recoveries())
+
+    def test_dpkg_recovery_failure_does_not_abort_the_retry(self):
+        body = 'sudo() { [ "$1" = dpkg ] && return 1; apt_calls=$((${apt_calls:-0} + 1)); [ "$apt_calls" -gt 1 ]; }\n' \
+               'apt_retry install -y pacote'
+        result = self.run_helper(body, failures=0)
+        self.assertEqual(0, result.returncode, result.stderr)
+
+    def test_update_does_not_run_the_dpkg_recovery(self):
+        self.run_helper('apt_retry update -qq', failures=2)
+        self.assertEqual([], self.dpkg_recoveries())
+
+    def test_a_successful_first_install_does_not_touch_dpkg(self):
+        self.run_helper('apt_retry install -y pacote', failures=0)
+        self.assertEqual([], self.dpkg_recoveries())
+
+    def test_attempt_timeout_sends_sigterm_first_and_sigkill_after_10_seconds(self):
+        # `timeout` de mentira: registra os argumentos em vez de rodar o comando.
+        body = 'timeout() { printf "%s\\n" "$*" >> "$root/timeout-args"; }\n' \
+               'retry_with_backoff env true'
+        result = self.run_helper(body, failures=0, extra_env={"CI_RETRY_ATTEMPT_TIMEOUT": "180"})
+        self.assertEqual(0, result.returncode, result.stderr)
+        self.assertEqual("-k 10 180 env true", (self.root / "timeout-args").read_text().strip())
 
     @unittest.skipUnless(shutil.which("timeout"), "GNU timeout ausente")
     def test_attempt_timeout_kills_a_hung_command_and_retries(self):

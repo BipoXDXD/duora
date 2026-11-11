@@ -8,6 +8,8 @@
 # CI_RETRY_DELAYS          esperas em segundos entre tentativas; padrão "15 45" (3 tentativas). Testes usam "0 0".
 # CI_RETRY_ATTEMPT_TIMEOUT teto por tentativa em segundos, para comando externo que pode travar (o `timeout`
 #                          não alcança função de shell). Sem valor, só o timeout-minutes do passo limita.
+#                          Estourado o teto, vai SIGTERM; se o processo não sair em 10 s, SIGKILL (`timeout -k 10`).
+# CI_RETRY_RECOVER         nome de uma função chamada antes de cada nova tentativa (ex.: apt_recover_dpkg).
 
 # retry_with_backoff <comando> [argumentos...]
 retry_with_backoff() {
@@ -18,7 +20,7 @@ retry_with_backoff() {
   while true; do
     status=0
     if [ -n "${CI_RETRY_ATTEMPT_TIMEOUT:-}" ] && ! declare -F "$1" > /dev/null; then
-      timeout "$CI_RETRY_ATTEMPT_TIMEOUT" "$@" || status=$?
+      timeout -k 10 "$CI_RETRY_ATTEMPT_TIMEOUT" "$@" || status=$?
     else
       "$@" || status=$?
     fi
@@ -31,14 +33,28 @@ retry_with_backoff() {
     fi
     echo "::warning::tentativa $attempt/$attempts de '$*' falhou (código $status); nova tentativa em ${delays[attempt - 1]}s" >&2
     sleep "${delays[attempt - 1]}"
+    if [ -n "${CI_RETRY_RECOVER:-}" ]; then
+      "$CI_RETRY_RECOVER"
+    fi
     attempt=$((attempt + 1))
   done
 }
 
+# apt_recover_dpkg: conclui a configuração de pacotes que uma tentativa de install interrompida deixou pela metade.
+# Best effort: se também falhar, a próxima tentativa do install é quem decide.
+apt_recover_dpkg() {
+  sudo dpkg --configure -a || true
+}
+
 # apt_retry <argumentos do apt-get...>: `sudo apt-get` com retries do próprio apt e timeout de rede por download,
 # dentro do laço de tentativas acima. Opções do chamador (ex.: APT::Update::Error-Mode=any) vêm depois e prevalecem.
+# Só o install roda apt_recover_dpkg antes de repetir; update e remove não deixam o dpkg pela metade.
 apt_retry() {
-  retry_with_backoff sudo apt-get \
+  local recover=""
+  case " $* " in
+    *" install "*) recover=apt_recover_dpkg ;;
+  esac
+  CI_RETRY_RECOVER="$recover" retry_with_backoff sudo apt-get \
     -o Acquire::Retries=5 -o Acquire::http::Timeout=30 -o Acquire::https::Timeout=30 "$@"
 }
 

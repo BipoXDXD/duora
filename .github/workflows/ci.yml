@@ -155,7 +155,9 @@ jobs:
   e2e:
     name: e2e
     runs-on: ubuntu-24.04
-    timeout-minutes: 25
+    # Era 25. Os dois passos do Playwright, no pior caso de retry (3 tentativas com teto e esperas de 15 s e 45 s),
+    # somam ~23 min e consumiriam o job antes dos testes; +15 min deixam a folga que o E2E tinha.
+    timeout-minutes: 40
     defaults:
       run:
         working-directory: frontend
@@ -203,6 +205,7 @@ jobs:
         timeout-minutes: 12
         env:
           CI_RETRY_ATTEMPT_TIMEOUT: '180'
+          CI_RETRY_RECOVER: apt_recover_dpkg
         run: |
           source "$GITHUB_WORKSPACE/scripts/ci/apt-retry.sh"
           apt_configure_network
