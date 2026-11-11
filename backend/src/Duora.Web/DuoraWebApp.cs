@@ -47,10 +47,7 @@ internal static class DuoraWebApp
         builder.WebHost.ConfigureKestrel(kestrel => kestrel.Limits.MaxRequestBodySize = MaxRequestBodyBytes);
         builder.Services.Configure<HostOptions>(options => options.ShutdownTimeout = TimeSpan.FromSeconds(ShutdownTimeoutSeconds));
 
-        builder.Services.AddProblemDetails(options => options.CustomizeProblemDetails = ApiProblems.AddDefaultCode);
-        builder.Services.AddSingleton<AccountBusyMetrics>();
-        builder.Services.AddExceptionHandler<AccountBusyExceptionHandler>();
-        builder.Services.AddExceptionHandler<DatabaseUnavailableExceptionHandler>();
+        builder.Services.AddApiErrorHandling();
         builder.Services.ConfigureHttpJsonOptions(options =>
         {
             // DTO estrito (spec 8.1): campo desconhecido ou repetido é 400, nunca ignorado.
@@ -110,9 +107,7 @@ internal static class DuoraWebApp
 
         // Primeiro: tudo o que vem depois (rate limit por IP, esquema https) precisa do cliente real.
         app.UseForwardedHeaders();
-        app.UseExceptionHandler();
-        app.UseStatusCodePages();
-        app.Use(PreventCachingOfApiResponses);
+        app.UseApiErrorHandling();
         app.UseRouting();
         app.UseRateLimiter();
         app.UseGoogleOidcCallbackGuard();
@@ -155,21 +150,5 @@ internal static class DuoraWebApp
         api.MapParticipationTestSentinel(app.Environment);
 
         return app;
-    }
-
-    /// <summary>Respostas da API carregam dado privado ou token: nada de cache em navegador ou proxy (spec 8.1).</summary>
-    private static Task PreventCachingOfApiResponses(HttpContext context, Func<Task> next)
-    {
-        if (context.Request.Path.StartsWithSegments("/api", StringComparison.OrdinalIgnoreCase))
-        {
-            context.Response.OnStarting(() =>
-            {
-                context.Response.Headers.CacheControl = "no-store";
-                context.Response.Headers.Pragma = "no-cache";
-                return Task.CompletedTask;
-            });
-        }
-
-        return next();
     }
 }
