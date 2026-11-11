@@ -10,9 +10,9 @@ namespace Duora.Web.Http;
 /// conta ou a sessão (A04, A05, A07, A10, A11 a A16) sem repetir o tratamento em cada uma.
 /// </summary>
 /// <remarks>
-/// A resposta é a mesma do banco indisponível (salvo o <c>Retry-After</c>): dizer ao cliente que a conta está ocupada
-/// confirmaria que ela existe. A distinção fica só no Warning e na métrica, pelo motivo interno. O Warning não leva a
-/// exceção nem a mensagem dela, que um chamador poderia preencher com e-mail ou id.
+/// A resposta é a mesma do banco indisponível (sob <c>/auth</c>, até o <c>Retry-After</c>): dizer que a conta está
+/// ocupada confirmaria que ela existe. A distinção fica só no Warning e na métrica, pelo motivo interno. O Warning não
+/// leva a exceção nem a mensagem dela, que um chamador poderia preencher com e-mail ou id.
 /// </remarks>
 internal sealed partial class AccountBusyExceptionHandler(
     ILogger<AccountBusyExceptionHandler> logger,
@@ -32,14 +32,10 @@ internal sealed partial class AccountBusyExceptionHandler(
             logger,
             busy.Reason,
             RouteOf(httpContext),
-            (long)busy.RetryAfter.TotalMilliseconds,
+            (long)busy.WaitCeiling.TotalMilliseconds,
             Activity.Current?.Id ?? httpContext.TraceIdentifier);
         metrics.Record(busy.Reason);
-        ApiProblems.SetRetryAfter(httpContext, busy.RetryAfter);
-        await ApiProblems.Problem(
-                StatusCodes.Status503ServiceUnavailable,
-                ApiProblems.TemporarilyUnavailable)
-            .ExecuteAsync(httpContext);
+        await ApiProblems.Unavailable(httpContext, busy.RetryAfter).ExecuteAsync(httpContext);
         return true;
     }
 

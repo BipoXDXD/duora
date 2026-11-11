@@ -2,6 +2,7 @@ using Duora.Core.Identity;
 using Duora.Infrastructure.Persistence;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using Npgsql;
 
@@ -45,12 +46,13 @@ public static class AccountServiceCollectionExtensions
             provider.GetRequiredService<DecoyPasswordHash>(),
             provider.GetRequiredService<IOptions<AccountLifecycleOptions>>().Value,
             provider.GetRequiredService<TimeProvider>(),
-            provider.GetRequiredService<LegalPublication>()));
+            provider.GetRequiredService<LegalPublication>(),
+            provider.GetRequiredService<ILogger<AccountService>>()));
         services.AddOptions<AccountLockOptions>()
             .BindConfiguration(AccountLockOptions.Section)
             .Validate(o => o.IsValid(), "Identity:AccountLockTimeout e Identity:AccountQueueTimeout precisam ficar entre 100 ms e 1 min.")
             .ValidateOnStart();
-        services.AddSingleton<AccountCheckGate>();
+        services.AddSingleton(provider => new AccountCheckGate(provider.GetRequiredService<IOptions<AccountLockOptions>>().Value));
         services.AddScoped(provider => new AccountSecurityService(
             provider.GetRequiredService<DuoraDbContext>(),
             provider.GetRequiredService<UserManager<DuoraUser>>(),

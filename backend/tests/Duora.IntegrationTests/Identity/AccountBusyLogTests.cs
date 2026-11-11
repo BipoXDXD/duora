@@ -13,7 +13,8 @@ namespace Duora.IntegrationTests.Identity;
 
 /// <summary>
 /// Conta ocupada (503) se distingue do banco indisponível só no log e na métrica, pelo motivo interno. A resposta HTTP
-/// continua a mesma do banco indisponível, salvo o <c>Retry-After</c>: diferenciá-las abriria enumeração de contas.
+/// continua a mesma do banco indisponível, inclusive o <c>Retry-After</c> sob <c>/auth</c> (#465): diferenciá-las
+/// abriria enumeração de contas.
 /// O log leva motivo, padrão da rota, teto e traceId; nunca e-mail, conta ou mensagem de exceção.
 /// </summary>
 public sealed partial class AccountBusyLogTests(PostgresFixture postgres)
@@ -38,6 +39,7 @@ public sealed partial class AccountBusyLogTests(PostgresFixture postgres)
         using var response = await IdentityScenario.LoginAsync(browser, account.Email, account.Password);
 
         var body = await ProblemAssert.IsProblemAsync(response, HttpStatusCode.ServiceUnavailable, "TEMPORARILY_UNAVAILABLE");
+        Assert.Equal(30, ProblemAssert.RetryAfterSeconds(response));
         var entry = SingleAccountBusyLog(logs);
         Assert.Equal(LogLevel.Warning, entry.Level);
         Assert.Equal("AccountLock", entry.Fields["Reason"]?.ToString());
@@ -75,7 +77,7 @@ public sealed partial class AccountBusyLogTests(PostgresFixture postgres)
     [Fact]
     public async Task AQueueTimeoutCarriesTheQueueReason()
     {
-        var gate = new AccountCheckGate();
+        var gate = new AccountCheckGate(new AccountLockOptions());
         var key = Guid.NewGuid();
         var timeout = TimeSpan.FromMilliseconds(100);
         await using var holder = await gate.EnterAsync(key, timeout, TestContext.Current.CancellationToken);
@@ -84,6 +86,7 @@ public sealed partial class AccountBusyLogTests(PostgresFixture postgres)
             () => gate.EnterAsync(key, timeout, TestContext.Current.CancellationToken));
 
         Assert.Equal(AccountBusyReason.AccountQueue, busy.Reason);
+        Assert.Equal(timeout, busy.WaitCeiling);
     }
 
     /// <summary>
@@ -116,15 +119,17 @@ public sealed partial class AccountBusyLogTests(PostgresFixture postgres)
 
     /// <summary>
     /// TM: enumeração pela resposta. Conta ocupada e banco indisponível respondem os mesmos bytes (status, corpo sem o
-    /// traceId e headers), exceto o <c>Retry-After</c>, que já difere (o teto da conta contra 5 s do banco).
+    /// traceId e headers). Sob <c>/auth</c> nem o <c>Retry-After</c> difere: os dois são o <c>BusyRetryAfter</c>
+    /// (#465).
     /// </summary>
     [Fact]
-    public async Task AnAccountBusyAnswerIsTheDatabaseUnavailableAnswerExceptRetryAfter()
+    public async Task AnAccountBusyAnswerIsTheDatabaseUnavailableAnswer()
     {
         await using var busyFactory = new DuoraWebFactory(postgres.ConnectionString)
         {
             TestServices = services => services.AddScoped<IPasswordHasher<DuoraUser>>(
-                _ => new BusyPasswordHasher(new AccountBusyException(TimeSpan.FromSeconds(2), AccountBusyReason.AccountLock))),
+                _ => new BusyPasswordHasher(new AccountBusyException(
+                    TimeSpan.FromSeconds(2), AccountBusyReason.AccountLock, TimeSpan.FromMilliseconds(300)))),
         };
         await using var downFactory = new DuoraWebFactory(new CanaryConnectionString().Value);
         using var busyBrowser = new Browser(busyFactory);
@@ -137,9 +142,8 @@ public sealed partial class AccountBusyLogTests(PostgresFixture postgres)
         Assert.Equal(HttpStatusCode.ServiceUnavailable, busy.StatusCode);
         Assert.Equal(down.StatusCode, busy.StatusCode);
         Assert.Equal(await RawBodyWithoutTraceIdAsync(down), await RawBodyWithoutTraceIdAsync(busy));
-        Assert.Equal(HeadersExceptRetryAfterAndDate(down), HeadersExceptRetryAfterAndDate(busy));
-        Assert.Equal(2, ProblemAssert.RetryAfterSeconds(busy));
-        Assert.Equal(5, ProblemAssert.RetryAfterSeconds(down));
+        Assert.Equal(HeadersExceptDate(down), HeadersExceptDate(busy));
+        Assert.Equal(30, ProblemAssert.RetryAfterSeconds(busy));
     }
 
     [Fact]
@@ -148,7 +152,8 @@ public sealed partial class AccountBusyLogTests(PostgresFixture postgres)
         await using var factory = new DuoraWebFactory(postgres.ConnectionString)
         {
             TestServices = services => services.AddScoped<IPasswordHasher<DuoraUser>>(
-                _ => new BusyPasswordHasher(new AccountBusyException(TimeSpan.FromSeconds(2), AccountBusyReason.LoginDeadline))),
+                _ => new BusyPasswordHasher(new AccountBusyException(
+                    TimeSpan.FromSeconds(2), AccountBusyReason.LoginDeadline, TimeSpan.FromSeconds(1)))),
         };
         using var counter = new AccountBusyCounter(factory.Services.GetRequiredService<IMeterFactory>());
         using var browser = new Browser(factory);
@@ -215,11 +220,10 @@ public sealed partial class AccountBusyLogTests(PostgresFixture postgres)
         return TraceIdValue().Replace(text, "\"traceId\":\"\"");
     }
 
-    private static string HeadersExceptRetryAfterAndDate(HttpResponseMessage response)
+    private static string HeadersExceptDate(HttpResponseMessage response)
     {
-        string[] varying = ["Retry-After", "Date"];
         var headers = response.Headers.Concat(response.Content.Headers)
-            .Where(header => !varying.Contains(header.Key, StringComparer.OrdinalIgnoreCase))
+            .Where(header => !string.Equals(header.Key, "Date", StringComparison.OrdinalIgnoreCase))
             .OrderBy(header => header.Key, StringComparer.OrdinalIgnoreCase)
             .Select(header => $"{header.Key}: {string.Join(", ", header.Value)}");
         return string.Join("\n", headers);
