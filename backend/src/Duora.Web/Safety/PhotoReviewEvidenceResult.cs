@@ -44,8 +44,9 @@ internal sealed class PhotoReviewEvidenceResult(ReviewEvidenceDelivery delivery)
         }
     }
 
-    // Leitura do storage (I/O ou cancelamento) que falhou antes do primeiro byte: não é o banco, então o prazo é
-    // próprio da entrega. A falha do banco na checagem do lease segue a fonte única.
+    // I/O ou cancelamento que falhou antes do primeiro byte. A leitura passa pelo storage e pela checagem do lease no
+    // banco, e sem a exceção do Npgsql a causa não se distingue: o prazo é próprio da entrega. Quando a exceção é do
+    // Npgsql, vale a fonte única.
     private static readonly TimeSpan StorageRetryAfter = TimeSpan.FromSeconds(2);
 
     private static ProblemHttpResult Unavailable(HttpContext http, Exception error)

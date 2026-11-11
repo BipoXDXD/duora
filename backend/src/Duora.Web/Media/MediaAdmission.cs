@@ -11,7 +11,7 @@ namespace Duora.Web.Media;
 /// </summary>
 internal static class MediaAdmission
 {
-    // Falha de I/O do storage: não é o banco, que usa DatabaseUnavailability.
+    // Falha de I/O sem exceção do Npgsql (em geral o storage): a causa de banco identificada usa DatabaseUnavailability.
     private static readonly TimeSpan StorageRetryAfter = TimeSpan.FromSeconds(2);
 
     public static RouteHandlerBuilder RequireMediaAdmission(this RouteHandlerBuilder route) => route

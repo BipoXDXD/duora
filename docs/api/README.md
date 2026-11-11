@@ -136,6 +136,10 @@ Mudança de contrato, sem mudança de schema (o OpenAPI não lista o `Retry-Afte
 - Contenção embrulhada pelo Npgsql: era `503` com `Retry-After: 5`, passa a `2`.
 - Rotas de Participation, Catalog, PhotoReview e Media: continuam `503` com `Retry-After: 2`; a resposta ganha
   `Expires: -1`, como todo erro tratado pelo handler global, e a falha passa a gerar o Warning com o SQLSTATE.
+- Entrega da evidência de revisão de foto (`GET /api/v1/admin/photo-reviews/{id}/evidence/{variant}`), falha antes do
+  primeiro byte (#493): a exceção do Npgsql que não é contenção nem `57014` (banco fora do alcance) era `503` com
+  `Retry-After: 2`, passa a `5`, como no handler global; contenção e `57014` continuam `2`, e a falha de I/O ou o
+  cancelamento sem exceção do Npgsql continuam `2`.
 - Rotas sob `/auth`: todo `503` passa a `Retry-After: 30`; o `57014` passa de `500` a `503`; o `503` legal do
   cadastro e os `503` do Google passam a levar `Retry-After`.
 

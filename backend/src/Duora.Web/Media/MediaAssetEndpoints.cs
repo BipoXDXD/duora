@@ -88,7 +88,8 @@ internal static class MediaAssetEndpoints
         return Task.CompletedTask;
     }
 
-    // A leitura do derivado falhou (I/O ou cancelamento do storage) antes do primeiro byte: não é o banco.
+    // A leitura do derivado falhou (I/O ou cancelamento, em geral do storage) antes do primeiro byte. Sem a exceção
+    // do Npgsql a causa não se distingue, então o prazo é próprio da entrega.
     private static readonly TimeSpan StreamFailureRetryAfter = TimeSpan.FromSeconds(2);
 
     private sealed class ApprovedMediaResult(AuthorizedMedia media) : IResult

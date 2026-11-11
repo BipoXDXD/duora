@@ -241,8 +241,10 @@ internal static class PhotoReviewEndpoints
         _ => throw new InvalidOperationException("A private review response needs a result or refusal."),
     };
 
-    // Evidência ou derivado que não está pronto, prazo da revisão vencido, falha de I/O ou cancelamento do storage:
-    // não é o banco (o 57014 vai para DatabaseUnavailability), então o prazo é próprio da revisão.
+    // Evidência ou derivado que não está pronto, prazo da revisão vencido, falha de I/O ou cancelamento. O filtro
+    // envolve o serviço inteiro, então o I/O e o cancelamento sem exceção do Npgsql podem vir do storage ou de uma
+    // consulta, e a causa não se distingue aqui: ficam com o prazo próprio da revisão. Só o erro do banco que chega
+    // como PostgresException (o 57014) vai para DatabaseUnavailability.
     private static readonly TimeSpan ReviewUnavailableRetryAfter = TimeSpan.FromSeconds(2);
 
     private static ProblemHttpResult Unavailable(HttpContext http)
