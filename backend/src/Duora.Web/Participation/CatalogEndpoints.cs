@@ -8,7 +8,6 @@ using Duora.Web.Identity;
 using Duora.Web.Security;
 using Microsoft.AspNetCore.Http.Features;
 using Microsoft.AspNetCore.Mvc;
-using Npgsql;
 
 namespace Duora.Web.Participation;
 
@@ -25,7 +24,7 @@ internal static class CatalogEndpoints
             .ProducesProblem(400).ProducesProblem(401).ProducesProblem(403).ProducesProblem(413)
             .WithMetadata(new RequestSizeLimitAttribute(ParticipationService.MaxCatalogBodyBytes))
             .RequireAuthorization(SessionAuthorization.AdministrativeSession)
-            .RequireProductAdministrator().RequireRecentMfa().HandleCatalogContention().ProducesProblem(503);
+            .RequireProductAdministrator().RequireRecentMfa().ProducesProblem(503);
         api.MapGet("/rooms/{roomId:guid}/audio/{assetId}", async (Guid roomId, string assetId, HttpContext context,
             ParticipationService service, CancellationToken ct) =>
         {
@@ -35,23 +34,8 @@ internal static class CatalogEndpoints
             return audio is null ? Results.NotFound() : Results.Bytes(audio.Bytes, audio.ContentType);
         }).RequireAuthorization(ParticipationPolicies.EligibleParticipant)
             .ProducesProblem(401).ProducesProblem(403).ProducesProblem(404)
-            .HandleCatalogContention().ProducesProblem(503);
+            .ProducesProblem(503);
     }
-
-    internal static TBuilder HandleCatalogContention<TBuilder>(this TBuilder builder)
-        where TBuilder : IEndpointConventionBuilder => builder.AddEndpointFilter(async (context, next) =>
-        {
-            try
-            {
-                return await next(context);
-            }
-            catch (PostgresException error) when (error.SqlState is PostgresErrorCodes.LockNotAvailable
-                or PostgresErrorCodes.DeadlockDetected or PostgresErrorCodes.SerializationFailure)
-            {
-                ApiProblems.SetRetryAfter(context.HttpContext, TimeSpan.FromSeconds(2));
-                return ApiProblems.Problem(503, ApiProblems.TemporarilyUnavailable);
-            }
-        });
 
     public static TBuilder RequireProductAdministrator<TBuilder>(this TBuilder builder)
         where TBuilder : IEndpointConventionBuilder => builder.AddEndpointFilter(async (context, next) =>

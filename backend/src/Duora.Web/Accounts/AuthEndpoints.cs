@@ -20,7 +20,8 @@ internal static class AuthEndpoints
 {
     public static void MapAuthEndpoints(this IEndpointRouteBuilder api)
     {
-        var auth = api.MapGroup("/auth").AllowAnonymous().WithTags("Auth");
+        var auth = api.MapGroup("/auth").AllowAnonymous().WithTags("Auth")
+            .WithMetadata(new NeutralUnavailabilityEndpoint());
 
         auth.MapGet("/csrf", IssueCsrfToken).WithMetadata(new PublicAntiforgeryEndpoint());
         auth.MapPost("/register", RegisterAsync)
@@ -92,8 +93,9 @@ internal static class AuthEndpoints
 
         if (!legal.RegistrationAvailable)
         {
-            return ApiProblems.Problem(StatusCodes.Status503ServiceUnavailable, ApiProblems.TemporarilyUnavailable);
+            return ApiProblems.Unavailable(context, standard: null);
         }
+
         if (!legal.Accepts(termsVersion, privacyVersion, request.AcceptedTermsLocale, request.AcceptedPrivacyLocale, request.AcceptedTermsSha256, request.AcceptedPrivacySha256))
         {
             return ApiProblems.Validation(new Dictionary<string, string[]>
