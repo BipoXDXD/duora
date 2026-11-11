@@ -581,6 +581,14 @@ afirma limites inferiores (o i-ésimo a terminar esperou i + 1 hashes), não pro
 distribuições de latência sob carga representativa é necessário antes de aceitar esses riscos; não
 registrar e-mail, IP ou UUID como rótulo. O teste controlado não substitui benchmark da VPS.
 
+O reenvio da confirmação (API-A03, issue #470) trava a mesma linha, mas não usa esses tetos. A rota responde
+`202` igual exista a conta ou não, e só a conta existente chega à trava; esperar 5 s pelo lock diria pelo tempo que
+ela existe. A fila por UUID e o `lock_timeout` do reenvio esperam `Identity:ShortWait:LockTimeout` cada um (100 ms,
+validado entre 1 ms e 125 ms, porque as duas esperas se somam), dentro do piso de 500 ms da rota. Estourou, o
+reenvio desiste sem gravar nada e responde o mesmo `202`, com o motivo só num Warning
+(`EmailConfirmationResendBusyTests`, `EmailConfirmationResendTimingTests`). O cadastro (#466) segue a mesma decisão
+com um teto próprio, abaixo.
+
 ### Cadastro com a conta travada (issues #461 e #466)
 
 O cadastro (A02) não passa pela fila em memória: o upsert por `ON CONFLICT` no e-mail normalizado espera a linha da
