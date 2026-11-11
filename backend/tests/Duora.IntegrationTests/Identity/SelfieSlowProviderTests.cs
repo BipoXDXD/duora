@@ -78,11 +78,17 @@ public sealed class SelfieSlowProviderTests(PostgresFixture postgres)
     /// <summary>Descartes dos hosts do teste, do último criado para o primeiro.</summary>
     private readonly Stack<Func<ValueTask>> _hostDisposals = new();
 
+    /// <summary>
+    /// A chamada abandonada no corte segura a vaga até terminar de fato, e pelo SDK real ela só termina depois do
+    /// corte, em outra thread. Enquanto ela segue viva, o lote seguinte não chama o fornecedor e a tentativa fica como o
+    /// corte deixou; a nova chamada só sai depois que a abandonada termina.
+    /// </summary>
     [Fact]
     public Task AStalledSessionStartThroughTheRealSdkIsCutAndRetriedWithoutReleasingTheAccount() => WithinTheWholeTestCeilingAsync(async () =>
     {
         var connection = await postgres.CreateMigratedDatabaseAsync(Ct);
-        var transport = new SyntheticAwsTransport(Stall);
+        var stallEnds = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var transport = new SyntheticAwsTransport(cancellationToken => StallUntilReleasedAsync(stallEnds.Task, cancellationToken));
         var host = RealSdkHost(connection, transport);
         var scenario = new IdentityScenario(connection, host);
         var account = await scenario.CreateConfirmedAccountAsync();
@@ -100,8 +106,16 @@ public sealed class SelfieSlowProviderTests(PostgresFixture postgres)
 
         transport.Send = HealthySession;
         _time.Advance(UntilNextTry);
-        await SelfieConcurrencyHarness.DispatchAsync(host, Ct);
+        Assert.Equal(0, await SelfieConcurrencyHarness.DispatchAsync(host, Ct));
 
+        Assert.Equal(1, transport.Calls);
+        Assert.Equal("Pending|no-reference|PROVIDER_UNAVAILABLE|open", await AttemptAsync(scenario));
+
+        stallEnds.SetResult();
+        await WaitUntilAsync(() => FinishedProviderCalls(host) == 1);
+        Assert.Equal(1, await SelfieConcurrencyHarness.DispatchAsync(host, Ct));
+
+        Assert.Equal(2, transport.Calls);
         Assert.Equal("Capturing|has-reference|no-feedback|open", await AttemptAsync(scenario));
         await AssertNotReleasedAsync(scenario, host, account.UserId);
     });
@@ -1054,8 +1068,16 @@ public sealed class SelfieSlowProviderTests(PostgresFixture postgres)
     private static Task<long> EmailAsync(IdentityScenario scenario, string comparison) => scenario.ScalarAsync(
         $"select count(*) from ops.outbox_deliveries where consumer = 'transactional-email' and status {comparison} 'Delivered'");
 
-    private static Task<HttpResponseMessage> Stall(CancellationToken cancellationToken) =>
-        Task.Delay(Timeout.Infinite, cancellationToken).ContinueWith(_ => new HttpResponseMessage(), TaskScheduler.Default);
+    /// <summary>
+    /// Fornecedor parado que respeita o cancelamento, mas só devolve a resposta quando o teste solta: a chamada
+    /// abandonada no corte segue viva, segurando a vaga, pelo tempo que o teste decidir.
+    /// </summary>
+    private static async Task<HttpResponseMessage> StallUntilReleasedAsync(Task released, CancellationToken cancellationToken)
+    {
+        await Task.Delay(Timeout.Infinite, cancellationToken).ConfigureAwait(ConfigureAwaitOptions.SuppressThrowing);
+        await released;
+        return new HttpResponseMessage();
+    }
 
     /// <summary>Cada resposta ganha um corpo novo: nenhuma chamada, de teste nenhum, herda o descarte de outra.</summary>
     private static Task<HttpResponseMessage> StalledBody(ConcurrentQueue<StalledStream> bodies)
@@ -1105,8 +1127,18 @@ public sealed class SelfieSlowProviderTests(PostgresFixture postgres)
         {
             Time = _time,
             Settings = SelfieTestSettings.Enabled(ScriptedSelfieProvider.Policy),
-            TestServices = services => services.AddSingleton<HttpClientFactory>(transport),
+            TestServices = services =>
+            {
+                services.AddSingleton<HttpClientFactory>(transport);
+                var real = services.Last(service => service.ServiceType == typeof(ISelfieProvider)).ImplementationFactory
+                    ?? throw new InvalidOperationException("O fornecedor real da selfie deixou de ser registrado por fábrica.");
+                services.AddSingleton<ISelfieProvider>(p => new FinishCountingSelfieProvider((ISelfieProvider)real(p)));
+            },
         });
+
+    /// <summary>Chamadas ao fornecedor real já concluídas, inclusive as que o dispatcher abandonou no corte.</summary>
+    private static int FinishedProviderCalls(DuoraWebFactory host) =>
+        ((FinishCountingSelfieProvider)host.Services.GetRequiredService<ISelfieProvider>()).Finished;
 
     private DuoraWebFactory FakeProviderHost(string connection, ISelfieProvider provider, CapturingLoggerProvider? logs = null) =>
         DisposedAtTheEnd(SelfieConcurrencyHarness.Host(connection, _time, provider, logs: logs));
@@ -1409,6 +1441,30 @@ public sealed class SelfieSlowProviderTests(PostgresFixture postgres)
         {
             _closed.TrySetResult();
             base.Dispose(disposing);
+        }
+    }
+
+    /// <summary>
+    /// O fornecedor real, com a contagem das chamadas concluídas. Devolve a mesma tarefa do SDK, que é a que a vaga
+    /// acompanha, e conta depois da conclusão: quando a contagem sobe, a vaga já vê a tarefa terminada.
+    /// </summary>
+    private sealed class FinishCountingSelfieProvider(ISelfieProvider real) : ISelfieProvider
+    {
+        private int _finished;
+
+        public int Finished => Volatile.Read(ref _finished);
+
+        public Task<SelfieSession> StartAsync(Guid attemptId, CancellationToken cancellationToken) =>
+            Counted(real.StartAsync(attemptId, cancellationToken));
+
+        public Task<SelfieResult> ReadAsync(string reference, CancellationToken cancellationToken) =>
+            Counted(real.ReadAsync(reference, cancellationToken));
+
+        private Task<T> Counted<T>(Task<T> call)
+        {
+            _ = call.ContinueWith(_ => Interlocked.Increment(ref _finished), CancellationToken.None,
+                TaskContinuationOptions.ExecuteSynchronously, TaskScheduler.Default);
+            return call;
         }
     }
 
