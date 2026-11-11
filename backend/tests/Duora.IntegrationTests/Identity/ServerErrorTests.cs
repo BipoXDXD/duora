@@ -232,7 +232,8 @@ public sealed class ServerErrorTests(PostgresFixture postgres)
         public string HashPassword(DuoraUser user, string password) =>
             throw new InvalidOperationException("Falha inesperada de teste.");
 
-        public PasswordVerificationResult VerifyHashedPassword(DuoraUser user, string hashedPassword, string providedPassword) =>
+        public PasswordVerificationResult VerifyHashedPassword(
+            DuoraUser user, string hashedPassword, string providedPassword) =>
             throw new InvalidOperationException("Falha inesperada de teste.");
     }
 }

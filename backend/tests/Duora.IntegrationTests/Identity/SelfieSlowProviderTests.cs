@@ -81,15 +81,16 @@ public sealed class SelfieSlowProviderTests(PostgresFixture postgres)
 
     /// <summary>
     /// A chamada abandonada no corte segura a vaga até terminar de fato, e pelo SDK real ela só termina depois do
-    /// corte, em outra thread. Enquanto ela segue viva, o lote seguinte não chama o fornecedor e a tentativa fica como o
-    /// corte deixou; a nova chamada só sai depois que a abandonada termina.
+    /// corte, em outra thread. Enquanto ela segue viva, o lote seguinte não chama o fornecedor e a tentativa fica como
+    /// o corte deixou; a nova chamada só sai depois que a abandonada termina.
     /// </summary>
     [Fact]
     public Task AStalledSessionStartThroughTheRealSdkIsCutAndRetriedWithoutReleasingTheAccount() => WithinTheWholeTestCeilingAsync(async () =>
     {
         var connection = await postgres.CreateMigratedDatabaseAsync(Ct);
         var stallEnds = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
-        var transport = new SyntheticAwsTransport(cancellationToken => StallUntilReleasedAsync(stallEnds.Task, cancellationToken));
+        var transport = new SyntheticAwsTransport(
+            cancellationToken => StallUntilReleasedAsync(stallEnds.Task, cancellationToken));
         var host = RealSdkHost(connection, transport);
         var scenario = new IdentityScenario(connection, host);
         var account = await scenario.CreateConfirmedAccountAsync();
@@ -423,21 +424,23 @@ public sealed class SelfieSlowProviderTests(PostgresFixture postgres)
     /// relógio do teste, como o corpo parado só cede ao descarte que o corte provoca.
     /// </summary>
     [Fact]
-    public Task ABatchThatBlocksSynchronouslyUntilTheCutStillReachesTheCut() => WithinTheWholeTestCeilingAsync(async () =>
-    {
-        var blocked = false;
-        var releasedByTheCut = false;
-
-        await CutAsync(() =>
+    public Task ABatchThatBlocksSynchronouslyUntilTheCutStillReachesTheCut() =>
+        WithinTheWholeTestCeilingAsync(async () =>
         {
-            using var cut = new CancellationTokenSource(CallTimeout, _time);
-            Volatile.Write(ref blocked, true);
-            releasedByTheCut = cut.Token.WaitHandle.WaitOne(CallCeiling);
-            return Task.CompletedTask;
-        }, () => Volatile.Read(ref blocked));
+            var blocked = false;
+            var releasedByTheCut = false;
 
-        Assert.True(releasedByTheCut, "A trava síncrona só terminou pelo teto: o lote prendeu a thread que avança o relógio.");
-    });
+            await CutAsync(() =>
+            {
+                using var cut = new CancellationTokenSource(CallTimeout, _time);
+                Volatile.Write(ref blocked, true);
+                releasedByTheCut = cut.Token.WaitHandle.WaitOne(CallCeiling);
+                return Task.CompletedTask;
+            }, () => Volatile.Read(ref blocked));
+
+            Assert.True(releasedByTheCut,
+                "A trava síncrona só terminou pelo teto: o lote prendeu a thread que avança o relógio.");
+        });
 
     [Fact]
     public async Task TheCeilingNamesTheHostDisposalWhenItHangsAfterAPassingBody()
@@ -1134,7 +1137,8 @@ public sealed class SelfieSlowProviderTests(PostgresFixture postgres)
     /// Fornecedor parado que respeita o cancelamento, mas só devolve a resposta quando o teste solta: a chamada
     /// abandonada no corte segue viva, segurando a vaga, pelo tempo que o teste decidir.
     /// </summary>
-    private static async Task<HttpResponseMessage> StallUntilReleasedAsync(Task released, CancellationToken cancellationToken)
+    private static async Task<HttpResponseMessage> StallUntilReleasedAsync(
+        Task released, CancellationToken cancellationToken)
     {
         await Task.Delay(Timeout.Infinite, cancellationToken).ConfigureAwait(ConfigureAwaitOptions.SuppressThrowing);
         await released;
@@ -1192,8 +1196,10 @@ public sealed class SelfieSlowProviderTests(PostgresFixture postgres)
             TestServices = services =>
             {
                 services.AddSingleton<HttpClientFactory>(transport);
-                var real = services.Last(service => service.ServiceType == typeof(ISelfieProvider)).ImplementationFactory
-                    ?? throw new InvalidOperationException("O fornecedor real da selfie deixou de ser registrado por fábrica.");
+                var real = services.Last(service => service.ServiceType == typeof(ISelfieProvider))
+                    .ImplementationFactory
+                    ?? throw new InvalidOperationException(
+                        "O fornecedor real da selfie deixou de ser registrado por fábrica.");
                 services.AddSingleton<ISelfieProvider>(p => new FinishCountingSelfieProvider((ISelfieProvider)real(p)));
             },
         });
@@ -1249,10 +1255,10 @@ public sealed class SelfieSlowProviderTests(PostgresFixture postgres)
     }
 
     /// <summary>
-    /// Lote cuja chamada fica presa: espera a chamada chegar ao fornecedor, leva o relógio do teste até o corte e devolve
-    /// o lote encerrado. Falha em vez de pendurar a suíte se o corte não vier. O lote começa em outra thread: o SDK real lê
-    /// o corpo de forma síncrona, e quando tudo antes da leitura completava sem ceder a thread, a chamada prendia esta,
-    /// que é a única que avança o relógio até o corte.
+    /// Lote cuja chamada fica presa: espera a chamada chegar ao fornecedor, leva o relógio do teste até o corte e
+    /// devolve o lote encerrado. Falha em vez de pendurar a suíte se o corte não vier. O lote começa em outra thread: o
+    /// SDK real lê o corpo de forma síncrona, e quando tudo antes da leitura completava sem ceder a thread, a chamada
+    /// prendia esta, que é a única que avança o relógio até o corte.
     /// </summary>
     private Task CutDispatchAsync(DuoraWebFactory host, Func<bool> called) =>
         CutAsync(() => SelfieConcurrencyHarness.DispatchAsync(host, Ct), called);
