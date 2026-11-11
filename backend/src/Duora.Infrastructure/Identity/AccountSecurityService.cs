@@ -316,11 +316,6 @@ public sealed class AccountSecurityService
     /// <summary>Padrão do PostgreSQL: sem teto para esperar lock; o timeout do comando continua valendo.</summary>
     private const string NoLockTimeout = "0";
 
-    /// <summary>
-    /// Menor teto aceito por <c>WithLockCeilingAsync</c>: abaixo de 1 ms, o valor em ms vira <c>0</c>.
-    /// </summary>
-    private static readonly TimeSpan MinimumLockCeiling = TimeSpan.FromMilliseconds(1);
-
     // Os mesmos motivos que a revogação pela chave (ticket store) e a de A10 já gravavam.
     private const string LogoutReason = "logout";
     private const string RevokedByOwnerReason = "revoked-by-owner";
@@ -844,14 +839,16 @@ public sealed class AccountSecurityService
     /// o lock fica sem teto; em outro contexto, o teto vale para a conexão errada.
     /// O teto é arredondado para baixo em ms inteiros: o <c>lock_timeout</c> recebe esse valor, e a
     /// <see cref="AccountBusyException.WaitCeiling"/> leva o mesmo. Arredondado, precisa ter ao menos
-    /// <see cref="MinimumLockCeiling"/>, porque <c>0</c> desliga o teto.
+    /// <see cref="RegistrationLockOptions.Minimum"/> (1 ms), porque <c>0</c> desliga o teto. Quem chama escolhe o
+    /// teto: o cadastro usa o seu, curto (#466), e o reenvio a espera curta (#470), para a espera não aparecer no
+    /// tempo de resposta.
     /// </summary>
     /// <exception cref="ArgumentOutOfRangeException">O teto arredondado ficou abaixo de 1 ms.</exception>
     internal async Task<T> WithLockCeilingAsync<T>(
         TimeSpan ceiling, Func<Task<T>> takeLock, CancellationToken cancellationToken)
     {
         var appliedCeiling = TimeSpan.FromMilliseconds(Math.Floor(ceiling.TotalMilliseconds));
-        ArgumentOutOfRangeException.ThrowIfLessThan(appliedCeiling, MinimumLockCeiling, nameof(ceiling));
+        ArgumentOutOfRangeException.ThrowIfLessThan(appliedCeiling, RegistrationLockOptions.Minimum, nameof(ceiling));
         await SetLockTimeoutAsync($"{(long)appliedCeiling.TotalMilliseconds}ms", cancellationToken);
         T locked;
         try
