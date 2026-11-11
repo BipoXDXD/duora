@@ -316,6 +316,9 @@ public sealed class AccountSecurityService
     /// <summary>Padrão do PostgreSQL: sem teto para esperar lock; o timeout do comando continua valendo.</summary>
     private const string NoLockTimeout = "0";
 
+    /// <summary>Menor teto aceito por <c>WithLockCeilingAsync</c>: abaixo de 1 ms, o valor em ms vira <c>0</c>.</summary>
+    private static readonly TimeSpan MinimumLockCeiling = TimeSpan.FromMilliseconds(1);
+
     // Os mesmos motivos que a revogação pela chave (ticket store) e a de A10 já gravavam.
     private const string LogoutReason = "logout";
     private const string RevokedByOwnerReason = "revoked-by-owner";
@@ -812,27 +815,37 @@ public sealed class AccountSecurityService
     private async Task LockAndReloadAsync(DuoraUser user, TimeSpan lockTimeout, CancellationToken cancellationToken)
     {
         await WithLockCeilingAsync(
+            lockTimeout,
             () => _db.Database.ExecuteSqlAsync(
                 $"select 1 from identity.users where id = {user.Id} for no key update",
                 cancellationToken),
-            lockTimeout,
             cancellationToken);
         await _db.Entry(user).ReloadAsync(cancellationToken);
     }
 
     /// <summary>
     /// Roda <paramref name="takeLock"/> com <c>lock_timeout</c> no teto da conta. Passou do teto,
-    /// <see cref="AccountBusyException"/> (503) em vez de segurar a conexão até o timeout do comando. O teto vale só
+    /// <see cref="AccountBusyException"/> em vez de segurar a conexão até o timeout do comando (o login responde 503; o
+    /// cadastro desiste sem gravar e responde como sempre). O teto vale só
     /// para essa espera: o <c>set_config(..., true)</c> duraria a transação inteira, e um comando seguinte que esperasse
     /// outra linha (as sessões, no reset) estouraria no meio da operação, como 500. Depois do lock, volta ao padrão.
+    /// Pré-condição: <paramref name="takeLock"/> roda no mesmo <see cref="DuoraDbContext"/> (o do escopo) e dentro de uma
+    /// transação já aberta por quem chama. Fora dela, o <c>set_config(..., true)</c> morre com o próprio comando e o lock
+    /// fica sem teto; em outro contexto, o teto vale para a conexão errada.
     /// </summary>
-    private Task<T> WithLockCeilingAsync<T>(Func<Task<T>> takeLock, CancellationToken cancellationToken) =>
-        WithLockCeilingAsync(takeLock, _lock.AccountLockTimeout, cancellationToken);
+    internal Task<T> WithLockCeilingAsync<T>(Func<Task<T>> takeLock, CancellationToken cancellationToken) =>
+        WithLockCeilingAsync(_lock.AccountLockTimeout, takeLock, cancellationToken);
 
-    private async Task<T> WithLockCeilingAsync<T>(
-        Func<Task<T>> takeLock, TimeSpan lockTimeout, CancellationToken cancellationToken)
+    /// <summary>
+    /// Como o outro, com um teto que quem chama escolhe: o reenvio usa a espera curta, para a desistência caber no
+    /// piso de tempo (#470). <paramref name="ceiling"/> precisa ter ao menos <see cref="MinimumLockCeiling"/>, porque
+    /// <c>0</c> desliga o teto.
+    /// </summary>
+    internal async Task<T> WithLockCeilingAsync<T>(
+        TimeSpan ceiling, Func<Task<T>> takeLock, CancellationToken cancellationToken)
     {
-        await SetLockTimeoutAsync($"{(long)lockTimeout.TotalMilliseconds}ms", cancellationToken);
+        ArgumentOutOfRangeException.ThrowIfLessThan(ceiling, MinimumLockCeiling);
+        await SetLockTimeoutAsync($"{(long)ceiling.TotalMilliseconds}ms", cancellationToken);
         T locked;
         try
         {
@@ -840,8 +853,7 @@ public sealed class AccountSecurityService
         }
         catch (Exception error) when (LockTimeoutIn(error) is { } timeout)
         {
-            throw new AccountBusyException(
-                _lock.BusyRetryAfter, AccountBusyReason.AccountLock, lockTimeout, timeout);
+            throw new AccountBusyException(_lock.BusyRetryAfter, AccountBusyReason.AccountLock, ceiling, timeout);
         }
 
         await SetLockTimeoutAsync(NoLockTimeout, cancellationToken);
