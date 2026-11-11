@@ -79,6 +79,72 @@ para a SPA tratá-los:
 | `SAME_AS_TEMPORARY_PASSWORD` | `400` (`VALIDATION_FAILED`, em `errors.newPassword`) | A16 | A senha nova repete a temporária |
 | `AGE_VERIFICATION_RETIRED` | `410` | `POST /api/v1/me/age-verifications`, `GET /api/v1/me/age-verifications/current` | Verificação etária retirada (ADR-0029): nenhuma operação etária é executada |
 
+## Indisponibilidade temporária do banco (#465)
+
+Um erro passageiro do banco responde `503` `TEMPORARILY_UNAVAILABLE` com `Retry-After`, sem detalhe da falha.
+Quem decide é só o handler global (`DatabaseUnavailableExceptionHandler`); nenhum filtro de endpoint trata
+contenção por conta própria, e o teste de arquitetura `ContentionClassificationTests` impede que volte um.
+
+Valores (decisão da coordenação, 10/11):
+
+| Falha | SQLSTATE | `Retry-After` fora de `/auth` | `Retry-After` em `/auth` |
+|---|---|---|---|
+| Contenção: serialização, deadlock, `lock_timeout` (crua ou embrulhada pelo Npgsql ou pelo EF) | `40001`, `40P01`, `55P03` | `2` | `30` |
+| Banco fora do alcance: rede, pool esgotado, servidor sem conexões ou desligando | `53300`, `57P01`–`57P03`, `08*`, falha transitória do cliente | `5` | `30` |
+| Timeout de comando (`statement_timeout`) | `57014` | regra da rota (mídia e revisão de foto: `503`; outras: `500`) | `30` |
+| Conta ocupada (`AccountBusyException`: fila, lock ou prazo) | — | o da exceção (na conta, `30`) | `30`; no cadastro e no reenvio, não é `503` (abaixo) |
+| Documentos legais indisponíveis no cadastro | — | — | `30` |
+
+O Warning do handler tem dois eventos, escolhidos pelo mesmo critério do `Retry-After`: `DatabaseUnavailable` (id 1)
+e `DatabaseContention` (id 2), só com SQLSTATE, tipo da exceção, padrão da rota e trace. O `57014` sob `/auth` sai no
+evento `DatabaseUnavailable` (1).
+
+**Exceção das rotas de identidade.** Todo `503` sob `/api/v1/auth` responde igual, qualquer que seja a causa:
+mesmo corpo e `Retry-After` igual a `Identity:AccountQueueTimeout` (`AccountLockOptions.BusyRetryAfter`, 30 s por
+padrão). Um valor por causa diria ao cliente o que falhou e, no lock da linha, que a conta existe (TM-06, #468). A
+regra vale para o grupo `/auth` inteiro (inclusive `/auth/google` e `/auth/reauthenticate`): o marcador
+`NeutralUnavailabilityEndpoint` fica no grupo, e toda rota nova ali herda a regra. `ApiProblems.Unavailable` é a
+função única que monta esses 503. A conta ocupada no cadastro (API-A02) e no reenvio da confirmação
+(`POST /api/v1/auth/email-confirmation-requests`) não chega a ser `503`: os dois desistem sem gravar e respondem o
+`202` sem corpo de sempre, igual a um e-mail novo (#461, #470). Um `503` ali diria que o e-mail tem conta e que ela
+está em uso.
+
+**Rota pública de identidade**, critério verificado por `NeutralUnavailabilityRoutesTests`: rota anônima
+(`IAllowAnonymous`) cujo handler recebe e-mail, senha, token, código ou credencial, num parâmetro com esse nome ou
+numa propriedade do DTO de `Duora.Contracts` que recebe. Toda rota assim precisa ficar sob `/auth` e levar o
+marcador; o teste falha se uma nascer fora do grupo.
+
+Entra numa release só com o #451, que é a base deste PR: o #451 dá ao handler global o Warning estruturado
+(SQLSTATE, tipo da exceção, padrão da rota e trace, nunca a mensagem do Npgsql nem a connection string) e trata o
+erro passageiro do servidor embrulhado pelo Npgsql como indisponibilidade. O #465 parte daí, separa o Warning em
+dois eventos e unifica cru e embrulhado na contenção (`40001`, `40P01`, `55P03`). Fora dela, `53200`, `53400`,
+`55006` e `58030` ainda divergem (embrulhado `503` com `5`, cru `500`): issue #476.
+
+Mudança de contrato, sem mudança de schema (o OpenAPI não lista o `Retry-After` desses 503):
+
+- Contenção crua numa rota sem filtro próprio: era `500` `INTERNAL_ERROR`, passa a `503` com `Retry-After: 2`.
+- Contenção embrulhada pelo Npgsql: era `503` com `Retry-After: 5`, passa a `2`.
+- Rotas de Participation, Catalog, PhotoReview e Media: continuam `503` com `Retry-After: 2`; a resposta ganha
+  `Expires: -1`, como todo erro tratado pelo handler global, e a falha passa a gerar o Warning com o SQLSTATE.
+- Rotas sob `/auth`: todo `503` passa a `Retry-After: 30`; o `57014` passa de `500` a `503`; o `503` legal do
+  cadastro e os `503` do Google passam a levar `Retry-After`.
+
+## Reenvio da confirmação com a conta ocupada (#470)
+
+Mudança de contrato em `POST /api/v1/auth/email-confirmation-requests` (API-A03), sem mudança de schema: a conta
+ocupada (`AccountBusyException`: fila, lock da linha ou prazo) **era `503` `TEMPORARILY_UNAVAILABLE` com
+`Retry-After: 30` e passa a `202` sem corpo**, a mesma resposta inteira (status, corpo e headers) da conta
+existente livre e do e-mail inexistente, dentro do mesmo piso de tempo. O reenvio desiste sem gravar nada e o motivo
+fica só no Warning do log. Só uma conta existente espera a trava, então o `503` dizia que o e-mail tem conta (TM-06).
+
+- Continua `503`: banco indisponível, contenção e timeout de comando (seção acima). Por isso o `503` segue
+  declarado no OpenAPI; a descrição da operação registra a regra nova. `oasdiff breaking` não aponta breaking change.
+- Continua `429` com `Retry-After` depois do limite do cadastro (mesmo contador; `ResendUsesTheRegistrationAccountLimitAndReturnsRetryAfter`).
+- SPA: `CheckEmailPage` não trata `503` em ramo próprio (falha genérica por `classifyRequestFailure`), então não
+  muda; o `202` já mostra o aviso neutro.
+- Testes: `EmailConfirmationResendBusyTests.ExistingMissingAndBusyAccountsGetTheSameEmptyAccepted` e
+  `NeutralUnavailabilityResponseTests` (causas `busy-*` no reenvio).
+
 ## Localização do perfil (expansão da issue #78)
 
 API-P01/P02 acrescentam `countryCode` e `subdivisionCode`, opcionais e anuláveis, conservando `regionCode`.
