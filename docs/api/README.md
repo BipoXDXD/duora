@@ -92,7 +92,7 @@ Valores (decisão da coordenação, 10/11):
 | Contenção: serialização, deadlock, `lock_timeout` (crua ou embrulhada pelo Npgsql ou pelo EF) | `40001`, `40P01`, `55P03` | `2` | `30` |
 | Banco fora do alcance: rede, pool esgotado, servidor sem conexões ou desligando | `53300`, `57P01`–`57P03`, `08*`, falha transitória do cliente | `5` | `30` |
 | Timeout de comando (`statement_timeout`) | `57014` | regra da rota (mídia e revisão de foto: `503`; outras: `500`) | `30` |
-| Conta ocupada (`AccountBusyException`: fila, lock ou prazo) | — | o da exceção (na conta, `30`) | `30` |
+| Conta ocupada (`AccountBusyException`: fila, lock ou prazo) | — | o da exceção (na conta, `30`) | `30`; no cadastro, não é `503` (abaixo) |
 | Documentos legais indisponíveis no cadastro | — | — | `30` |
 
 O Warning do handler tem dois eventos, escolhidos pelo mesmo critério do `Retry-After`: `DatabaseUnavailable` (id 1)
@@ -104,7 +104,9 @@ mesmo corpo e `Retry-After` igual a `Identity:AccountQueueTimeout` (`AccountLock
 padrão). Um valor por causa diria ao cliente o que falhou e, no lock da linha, que a conta existe (TM-06, #468). A
 regra vale para o grupo `/auth` inteiro (inclusive `/auth/google` e `/auth/reauthenticate`): o marcador
 `NeutralUnavailabilityEndpoint` fica no grupo, e toda rota nova ali herda a regra. `ApiProblems.Unavailable` é a
-função única que monta esses 503.
+função única que monta esses 503. A conta ocupada no cadastro (API-A02) não chega a ser `503`: o cadastro desiste sem
+gravar e responde o `202` sem corpo de sempre, igual a um e-mail novo (#461). Um `503` ali diria que o e-mail tem
+conta e que ela está em uso.
 
 **Rota pública de identidade**, critério verificado por `NeutralUnavailabilityRoutesTests`: rota anônima
 (`IAllowAnonymous`) cujo handler recebe e-mail, senha, token, código ou credencial, num parâmetro com esse nome ou
