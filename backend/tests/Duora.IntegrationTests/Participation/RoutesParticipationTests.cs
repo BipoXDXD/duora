@@ -317,6 +317,70 @@ public sealed class RoutesParticipationTests(PostgresFixture postgres)
         Assert.Equal(completed, await RoomFactsAsync(connection, room, ct));
     }
 
+    /// <summary>
+    /// Na sala <c>Completed</c> depois do prazo, a ação nova com <c>expectedVersion</c> desatualizado também recebe
+    /// a <c>404</c> neutra, não o <c>409</c>, como em <c>GameDeadlineTests</c>. Nada é gravado.
+    /// </summary>
+    [Fact]
+    public async Task ANewActionWithAStaleVersionInACompletedRoomAfterTheDeadlineGetsTheSame404()
+    {
+        var (source, clock, service, seed, room, connectionString) = await Active();
+        await using var owned = source;
+        var ct = TestContext.Current.CancellationToken;
+        await using var factory = new DuoraWebFactory(connectionString) { Time = clock };
+        using var alice = await new IdentityScenario(connectionString, factory)
+            .SignedInBrowserAsync(new(seed.Alice, "alice@example.com", IdentityScenario.ValidPassword));
+        await CompleteRoutesAsync(service, seed, room, ct);
+        await using var connection = await source.OpenConnectionAsync(ct);
+        var completed = await RoomFactsAsync(connection, room, ct);
+        Assert.Equal("Completed", completed.State);
+        clock.SetUtcNow(await DeadlineAsync(connection, room, ct));
+
+        using var stale = await alice.PostJsonAsync(
+            $"/api/v1/rooms/{room}/routes-actions", AcknowledgeIntroduction(completed.Version - 1));
+
+        Assert.Equal(HttpStatusCode.NotFound, stale.StatusCode);
+        Assert.Equal("NOT_FOUND", await ProblemCodeAsync(stale, ct));
+        var unknownRoom = await UnknownRoomAsync(alice, completed.Version - 1, ct);
+        Assert.Equal(unknownRoom, await NeutralResponse.DescribeAsync(stale, ct));
+        Assert.Equal(completed, await RoomFactsAsync(connection, room, ct));
+    }
+
+    /// <summary>
+    /// Quem não participa da sala <c>Completed</c> recebe, depois do prazo, a mesma <c>404</c> de uma sala
+    /// inexistente, como em <c>GameDeadlineTests</c>. Nada é gravado.
+    /// </summary>
+    [Fact]
+    public async Task AnOutsiderActingOnACompletedRoomAfterTheDeadlineGetsTheNeutral404()
+    {
+        var (source, clock, service, seed, room, connectionString) = await Active();
+        await using var owned = source;
+        var ct = TestContext.Current.CancellationToken;
+        await using var factory = new DuoraWebFactory(connectionString) { Time = clock };
+        await using var connection = await source.OpenConnectionAsync(ct);
+        // Active() deixa Third como product_admin, que a rota recusa com 403 antes de olhar a sala: o forasteiro
+        // precisa ser um participante que simplesmente não está nela.
+        await Execute(connection, "delete from identity.user_roles where user_id=$1", ct, seed.Third);
+        await Execute(connection, """
+            insert into identity.user_roles(user_id,role_id) select $1,id from identity.roles where name='participant'
+            """, ct, seed.Third);
+        using var third = await new IdentityScenario(connectionString, factory)
+            .SignedInBrowserAsync(new(seed.Third, "third@example.com", IdentityScenario.ValidPassword));
+        await CompleteRoutesAsync(service, seed, room, ct);
+        var completed = await RoomFactsAsync(connection, room, ct);
+        Assert.Equal("Completed", completed.State);
+        clock.SetUtcNow(await DeadlineAsync(connection, room, ct));
+
+        using var outsider = await third.PostJsonAsync(
+            $"/api/v1/rooms/{room}/routes-actions", AcknowledgeIntroduction(completed.Version));
+
+        Assert.Equal(HttpStatusCode.NotFound, outsider.StatusCode);
+        Assert.Equal("NOT_FOUND", await ProblemCodeAsync(outsider, ct));
+        var unknownRoom = await UnknownRoomAsync(third, completed.Version, ct);
+        Assert.Equal(unknownRoom, await NeutralResponse.DescribeAsync(outsider, ct));
+        Assert.Equal(completed, await RoomFactsAsync(connection, room, ct));
+    }
+
     /// <summary>Só o depois do prazo mudou: numa sala <c>Completed</c>, uma ação nova antes do prazo continua <c>400 VALIDATION_FAILED</c>, sem gravar.</summary>
     [Fact]
     public async Task ANewActionInACompletedRoomBeforeTheDeadlineIsStillAValidationFailure()
