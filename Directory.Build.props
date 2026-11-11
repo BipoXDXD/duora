@@ -29,6 +29,8 @@
        sem o certificado a falha é definitiva, e repetir só atrasa. Fica aqui, e não num csproj, para valer no
        runtimeconfig do Duora.Web e no dos testes, que hospedam o app no próprio processo. -->
   <ItemGroup>
-    <RuntimeHostConfigurationOption Include="Microsoft.AspNetCore.DataProtection.KeyManagement.MaximumTotalDefaultKeyResolverRetries" Value="0" />
+    <RuntimeHostConfigurationOption
+        Include="Microsoft.AspNetCore.DataProtection.KeyManagement.MaximumTotalDefaultKeyResolverRetries"
+        Value="0" />
   </ItemGroup>
 </Project>

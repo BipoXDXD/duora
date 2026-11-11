@@ -153,7 +153,8 @@ public sealed class KeyRingCertificateTests : IDisposable
     public async Task KeyFromARetiredCertificateIsSkippedWithoutRetrying()
     {
         await _hosts.SignInOnAFreshHostAsync(_volume, With(_first));
-        var retiredKeyId = Path.GetFileNameWithoutExtension(Assert.Single(_volume.GetFiles("key-*.xml")).Name)["key-".Length..];
+        var retiredKeyFile = Assert.Single(_volume.GetFiles("key-*.xml"));
+        var retiredKeyId = Path.GetFileNameWithoutExtension(retiredKeyFile.Name)["key-".Length..];
         var logs = new CapturingLoggerProvider();
         var settings = With(_second);
         settings["Logging:LogLevel:Microsoft.AspNetCore.DataProtection"] = "Debug";
