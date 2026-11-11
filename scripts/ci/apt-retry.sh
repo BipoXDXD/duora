@@ -46,13 +46,52 @@ apt_recover_dpkg() {
   sudo dpkg --configure -a || true
 }
 
+# apt_use_fallback_mirror [diretório de fontes...]: troca os hosts *.ubuntu.com por espelhos fora desse domínio.
+# O runner já passou horas sem resolver só *.ubuntu.com (o resto da rede respondia); repetir no mesmo host não
+# adianta. As assinaturas do Release continuam conferidas pelo apt, então o espelho não ganha confiança extra.
+# kernel.org não serve ubuntu-ports (arm64), que vai para a OCF/Berkeley. Idempotente; arquivo ausente é ignorado.
+# CI_APT_MIRROR_FILES troca a lista padrão de arquivos (testes usam arquivos temporários).
+apt_use_fallback_mirror() {
+  local -a candidates files=()
+  read -r -a candidates <<< "${CI_APT_MIRROR_FILES:-/etc/apt/apt-mirrors.txt /etc/apt/sources.list}"
+  candidates+=(/etc/apt/sources.list.d/*.sources)
+  local dir
+  for dir in "$@"; do candidates+=("$dir"/*.sources "$dir"/*.list); done
+  local file
+  for file in "${candidates[@]}"; do [ -f "$file" ] && files+=("$file"); done
+  [ "${#files[@]}" -gt 0 ] || return 0
+  # ubuntu-ports primeiro: o padrão de /ubuntu também casaria com o começo de /ubuntu-ports.
+  sudo perl -pi -e 's#https?://[a-z.]*ubuntu\.com/ubuntu-ports#http://mirrors.ocf.berkeley.edu/ubuntu-ports#g;' \
+    -e 's#https?://[a-z.]*ubuntu\.com/ubuntu#http://mirrors.edge.kernel.org/ubuntu#g' "${files[@]}" || true
+  echo "::warning::apt: espelhos *.ubuntu.com trocados pelos de fallback antes da nova tentativa" >&2
+}
+
+# Diretórios Dir::Etc::sourceparts do apt_retry em curso; vazio fora dele (ex.: playwright install-deps).
+_apt_sourceparts=()
+
+# apt_recover_install: antes de repetir um install, troca o espelho e conclui o dpkg deixado pela metade.
+apt_recover_install() {
+  apt_use_fallback_mirror "${_apt_sourceparts[@]}"
+  apt_recover_dpkg
+}
+
+# apt_recover_update: antes de repetir update ou remove, só troca o espelho (o dpkg não fica pela metade).
+apt_recover_update() {
+  apt_use_fallback_mirror "${_apt_sourceparts[@]}"
+}
+
 # apt_retry <argumentos do apt-get...>: `sudo apt-get` com retries do próprio apt e timeout de rede por download,
 # dentro do laço de tentativas acima. Opções do chamador (ex.: APT::Update::Error-Mode=any) vêm depois e prevalecem.
-# Só o install roda apt_recover_dpkg antes de repetir; update e remove não deixam o dpkg pela metade.
+# Antes de cada nova tentativa, o apt troca para o espelho de fallback, inclusive nas fontes do diretório passado em
+# Dir::Etc::sourceparts; só o install também conclui o dpkg.
 apt_retry() {
-  local recover=""
+  local recover=apt_recover_update arg
+  _apt_sourceparts=()
+  for arg in "$@"; do
+    case "$arg" in Dir::Etc::sourceparts=*) _apt_sourceparts+=("${arg#Dir::Etc::sourceparts=}") ;; esac
+  done
   case " $* " in
-    *" install "*) recover=apt_recover_dpkg ;;
+    *" install "*) recover=apt_recover_install ;;
   esac
   CI_RETRY_RECOVER="$recover" retry_with_backoff sudo apt-get \
     -o Acquire::Retries=5 -o Acquire::http::Timeout=30 -o Acquire::https::Timeout=30 "$@"

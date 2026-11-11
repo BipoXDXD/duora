@@ -112,6 +112,48 @@ class AptRetryTests(unittest.TestCase):
         self.run_helper('apt_retry install -y pacote', failures=0)
         self.assertEqual([], self.dpkg_recoveries())
 
+    def mirror_switches(self) -> list[str]:
+        return [line for line in (self.root / "calls").read_text().splitlines() if line.startswith("perl ")]
+
+    def test_a_retry_first_switches_to_the_fallback_mirror(self):
+        mirrors = self.root / "apt-mirrors.txt"
+        mirrors.write_text("http://azure.archive.ubuntu.com/ubuntu/\n")
+        result = self.run_helper('apt_retry update -qq', failures=2, extra_env={"CI_APT_MIRROR_FILES": str(mirrors)})
+        self.assertEqual(0, result.returncode, result.stderr)
+        self.assertEqual(2, len(self.mirror_switches()))
+
+    def test_a_first_attempt_success_keeps_the_runner_mirror(self):
+        self.run_helper('apt_retry install -y pacote', failures=0)
+        self.assertEqual([], self.mirror_switches())
+
+    def test_fallback_mirror_rewrites_only_ubuntu_com_hosts(self):
+        scoped = self.root / "scoped"
+        scoped.mkdir()
+        mirrors = self.root / "apt-mirrors.txt"
+        mirrors.write_text("http://azure.archive.ubuntu.com/ubuntu/\tpriority:1\n")
+        (scoped / "ubuntu.sources").write_text(
+            "URIs: http://archive.ubuntu.com/ubuntu\nURIs: http://security.ubuntu.com/ubuntu/\n"
+            "URIs: http://ports.ubuntu.com/ubuntu-ports/\nURIs: mirror+file:/etc/apt/apt-mirrors.txt\n")
+        docker = "deb [arch=amd64] https://download.docker.com/linux/ubuntu noble stable\n"
+        (scoped / "docker.list").write_text(docker)
+        # `sudo` de verdade só para o perl, sobre arquivos temporários; o apt-get continua simulado.
+        body = ('sudo() { printf "%s\\n" "$*" >> "$root/calls"; [ "$1" = perl ] && { "$@"; return; }; '
+                '[ "$1" = apt-get ] || return 0; n=$(grep -c "^apt-get " "$root/calls"); [ "$n" -gt 1 ]; }\n'
+                f'apt_retry -o Dir::Etc::sourceparts={scoped} update -qq')
+        result = self.run_helper(body, failures=0, extra_env={"CI_APT_MIRROR_FILES": str(mirrors)})
+        self.assertEqual(0, result.returncode, result.stderr)
+        self.assertEqual("http://mirrors.edge.kernel.org/ubuntu/\tpriority:1\n", mirrors.read_text())
+        self.assertEqual(
+            "URIs: http://mirrors.edge.kernel.org/ubuntu\nURIs: http://mirrors.edge.kernel.org/ubuntu/\n"
+            "URIs: http://mirrors.ocf.berkeley.edu/ubuntu-ports/\nURIs: mirror+file:/etc/apt/apt-mirrors.txt\n",
+            (scoped / "ubuntu.sources").read_text())
+        self.assertEqual(docker, (scoped / "docker.list").read_text())
+
+    def test_fallback_mirror_ignores_missing_files(self):
+        body = 'sudo() { [ "$1" = perl ] && { "$@"; return; }; return 0; }\napt_use_fallback_mirror'
+        result = self.run_helper(body, failures=0, extra_env={"CI_APT_MIRROR_FILES": str(self.root / "nada.txt")})
+        self.assertEqual(0, result.returncode, result.stderr)
+
     def test_attempt_timeout_sends_sigterm_first_and_sigkill_after_10_seconds(self):
         # `timeout` de mentira: registra os argumentos em vez de rodar o comando.
         body = 'timeout() { printf "%s\\n" "$*" >> "$root/timeout-args"; }\n' \
