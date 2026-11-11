@@ -54,7 +54,7 @@ internal sealed class RegistrationLockOptions
     public const string Section = "Identity";
 
     /// <summary>Abaixo de 1 ms o <c>lock_timeout</c> vira <c>0</c>, que no PostgreSQL desliga o teto.</summary>
-    internal static readonly TimeSpan Minimum = TimeSpan.FromMilliseconds(1);
+    private static readonly TimeSpan Minimum = TimeSpan.FromMilliseconds(1);
 
     /// <summary>Acima disso a espera volta a aparecer no tempo de resposta (#466: 100 ms de teto somaram +78 ms).</summary>
     private static readonly TimeSpan Maximum = TimeSpan.FromMilliseconds(50);
