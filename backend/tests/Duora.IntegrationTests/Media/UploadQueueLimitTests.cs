@@ -16,7 +16,9 @@ public sealed class UploadQueueLimitTests(PostgresFixture postgres) : IAsyncLife
 {
     private const int QueueCap = 3;
 
-    /// <summary>Teto da espera pelos envios simultâneos: um envio preso falha o teste em vez de travar a suíte.</summary>
+    /// <summary>
+    /// Teto da espera pelos envios simultâneos: um envio preso falha o teste em vez de travar a suíte.
+    /// </summary>
     private static readonly TimeSpan ConcurrentUploadsTimeout = TimeSpan.FromSeconds(30);
 
     private string _connectionString = "";
@@ -94,7 +96,8 @@ public sealed class UploadQueueLimitTests(PostgresFixture postgres) : IAsyncLife
             catch (TimeoutException)
             {
                 Assert.Fail(
-                    $"{uploads.Count(u => !u.IsCompleted)} dos {Attempts} envios não terminaram em {ConcurrentUploadsTimeout.TotalSeconds:0} s.");
+                    $"{uploads.Count(u => !u.IsCompleted)} dos {Attempts} envios não terminaram "
+                + $"em {ConcurrentUploadsTimeout.TotalSeconds:0} s.");
             }
 
             var responses = await all;

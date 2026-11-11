@@ -13,7 +13,8 @@ public sealed class CountryDatabaseReaderTests
     /// <summary>Teto da largada da barreira em ConcurrentSwapsAndReadsNeverDisposeAnInFlightReader.</summary>
     private static readonly TimeSpan StartTimeout = TimeSpan.FromSeconds(30);
 
-    private static readonly string StartMissed = $"A largada da barreira não aconteceu em {StartTimeout.TotalSeconds:0} s.";
+    private static readonly string StartMissed =
+        $"A largada da barreira não aconteceu em {StartTimeout.TotalSeconds:0} s.";
 
     [Fact]
     public void SyntheticFixtureIsReadableByTheApprovedLibrary()
@@ -116,8 +117,26 @@ public sealed class CountryDatabaseReaderTests
         // A thread do teste também cruza a barreira; com o teto, um participante que não chega falha o teste em vez de
         // prender as outras duas threads até o fim da suíte.
         using var start = new Barrier(3);
-        var reads = Task.Run(() => { Assert.True(start.SignalAndWait(StartTimeout, Ct), StartMissed); for (var i = 0; i < 500; i++) { Assert.Contains(h.Active.Lookup(IPAddress.Parse("192.0.2.1")).CountryCode, SyntheticCountries); } }, Ct);
-        var swaps = Task.Run(() => { Assert.True(start.SignalAndWait(StartTimeout, Ct), StartMissed); for (var i = 0; i < 50; i++) { Assert.True(h.Active.TryReplace(i % 2 == 0 ? b : a, Ct)); } }, Ct);
+        var reads = Task.Run(
+            () =>
+            {
+                Assert.True(start.SignalAndWait(StartTimeout, Ct), StartMissed);
+                for (var i = 0; i < 500; i++)
+                {
+                    Assert.Contains(h.Active.Lookup(IPAddress.Parse("192.0.2.1")).CountryCode, SyntheticCountries);
+                }
+            },
+            Ct);
+        var swaps = Task.Run(
+            () =>
+            {
+                Assert.True(start.SignalAndWait(StartTimeout, Ct), StartMissed);
+                for (var i = 0; i < 50; i++)
+                {
+                    Assert.True(h.Active.TryReplace(i % 2 == 0 ? b : a, Ct));
+                }
+            },
+            Ct);
         Assert.True(start.SignalAndWait(StartTimeout, Ct), StartMissed);
         await Task.WhenAll(reads, swaps);
     }

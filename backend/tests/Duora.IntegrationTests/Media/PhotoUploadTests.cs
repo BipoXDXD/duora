@@ -12,7 +12,9 @@ namespace Duora.IntegrationTests.Media;
 [Trait("Acceptance", "T-16")]
 public sealed class PhotoUploadTests : IAsyncDisposable
 {
-    /// <summary>Teto da espera pelos envios simultâneos: um envio preso falha o teste em vez de travar a suíte.</summary>
+    /// <summary>
+    /// Teto da espera pelos envios simultâneos: um envio preso falha o teste em vez de travar a suíte.
+    /// </summary>
     private static readonly TimeSpan ConcurrentUploadsTimeout = TimeSpan.FromSeconds(30);
 
     private readonly CapturingLoggerProvider _logs = new();
@@ -297,7 +299,8 @@ public sealed class PhotoUploadTests : IAsyncDisposable
         const int Attempts = 6;
 
         // Largada única: os seis envios aguardam o mesmo sinal sem prender thread do pool e partem juntos no SetResult.
-        // RunContinuationsAsynchronously evita que o SetResult rode o início dos seis envios na própria thread do teste.
+        // RunContinuationsAsynchronously evita que o SetResult rode o início dos seis envios na própria thread
+        // do teste.
         var start = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         var uploads = Enumerable.Range(0, Attempts).Select(async i =>
         {
@@ -316,7 +319,8 @@ public sealed class PhotoUploadTests : IAsyncDisposable
             catch (TimeoutException)
             {
                 Assert.Fail(
-                    $"{uploads.Count(u => !u.IsCompleted)} dos {Attempts} envios não terminaram em {ConcurrentUploadsTimeout.TotalSeconds:0} s.");
+                    $"{uploads.Count(u => !u.IsCompleted)} dos {Attempts} envios não terminaram "
+                + $"em {ConcurrentUploadsTimeout.TotalSeconds:0} s.");
             }
 
             var responses = await all;
