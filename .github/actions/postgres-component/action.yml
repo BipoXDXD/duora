@@ -81,7 +81,12 @@ runs:
         pathlib.Path(sys.argv[1]).write_text(json.dumps(config))
         PY
         sudo install -m 0644 "$RUNNER_TEMP/component-daemon.json" /etc/docker/daemon.json
-        sudo systemctl restart docker
+        # Se o daemon não subir, o job mostra o porquê em vez de só "Job for docker.service failed".
+        if ! sudo systemctl restart docker; then
+          sudo systemctl status docker containerd --no-pager || true
+          sudo journalctl -u docker -u containerd --no-pager -n 120 || true
+          exit 1
+        fi
         test "$(readlink -f "$(command -v docker)")" = /usr/bin/docker
         docker version --format '{{json .}}' > "$RUNNER_TEMP/postgres-component/docker-runtime-after.json"
         after_status=$(curl --silent --show-error --unix-socket /var/run/docker.sock \
