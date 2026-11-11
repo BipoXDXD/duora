@@ -108,10 +108,28 @@ public sealed class CountryDatabaseReaderTests
         h.Save(a, aBytes);
         h.Save(b, bBytes);
         Assert.True(h.Active.TryReplace(a, Ct));
-        using var start = new Barrier(3);
-        var reads = Task.Run(() => { start.SignalAndWait(Ct); for (var i = 0; i < 500; i++) { Assert.Contains(h.Active.Lookup(IPAddress.Parse("192.0.2.1")).CountryCode, SyntheticCountries); } }, Ct);
-        var swaps = Task.Run(() => { start.SignalAndWait(Ct); for (var i = 0; i < 50; i++) { Assert.True(h.Active.TryReplace(i % 2 == 0 ? b : a, Ct)); } }, Ct);
-        start.SignalAndWait(Ct);
+        var start = new StartingGate(3);
+        var reads = Task.Run(
+            async () =>
+            {
+                await start.ArriveAndWaitAsync(StartingGate.DefaultCeiling, Ct);
+                for (var i = 0; i < 500; i++)
+                {
+                    Assert.Contains(h.Active.Lookup(IPAddress.Parse("192.0.2.1")).CountryCode, SyntheticCountries);
+                }
+            },
+            Ct);
+        var swaps = Task.Run(
+            async () =>
+            {
+                await start.ArriveAndWaitAsync(StartingGate.DefaultCeiling, Ct);
+                for (var i = 0; i < 50; i++)
+                {
+                    Assert.True(h.Active.TryReplace(i % 2 == 0 ? b : a, Ct));
+                }
+            },
+            Ct);
+        await start.ArriveAndWaitAsync(StartingGate.DefaultCeiling, Ct);
         await Task.WhenAll(reads, swaps);
     }
 

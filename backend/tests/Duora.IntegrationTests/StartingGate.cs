@@ -41,14 +41,15 @@ internal sealed class StartingGate
         {
             await _open.Task.WaitAsync(timeout, cancellationToken);
         }
-        catch (TimeoutException)
+        catch (TimeoutException expired)
         {
             throw new TimeoutException(string.Format(
                 CultureInfo.InvariantCulture,
                 "Largada não abriu em {0} s: chegaram {1} de {2} participantes.",
                 timeout.TotalSeconds,
                 Math.Min(Volatile.Read(ref _arrived), _participants),
-                _participants));
+                _participants),
+                expired);
         }
     }
 }
