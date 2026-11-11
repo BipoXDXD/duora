@@ -13,8 +13,8 @@ namespace Duora.IntegrationTests.Identity;
 
 /// <summary>
 /// Conta ocupada (503) se distingue do banco indisponível só no log e na métrica, pelo motivo interno. A resposta HTTP
-/// continua a mesma do banco indisponível, inclusive o <c>Retry-After</c> sob <c>/auth</c> (#465): diferenciá-las abriria
-/// enumeração de contas.
+/// continua a mesma do banco indisponível, inclusive o <c>Retry-After</c> sob <c>/auth</c> (#465): diferenciá-las
+/// abriria enumeração de contas.
 /// O log leva motivo, padrão da rota, teto e traceId; nunca e-mail, conta ou mensagem de exceção.
 /// </summary>
 public sealed partial class AccountBusyLogTests(PostgresFixture postgres)
@@ -119,7 +119,8 @@ public sealed partial class AccountBusyLogTests(PostgresFixture postgres)
 
     /// <summary>
     /// TM: enumeração pela resposta. Conta ocupada e banco indisponível respondem os mesmos bytes (status, corpo sem o
-    /// traceId e headers). Sob <c>/auth</c> nem o <c>Retry-After</c> difere: os dois são o <c>BusyRetryAfter</c> (#465).
+    /// traceId e headers). Sob <c>/auth</c> nem o <c>Retry-After</c> difere: os dois são o <c>BusyRetryAfter</c>
+    /// (#465).
     /// </summary>
     [Fact]
     public async Task AnAccountBusyAnswerIsTheDatabaseUnavailableAnswer()
@@ -127,7 +128,8 @@ public sealed partial class AccountBusyLogTests(PostgresFixture postgres)
         await using var busyFactory = new DuoraWebFactory(postgres.ConnectionString)
         {
             TestServices = services => services.AddScoped<IPasswordHasher<DuoraUser>>(
-                _ => new BusyPasswordHasher(new AccountBusyException(TimeSpan.FromSeconds(2), AccountBusyReason.AccountLock, TimeSpan.FromMilliseconds(300)))),
+                _ => new BusyPasswordHasher(new AccountBusyException(
+                    TimeSpan.FromSeconds(2), AccountBusyReason.AccountLock, TimeSpan.FromMilliseconds(300)))),
         };
         await using var downFactory = new DuoraWebFactory(new CanaryConnectionString().Value);
         using var busyBrowser = new Browser(busyFactory);
@@ -150,7 +152,8 @@ public sealed partial class AccountBusyLogTests(PostgresFixture postgres)
         await using var factory = new DuoraWebFactory(postgres.ConnectionString)
         {
             TestServices = services => services.AddScoped<IPasswordHasher<DuoraUser>>(
-                _ => new BusyPasswordHasher(new AccountBusyException(TimeSpan.FromSeconds(2), AccountBusyReason.LoginDeadline, TimeSpan.FromSeconds(1)))),
+                _ => new BusyPasswordHasher(new AccountBusyException(
+                    TimeSpan.FromSeconds(2), AccountBusyReason.LoginDeadline, TimeSpan.FromSeconds(1)))),
         };
         using var counter = new AccountBusyCounter(factory.Services.GetRequiredService<IMeterFactory>());
         using var browser = new Browser(factory);

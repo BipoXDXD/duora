@@ -10,7 +10,8 @@ namespace Duora.Web.Accounts;
 
 /// <summary>
 /// Reautenticação (API-A13) e troca de senha (API-A16). Ficam fora do grupo público <c>/auth</c>: exigem sessão. A
-/// reautenticação, no caminho <c>/auth</c>, segue a regra do grupo para o 503 (<see cref="NeutralUnavailabilityEndpoint"/>).
+/// reautenticação, no caminho <c>/auth</c>, segue a regra do grupo para o 503
+/// (<see cref="NeutralUnavailabilityEndpoint"/>).
 /// </summary>
 internal static class ReauthenticationEndpoints
 {
