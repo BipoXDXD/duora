@@ -97,9 +97,9 @@ internal static class DatabaseUnavailability
         };
 
     // Estados de recurso do servidor tratados como indisponibilidade, além de 53300, do desligamento e das falhas de
-    // conexão de ConnectionFailureStates: 53000 (recursos insuficientes), 53100 (disco cheio), 53200 (sem memória), 53400 (limite de configuração), 55006
-    // (objeto em uso), 57P05 (sessão ociosa encerrada) e 58030 (erro de E/S). Não é o conjunto do IsTransient do
-    // Npgsql: 55000 e 58000, que ele cobre, continuam 500 quando crus.
+    // conexão de ConnectionFailureStates: 53000 (recursos insuficientes), 53100 (disco cheio), 53200 (sem memória),
+    // 53400 (limite de configuração), 55006 (objeto em uso), 57P05 (sessão ociosa encerrada) e 58030 (erro de E/S).
+    // Não é o conjunto do IsTransient do Npgsql: 55000 e 58000, que ele cobre, continuam 500 quando crus.
     private static bool IsUnavailableState(string sqlState) =>
         sqlState is PostgresErrorCodes.TooManyConnections
             or PostgresErrorCodes.InsufficientResources
