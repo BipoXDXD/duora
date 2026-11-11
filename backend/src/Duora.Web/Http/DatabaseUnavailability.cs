@@ -1,5 +1,6 @@
 using System.Diagnostics;
 using Microsoft.AspNetCore.Diagnostics;
+using Microsoft.AspNetCore.Http.HttpResults;
 using Npgsql;
 
 namespace Duora.Web.Http;
@@ -53,6 +54,21 @@ internal static class DatabaseUnavailability
         return inner as PostgresException;
     }
 
+    // Contenção: os lock_timeout curtos do projeto ficam em 2 s e os 503 de contenção já respondiam 2, então outra
+    // tentativa nesse prazo costuma passar.
+    private static readonly TimeSpan ContentionRetryAfter = TimeSpan.FromSeconds(2);
+
+    // Banco fora do alcance (rede, pool, servidor cheio ou desligando): recuperar leva mais tempo.
+    private static readonly TimeSpan UnreachableRetryAfter = TimeSpan.FromSeconds(5);
+
+    /// <summary>
+    /// O 503 de banco indisponível, com o <c>Retry-After</c> da causa: fonte única para o handler global e para a
+    /// elegibilidade (#473). Sem causa conhecida (<paramref name="cause"/> nulo), vale o de banco fora do alcance.
+    /// </summary>
+    public static ProblemHttpResult Unavailable(HttpContext httpContext, NpgsqlException? cause) =>
+        ApiProblems.Unavailable(
+            httpContext, cause is not null && IsContention(cause) ? ContentionRetryAfter : UnreachableRetryAfter);
+
     /// <summary>Contenção entre transações: a mesma operação costuma passar logo em seguida.</summary>
     public static bool IsContention(NpgsqlException cause) =>
         cause is PostgresException
@@ -84,13 +100,6 @@ internal sealed partial class DatabaseUnavailableExceptionHandler(ILogger<Databa
     // Sem endpoint, o path é texto do cliente e sem limite de tamanho: não vai para o log.
     private const string NoEndpoint = "(no endpoint)";
 
-    // Contenção: os lock_timeout curtos do projeto ficam em 2 s e os 503 de contenção já respondiam 2, então outra
-    // tentativa nesse prazo costuma passar.
-    private static readonly TimeSpan ContentionRetryAfter = TimeSpan.FromSeconds(2);
-
-    // Banco fora do alcance (rede, pool, servidor cheio ou desligando): recuperar leva mais tempo.
-    private static readonly TimeSpan UnreachableRetryAfter = TimeSpan.FromSeconds(5);
-
     public async ValueTask<bool> TryHandleAsync(HttpContext httpContext, Exception exception, CancellationToken cancellationToken)
     {
         if (CauseFor(httpContext, exception) is not { } cause)
@@ -100,8 +109,7 @@ internal sealed partial class DatabaseUnavailableExceptionHandler(ILogger<Databa
 
         var contention = DatabaseUnavailability.IsContention(cause);
         Log(contention, cause, httpContext);
-        await ApiProblems.Unavailable(httpContext, contention ? ContentionRetryAfter : UnreachableRetryAfter)
-            .ExecuteAsync(httpContext);
+        await DatabaseUnavailability.Unavailable(httpContext, cause).ExecuteAsync(httpContext);
         return true;
     }
 

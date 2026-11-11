@@ -84,6 +84,9 @@ para a SPA tratá-los:
 Um erro passageiro do banco responde `503` `TEMPORARILY_UNAVAILABLE` com `Retry-After`, sem detalhe da falha.
 Quem decide é só o handler global (`DatabaseUnavailableExceptionHandler`); nenhum filtro de endpoint trata
 contenção por conta própria, e o teste de arquitetura `ContentionClassificationTests` impede que volte um.
+A elegibilidade indisponível (`EligibleParticipant`, `account-moderator`) não tem 503 próprio: ela monta a mesma
+resposta, pela mesma fonte do `Retry-After` (`DatabaseUnavailability.Unavailable`), e só o Warning fica com o
+handler global (#473).
 
 Valores (decisão da coordenação, 10/11):
 
