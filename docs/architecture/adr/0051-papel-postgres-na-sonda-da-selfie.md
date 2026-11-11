@@ -28,7 +28,8 @@ limites, todos em `scripts/deploy/selfie_provider_alert.py`:
 
 - `default_transaction_read_only=on` na conexão;
 - `statement_timeout` de 3 s e `lock_timeout` de 1 s;
-- consulta fixa no código, sem parâmetro de entrada, que lê só a fila e devolve um booleano.
+- consulta fixa no código, sem parâmetro de entrada, que lê só a fila e devolve dois booleanos (fornecedor falhando e
+  fila parada).
 
 A spec não muda. A divergência fica como lacuna aberta. Destino: um papel próprio, só com leitura em
 `ops.outbox_deliveries`, entregue numa troca da imagem do PostgreSQL. O #353 hoje não inclui esse papel, e incluí-lo
@@ -44,8 +45,9 @@ exige nova qualificação da imagem. A lacuna fecha quando a sonda conectar com 
 
 ## Segurança e operação
 
-Nenhum dado de participante sai da consulta: o resultado é um booleano, e o evento leva texto constante. O script não
-recebe segredo. A consulta usa os índices parciais da fila e roda a cada 30 s.
+Nenhum dado de participante sai da consulta: o resultado são dois booleanos, e o evento leva texto constante. O script não
+recebe segredo. Com distribuição realista da fila, a consulta usa os índices parciais; isso não é garantia, e o
+`statement_timeout` de 3 s é a contenção. Ela roda a cada 30 s.
 
 ## Compliance
 
