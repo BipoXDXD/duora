@@ -209,6 +209,18 @@ class AptRetryTests(unittest.TestCase):
         self.assertEqual(0, result.returncode, result.stderr)
         self.assertEqual("-k 10 180 env true", (self.root / "timeout-args").read_text().strip())
 
+    def test_install_recover_refresh_respects_the_attempt_timeout(self):
+        # O update do recover também pode travar no espelho; sem o teto, ele seguraria o passo até o fim do job.
+        body = 'timeout() { printf "%s\\n" "$*" >> "$root/timeout-args"; shift 3; "$@"; }\n' \
+               'apt_retry install -y pacote'
+        result = self.run_helper(body, failures=1, extra_env={"CI_RETRY_DELAYS": "0 0",
+                                                              "CI_RETRY_ATTEMPT_TIMEOUT": "300"})
+        self.assertEqual(0, result.returncode, result.stderr)
+        refreshes = [line for line in (self.root / "timeout-args").read_text().splitlines()
+                     if line.endswith(" update -qq")]
+        self.assertEqual(1, len(refreshes), (self.root / "timeout-args").read_text())
+        self.assertTrue(refreshes[0].startswith("-k 10 300 sudo apt-get "), refreshes[0])
+
     @unittest.skipUnless(shutil.which("timeout"), "GNU timeout ausente")
     def test_attempt_timeout_kills_a_hung_command_and_retries(self):
         # `env` força o binário externo: o `timeout` só consegue matar processo, não função de shell.
