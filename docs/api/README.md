@@ -90,7 +90,7 @@ Valores (decisão da coordenação, 10/11):
 | Falha | SQLSTATE | `Retry-After` fora de `/auth` | `Retry-After` em `/auth` |
 |---|---|---|---|
 | Contenção: serialização, deadlock, `lock_timeout` (crua ou embrulhada pelo Npgsql ou pelo EF) | `40001`, `40P01`, `55P03` | `2` | `30` |
-| Banco fora do alcance: rede, pool, servidor sem recurso (conexões, memória, E/S) ou desligando | `53300`, `53200`, `53400`, `55006`, `58030`, `57P01`–`57P03`, `08*`, falha do cliente | `5` | `30` |
+| Banco fora do alcance: rede, pool, servidor sem conexões ou memória, no limite de configuração, com objeto em uso ou erro de E/S, ou desligando | `53300`, `53200`, `53400`, `55006`, `58030`, `57P01`–`57P03`, `08*`, falha do cliente | `5` | `30` |
 | Timeout de comando (`statement_timeout`) | `57014` | regra da rota (mídia e revisão de foto: `503`; outras: `500`) | `30` |
 | Conta ocupada (`AccountBusyException`: fila, lock ou prazo) | — | o da exceção (na conta, `30`) | `30`; no cadastro e no reenvio, não é `503` (abaixo) |
 | Documentos legais indisponíveis no cadastro | — | — | `30` |
@@ -118,8 +118,8 @@ Entra numa release só com o #451, que é a base deste PR: o #451 dá ao handler
 (SQLSTATE, tipo da exceção, padrão da rota e trace, nunca a mensagem do Npgsql nem a connection string) e trata o
 erro passageiro do servidor embrulhado pelo Npgsql como indisponibilidade. O #465 parte daí, separa o Warning em
 dois eventos e unifica cru e embrulhado na contenção (`40001`, `40P01`, `55P03`). O #476 unifica também `53200`,
-`53400`, `55006` e `58030`, os estados que o `IsTransient` do Npgsql considera passageiros: antes, embrulhados davam
-`503` com `5` e crus davam `500`.
+`53400`, `55006` e `58030` (sem memória, limite de configuração, objeto em uso e erro de E/S): antes, embrulhados
+davam `503` com `5` e crus davam `500`. A lista é própria e não acompanha o `IsTransient` do Npgsql.
 
 Mudança de contrato, sem mudança de schema (o OpenAPI não lista o `Retry-After` desses 503):
 

@@ -63,8 +63,9 @@ public sealed class DatabaseContentionResponseTests(EnabledPhotoUploads media)
     }
 
     /// <summary>
-    /// Estados que o <c>IsTransient</c> do Npgsql considera passageiros, fora da contenção: crus ou embrulhados, a
-    /// resposta é a mesma (#476).
+    /// Estados de recurso do servidor tratados como indisponibilidade, fora da contenção: 53200 (sem memória), 53400
+    /// (limite de configuração), 55006 (objeto em uso) e 58030 (erro de E/S). Crus ou embrulhados, a resposta é a
+    /// mesma (#476).
     /// </summary>
     private static readonly string[] TransientServerStates = ["53200", "53400", "55006", "58030"];
 
