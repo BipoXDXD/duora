@@ -67,7 +67,8 @@ public sealed class SelfieSlowProviderTests(PostgresFixture postgres)
 
     private static CancellationToken Ct => TestContext.Current.CancellationToken;
 
-    private readonly ClockWithPendingJump _time = new(DateTimeOffset.FromUnixTimeSeconds(DateTimeOffset.UtcNow.ToUnixTimeSeconds()));
+    private readonly FakeTimeProvider _time =
+        new(DateTimeOffset.FromUnixTimeSeconds(DateTimeOffset.UtcNow.ToUnixTimeSeconds()));
 
     /// <summary>Onde o teste está, para a falha por teto dizer onde parou. Escrito na tarefa do corpo e lido na do teto.</summary>
     private volatile string _step = "corpo do teste";
@@ -94,24 +95,30 @@ public sealed class SelfieSlowProviderTests(PostgresFixture postgres)
         var account = await scenario.CreateConfirmedAccountAsync();
         await SelfieConcurrencyHarness.RequestAsync(host, account.UserId, Ct);
 
-        await CutDispatchAsync(host, () => transport.Calls == 1);
+        try
+        {
+            await CutDispatchAsync(host, () => transport.Calls == 1);
 
-        Assert.Equal(1, transport.Calls);
-        Assert.Equal("Pending|no-reference|PROVIDER_UNAVAILABLE|open", await AttemptAsync(scenario));
-        Assert.Equal("Pending|ProviderUnavailable|1", await DeliveryAsync(scenario));
-        Assert.Equal(1, await scenario.ScalarAsync(
-            "select count(*) from ops.outbox_deliveries where consumer = 'selfie-provider' and available_at = $1",
-            _time.GetUtcNow().AddSeconds(5)));
-        await AssertNotReleasedAsync(scenario, host, account.UserId);
+            Assert.Equal(1, transport.Calls);
+            Assert.Equal("Pending|no-reference|PROVIDER_UNAVAILABLE|open", await AttemptAsync(scenario));
+            Assert.Equal("Pending|ProviderUnavailable|1", await DeliveryAsync(scenario));
+            Assert.Equal(1, await scenario.ScalarAsync(
+                "select count(*) from ops.outbox_deliveries where consumer = 'selfie-provider' and available_at = $1",
+                _time.GetUtcNow().AddSeconds(5)));
+            await AssertNotReleasedAsync(scenario, host, account.UserId);
 
-        transport.Send = HealthySession;
-        _time.Advance(UntilNextTry);
-        Assert.Equal(0, await SelfieConcurrencyHarness.DispatchAsync(host, Ct));
+            transport.Send = HealthySession;
+            _time.Advance(UntilNextTry);
+            Assert.Equal(0, await SelfieConcurrencyHarness.DispatchAsync(host, Ct));
 
-        Assert.Equal(1, transport.Calls);
-        Assert.Equal("Pending|no-reference|PROVIDER_UNAVAILABLE|open", await AttemptAsync(scenario));
+            Assert.Equal(1, transport.Calls);
+            Assert.Equal("Pending|no-reference|PROVIDER_UNAVAILABLE|open", await AttemptAsync(scenario));
+        }
+        finally
+        {
+            stallEnds.TrySetResult();
+        }
 
-        stallEnds.SetResult();
         await WaitUntilAsync(() => FinishedProviderCalls(host) == 1);
         Assert.Equal(1, await SelfieConcurrencyHarness.DispatchAsync(host, Ct));
 
@@ -121,13 +128,11 @@ public sealed class SelfieSlowProviderTests(PostgresFixture postgres)
     });
 
     /// <summary>
-    /// O prazo do corte fica fixo quando a chamada sai. O avanço do relógio que cai enquanto o dispatcher monta a espera
-    /// pela chamada, no instante em que ele arma um timer, ainda corta no prazo: o lote não espera um segundo prazo
-    /// inteiro com a chamada viva. O lote roda numa thread só, para o salto cair depois de todo o trecho síncrono que fez
-    /// a chamada, e não antes dele.
+    /// O prazo do corte fica fixo quando a chamada sai: o avanço do relógio que cai dentro da própria chamada, antes de
+    /// ela devolver a tarefa, ainda corta no prazo. O lote não espera um segundo prazo inteiro com a chamada viva.
     /// </summary>
     [Fact]
-    public Task AClockJumpWhileTheCutIsBeingArmedStillCutsAtTheDeadline() => WithinTheWholeTestCeilingAsync(async () =>
+    public Task AClockAdvanceInsideTheProviderCallStillCutsAtTheDeadline() => WithinTheWholeTestCeilingAsync(async () =>
     {
         var provider = new FaultySelfieProvider(_time);
         var connection = await postgres.CreateMigratedDatabaseAsync(Ct);
@@ -136,25 +141,25 @@ public sealed class SelfieSlowProviderTests(PostgresFixture postgres)
         var account = await scenario.CreateConfirmedAccountAsync();
         await SelfieConcurrencyHarness.RequestAsync(host, account.UserId, Ct);
         var release = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
-        provider.StartFault = _ =>
+        try
         {
-            _time.JumpAtTheNextTimerOnThisThread(CallTimeout);
-            return release.Task;
-        };
-        using var pump = new SingleThreadPump();
+            provider.StartFault = _ =>
+            {
+                _time.Advance(CallTimeout);
+                return release.Task;
+            };
 
-        _step = "esperando a chamada chegar ao fornecedor";
-        var batch = pump.Run(() => SelfieConcurrencyHarness.DispatchAsync(host, Ct));
-        await WaitUntilAsync(() => provider.StartCalls == 1, batch);
-        await pump.DrainAsync().WaitAsync(CallCeiling, Ct);
-        _time.FinishThePendingJump();
-        _step = "esperando o lote encerrar depois do corte";
-        await batch.WaitAsync(CallCeiling, Ct);
-        _step = "seguindo depois do corte";
+            _step = "esperando o lote encerrar depois do corte";
+            await SelfieConcurrencyHarness.DispatchAsync(host, Ct).WaitAsync(CallCeiling, Ct);
+            _step = "seguindo depois do corte";
 
-        Assert.Equal("Pending|no-reference|PROVIDER_UNAVAILABLE|open", await AttemptAsync(scenario));
-        Assert.Equal("Pending|ProviderUnavailable|1", await DeliveryAsync(scenario));
-        release.TrySetResult();
+            Assert.Equal("Pending|no-reference|PROVIDER_UNAVAILABLE|open", await AttemptAsync(scenario));
+            Assert.Equal("Pending|ProviderUnavailable|1", await DeliveryAsync(scenario));
+        }
+        finally
+        {
+            release.TrySetResult();
+        }
     });
 
     [Fact]
@@ -208,10 +213,16 @@ public sealed class SelfieSlowProviderTests(PostgresFixture postgres)
         var answer = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         provider.ReadFault = cancellationToken => honorsCancellation ? answer.Task.WaitAsync(cancellationToken) : answer.Task;
         var batch = SelfieConcurrencyHarness.DispatchAsync(host, Ct);
-        await WaitUntilAsync(() => provider.ReadCalls == 1, batch);
+        try
+        {
+            await WaitUntilAsync(() => provider.ReadCalls == 1, batch);
+            _time.Advance(TimeSpan.FromMilliseconds(answerAfterMilliseconds));
+        }
+        finally
+        {
+            answer.TrySetResult();
+        }
 
-        _time.Advance(TimeSpan.FromMilliseconds(answerAfterMilliseconds));
-        answer.TrySetResult();
         await batch.WaitAsync(CallCeiling, Ct);
         await WaitUntilAsync(() => provider.ReadsFinished == 1);
 
@@ -307,19 +318,26 @@ public sealed class SelfieSlowProviderTests(PostgresFixture postgres)
         await SelfieConcurrencyHarness.RequestAsync(host, account.UserId, Ct);
         var release = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         provider.StartFault = _ => release.Task;
-        await CutDispatchAsync(host, () => provider.StartCalls == 1);
-        _time.Advance(UntilNextTry);
+        try
+        {
+            await CutDispatchAsync(host, () => provider.StartCalls == 1);
+            _time.Advance(UntilNextTry);
 
-        Assert.Equal(0, await SelfieConcurrencyHarness.DispatchAsync(host, Ct));
-        Assert.Equal(0, await SelfieConcurrencyHarness.DispatchAsync(host, Ct));
+            Assert.Equal(0, await SelfieConcurrencyHarness.DispatchAsync(host, Ct));
+            Assert.Equal(0, await SelfieConcurrencyHarness.DispatchAsync(host, Ct));
 
-        Assert.Equal(1, provider.StartCalls);
-        Assert.Equal("Pending|ProviderUnavailable|1", await DeliveryAsync(scenario));
-        var refusal = Assert.Single(logs.Entries, entry => entry.Category == typeof(SelfieVerificationDispatcher).FullName
-            && entry.Text.Contains("still running", StringComparison.Ordinal));
-        Assert.Equal(LogLevel.Warning, refusal.Level);
+            Assert.Equal(1, provider.StartCalls);
+            Assert.Equal("Pending|ProviderUnavailable|1", await DeliveryAsync(scenario));
+            var refusal = Assert.Single(logs.Entries,
+                entry => entry.Category == typeof(SelfieVerificationDispatcher).FullName
+                    && entry.Text.Contains("still running", StringComparison.Ordinal));
+            Assert.Equal(LogLevel.Warning, refusal.Level);
+        }
+        finally
+        {
+            release.TrySetResult();
+        }
 
-        release.TrySetResult();
         await WaitUntilAsync(() => provider.StartsFinished == 1);
         provider.StartFault = null;
 
@@ -345,10 +363,17 @@ public sealed class SelfieSlowProviderTests(PostgresFixture postgres)
         _time.Advance(UntilNextTry);
         var release = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         provider.ReadFault = _ => release.Task;
-        await CutDispatchAsync(host, () => provider.ReadCalls == 1);
-        var afterTheCut = await VersionAsync(scenario);
+        long afterTheCut;
+        try
+        {
+            await CutDispatchAsync(host, () => provider.ReadCalls == 1);
+            afterTheCut = await VersionAsync(scenario);
+        }
+        finally
+        {
+            release.TrySetResult();
+        }
 
-        release.TrySetResult();
         await WaitUntilAsync(() => provider.ReadsFinished == 1);
 
         Assert.Equal("Capturing|has-reference|PROVIDER_UNAVAILABLE|open", await AttemptAsync(scenario));
@@ -1478,105 +1503,6 @@ public sealed class SelfieSlowProviderTests(PostgresFixture postgres)
         {
             _closed.TrySetResult();
             base.Dispose(disposing);
-        }
-    }
-
-    /// <summary>
-    /// Relógio falso que pode saltar no instante em que um timer é armado, na thread que pediu o salto: reproduz o avanço do
-    /// teste caindo entre a leitura do relógio e a criação do timer de quem o leu. O salto acontece uma vez só, no timer ou
-    /// em <see cref="FinishThePendingJump"/>, o que vier primeiro.
-    /// </summary>
-    private sealed class ClockWithPendingJump(DateTimeOffset start) : FakeTimeProvider(start)
-    {
-        private readonly Lock _gate = new();
-        private TimeSpan? _jump;
-        private int _jumpingThread;
-
-        public void JumpAtTheNextTimerOnThisThread(TimeSpan jump)
-        {
-            lock (_gate)
-            {
-                _jump = jump;
-                _jumpingThread = Environment.CurrentManagedThreadId;
-            }
-        }
-
-        public void FinishThePendingJump()
-        {
-            if (TakeJump(anyThread: true) is { } jump)
-            {
-                Advance(jump);
-            }
-        }
-
-        public override ITimer CreateTimer(TimerCallback callback, object? state, TimeSpan dueTime, TimeSpan period)
-        {
-            if (TakeJump(anyThread: false) is { } jump)
-            {
-                Advance(jump);
-            }
-
-            return base.CreateTimer(callback, state, dueTime, period);
-        }
-
-        private TimeSpan? TakeJump(bool anyThread)
-        {
-            lock (_gate)
-            {
-                if (_jump is not { } jump || (!anyThread && _jumpingThread != Environment.CurrentManagedThreadId))
-                {
-                    return null;
-                }
-
-                _jump = null;
-                return jump;
-            }
-        }
-    }
-
-    /// <summary>
-    /// Uma thread só, em ordem, para o lote: o que o teste posta depois de ver a chamada só roda quando o trecho síncrono
-    /// que a fez, até o lote parar à espera do corte, já terminou. Depois do descarte, o que ainda chegar não roda.
-    /// </summary>
-    private sealed class SingleThreadPump : SynchronizationContext, IDisposable
-    {
-        private readonly BlockingCollection<(SendOrPostCallback Callback, object? State)?> _work = [];
-
-        public SingleThreadPump() => new Thread(RunAll) { IsBackground = true, Name = "lote do teste" }.Start();
-
-        public Task<T> Run<T>(Func<Task<T>> work)
-        {
-            var started = new TaskCompletionSource<Task<T>>(TaskCreationOptions.RunContinuationsAsynchronously);
-            Post(_ => started.SetResult(work()), null);
-            return started.Task.Unwrap();
-        }
-
-        public Task DrainAsync()
-        {
-            var drained = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
-            Post(_ => drained.SetResult(), null);
-            return drained.Task;
-        }
-
-        public override void Post(SendOrPostCallback d, object? state) => _work.Add((d, state));
-
-        public override void Send(SendOrPostCallback d, object? state) =>
-            throw new NotSupportedException("O lote do teste só recebe trabalho em fila.");
-
-        public void Dispose() => _work.Add(null);
-
-        private void RunAll()
-        {
-            SetSynchronizationContext(this);
-            foreach (var item in _work.GetConsumingEnumerable())
-            {
-                if (item is not { } work)
-                {
-                    return;
-                }
-
-                work.Callback(work.State);
-            }
         }
     }
 
