@@ -123,7 +123,8 @@ dois eventos e unifica cru e embrulhado na contenção (`40001`, `40P01`, `55P03
 `503` com `5` e crus davam `500`. A lista é própria e não acompanha o `IsTransient` do Npgsql: `55000` (defeito
 costuma ser permanente) e `58000` (genérico demais) ficam de fora de propósito e, crus, seguem `500`.
 
-Mudança de contrato, sem mudança de schema (o OpenAPI não lista o `Retry-After` desses 503):
+Mudança de contrato, sem mudança de schema de corpo (antes do #492 o OpenAPI não listava o `Retry-After` desses 503;
+ver o fim desta seção):
 
 - Contenção crua numa rota sem filtro próprio: era `500` `INTERNAL_ERROR`, passa a `503` com `Retry-After: 2`.
 - Contenção embrulhada pelo Npgsql: era `503` com `Retry-After: 5`, passa a `2`.
@@ -134,6 +135,14 @@ Mudança de contrato, sem mudança de schema (o OpenAPI não lista o `Retry-Afte
   `53100` e `57P05` crus (#492).
 - Rotas sob `/auth`: todo `503` passa a `Retry-After: 30`; o `57014` passa de `500` a `503`; o `503` legal do
   cadastro e os `503` do Google passam a levar `Retry-After`.
+
+Declaração no OpenAPI (#492): toda operação de `/api/v1` declara o `503` `ProblemDetails` com o header `Retry-After`
+(inteiro, em segundos, mínimo 1), porque qualquer rota pode recebê-lo: o cookie de sessão é validado no banco a cada
+requisição, inclusive nas rotas anônimas que o recebem. A declaração vem de um transformer único
+(`ServiceUnavailableOpenApi`), não de cada rota: as rotas que já declaram o `503` ganham só o header. O header é
+documentado como enviado com `TEMPORARILY_UNAVAILABLE`; outros `503` de uma rota (por exemplo `SELFIE_UNAVAILABLE`)
+podem não o levar. Antes eram 48 das 85 operações; agora são as 85. Só adiciona respostas e um header opcional, sem
+breaking change para o `oasdiff`. `ServiceUnavailableOpenApiTests` confere o contrato gerado e o versionado.
 
 ## Reenvio da confirmação com a conta ocupada (#470)
 
