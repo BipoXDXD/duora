@@ -176,7 +176,8 @@ public sealed class LoginConcurrencyTests(PostgresFixture postgres)
             var waitedMilliseconds = Environment.TickCount64 - startedAtMilliseconds;
 
             await ProblemAssert.IsProblemAsync(response, HttpStatusCode.ServiceUnavailable, "TEMPORARILY_UNAVAILABLE");
-            Assert.Equal(1, ProblemAssert.RetryAfterSeconds(response));
+            // O header é o teto da fila (30 s padrão), o mesmo de toda conta ocupada, não o prazo que venceu (#468).
+            Assert.Equal(30, ProblemAssert.RetryAfterSeconds(response));
             Assert.Null(browser.Cookie("__Host-duora"));
             Assert.True(waitedMilliseconds >= 1000, $"Desistiu cedo: {waitedMilliseconds} ms ({waited.Elapsed}).");
             Assert.True(waited.Elapsed < TimeSpan.FromSeconds(10), $"Esperou {waited.Elapsed}, além do prazo total.");
@@ -231,7 +232,7 @@ public sealed class LoginConcurrencyTests(PostgresFixture postgres)
     [Fact(Timeout = GateTestTimeoutMs)]
     public async Task CancelledAndTimedOutWaitersDoNotLeakOrReleaseAnotherTurn()
     {
-        var gate = new AccountCheckGate();
+        var gate = new AccountCheckGate(new AccountLockOptions());
         var key = Guid.NewGuid();
         var timeout = TimeSpan.FromMilliseconds(100);
         var holder = await gate.EnterAsync(key, timeout, TestContext.Current.CancellationToken);
@@ -245,6 +246,30 @@ public sealed class LoginConcurrencyTests(PostgresFixture postgres)
         await holder.DisposeAsync();
         await holder.DisposeAsync();
         await using var next = await gate.EnterAsync(key, timeout, TestContext.Current.CancellationToken);
+    }
+
+    /// <summary>
+    /// Issue #468: o <c>Retry-After</c> da conta ocupada não depende do teto que o chamador passou ao gate. Se dependesse,
+    /// um teto novo numa rota que só conta existente alcança voltaria a revelar a existência da conta.
+    /// </summary>
+    [Fact]
+    public async Task TheGateAnswersTheSingleBusyRetryAfterWhateverCeilingItWasGiven()
+    {
+        await using var factory = new DuoraWebFactory(postgres.ConnectionString)
+        {
+            Settings = new Dictionary<string, string?> { ["Identity:AccountQueueTimeout"] = "00:00:02" },
+        };
+        var gate = factory.Services.GetRequiredService<AccountCheckGate>();
+        var ct = TestContext.Current.CancellationToken;
+        var userId = Guid.NewGuid();
+        var otherCeiling = TimeSpan.FromMilliseconds(100);
+
+        await using (await gate.EnterAsync(userId, otherCeiling, ct))
+        {
+            var busy = await Assert.ThrowsAsync<AccountBusyException>(() => gate.EnterAsync(userId, otherCeiling, ct));
+
+            Assert.Equal(TimeSpan.FromSeconds(2), busy.RetryAfter);
+        }
     }
 
     [Fact]
@@ -281,7 +306,7 @@ public sealed class LoginConcurrencyTests(PostgresFixture postgres)
     [Fact(Timeout = GateTestTimeoutMs)]
     public async Task AFailingTransactionDisposeStillReleasesTheAccountTurn()
     {
-        var gate = new AccountCheckGate();
+        var gate = new AccountCheckGate(new AccountLockOptions());
         var userId = Guid.NewGuid();
         var timeout = TimeSpan.FromMilliseconds(100);
         var check = new AccountCheck(

@@ -48,6 +48,7 @@ internal static class DuoraWebApp
         builder.Services.Configure<HostOptions>(options => options.ShutdownTimeout = TimeSpan.FromSeconds(ShutdownTimeoutSeconds));
 
         builder.Services.AddProblemDetails(options => options.CustomizeProblemDetails = ApiProblems.AddDefaultCode);
+        builder.Services.AddSingleton<AccountBusyMetrics>();
         builder.Services.AddExceptionHandler<AccountBusyExceptionHandler>();
         builder.Services.AddExceptionHandler<DatabaseUnavailableExceptionHandler>();
         builder.Services.ConfigureHttpJsonOptions(options =>
