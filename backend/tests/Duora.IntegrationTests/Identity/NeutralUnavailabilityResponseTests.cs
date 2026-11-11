@@ -14,6 +14,8 @@ namespace Duora.IntegrationTests.Identity;
 /// <c>Retry-After</c> da conta ocupada (<see cref="AccountLockOptions.BusyRetryAfter"/>, 30 s por padrão), qualquer
 /// que seja a causa. Um valor por causa diria ao cliente o que falhou e, no lock da linha, que a conta existe
 /// (decisão da coordenação, 10/11; #465 e #468). A falha sai do primeiro comando do EF de cada rota.
+/// A conta ocupada no cadastro não é um 503: o cadastro desiste sem gravar e responde o 202 sem corpo de sempre,
+/// igual a um e-mail novo (API-A02; #461).
 /// </summary>
 [Trait("Threat", "TM-06")]
 public sealed class NeutralUnavailabilityResponseTests(NeutralUnavailabilityResponseTests.FailingDatabase database)
@@ -24,6 +26,9 @@ public sealed class NeutralUnavailabilityResponseTests(NeutralUnavailabilityResp
     private const string Expected =
         "503|{\"code\":\"TEMPORARILY_UNAVAILABLE\",\"status\":503,\"title\":\"Service temporarily unavailable. Try again later.\","
         + "\"type\":\"urn:duora:problem:temporarily-unavailable\"}|Retry-After=" + BusyRetryAfterSeconds;
+
+    /// <summary>O cadastro de sempre (API-A02): 202 sem corpo e sem <c>Retry-After</c>.</summary>
+    private const string NeutralRegistration = "202||Retry-After=(nenhum)";
 
     private static readonly string[] IdentityRoutes = ["login", "register", "email-confirmation-requests"];
 
@@ -69,7 +74,7 @@ public sealed class NeutralUnavailabilityResponseTests(NeutralUnavailabilityResp
             database.Failure.Value = null;
         }
 
-        Assert.Equal(Expected, described);
+        Assert.Equal(ExpectedFor(route, cause), described);
     }
 
     /// <summary>O 503 próprio do cadastro (documentos legais indisponíveis) segue a mesma regra.</summary>
@@ -86,6 +91,9 @@ public sealed class NeutralUnavailabilityResponseTests(NeutralUnavailabilityResp
 
         Assert.Equal(Expected, await DescribeAsync(response));
     }
+
+    private static string ExpectedFor(string route, string cause) =>
+        route == "register" && cause.StartsWith("busy-", StringComparison.Ordinal) ? NeutralRegistration : Expected;
 
     private static Exception Failure(string cause) => cause switch
     {
@@ -116,18 +124,26 @@ public sealed class NeutralUnavailabilityResponseTests(NeutralUnavailabilityResp
         };
     }
 
-    /// <summary>Status, corpo sem <c>traceId</c> (que muda a cada requisição) com as chaves em ordem, e <c>Retry-After</c>.</summary>
+    /// <summary>
+    /// Status, corpo sem <c>traceId</c> (que muda a cada requisição) com as chaves em ordem, e <c>Retry-After</c>.
+    /// Corpo vazio fica vazio.
+    /// </summary>
     private static async Task<string> DescribeAsync(HttpResponseMessage response)
     {
         var raw = await response.Content.ReadAsStringAsync(TestContext.Current.CancellationToken);
-        var problem = JsonNode.Parse(raw)?.AsObject() ?? throw new InvalidOperationException("Sem corpo.");
+        var retryAfter = response.Headers.TryGetValues("Retry-After", out var values) ? string.Join(',', values) : "(nenhum)";
+        if (raw.Length == 0)
+        {
+            return $"{(int)response.StatusCode}||Retry-After={retryAfter}";
+        }
+
+        var problem = JsonNode.Parse(raw)?.AsObject() ?? throw new InvalidOperationException("Corpo não é um objeto JSON.");
         var body = new JsonObject();
         foreach (var (key, value) in problem.Where(pair => pair.Key != "traceId").OrderBy(pair => pair.Key, StringComparer.Ordinal))
         {
             body[key] = value?.DeepClone();
         }
 
-        var retryAfter = response.Headers.TryGetValues("Retry-After", out var values) ? string.Join(',', values) : "(nenhum)";
         return $"{(int)response.StatusCode}|{body.ToJsonString()}|Retry-After={retryAfter}";
     }
 
