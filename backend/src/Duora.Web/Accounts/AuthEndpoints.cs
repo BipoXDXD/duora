@@ -16,7 +16,7 @@ namespace Duora.Web.Accounts;
 /// Rotas públicas de autenticação (API-A01 a API-A07). "Pública" não dispensa CSRF, rate limit nem resposta
 /// neutra: nenhuma delas diz se um e-mail tem conta.
 /// </summary>
-internal static class AuthEndpoints
+internal static partial class AuthEndpoints
 {
     public static void MapAuthEndpoints(this IEndpointRouteBuilder api)
     {
@@ -35,6 +35,10 @@ internal static class AuthEndpoints
             .ProducesMutationProblems()
             .ProducesProblem(StatusCodes.Status503ServiceUnavailable);
         auth.MapPost("/email-confirmation-requests", RequestEmailConfirmationAsync)
+            .WithDescription(
+                "Reenvia o código de confirmação. Responde 202 sem corpo, igual para conta pendente, conta "
+                + "confirmada, e-mail inexistente e conta ocupada (fila, lock ou prazo; até o #470 era 503). "
+                + "429 com Retry-After depois do limite do cadastro; 503 só com o banco indisponível.")
             .WithMetadata(new PublicAntiforgeryEndpoint())
             .RequireRateLimiting(AuthRateLimitPolicies.Register)
             .ProducesMutationProblems()
@@ -133,6 +137,7 @@ internal static class AuthEndpoints
         HttpContext context,
         AccountService accounts,
         AccountAttemptLimiter limiter,
+        ILoggerFactory loggers,
         CancellationToken cancellationToken)
     {
         var validation = new RequestValidation();
@@ -148,9 +153,20 @@ internal static class AuthEndpoints
             return ApiProblems.TooManyRequests(context, retryAfter);
         }
         var startedAt = Stopwatch.GetTimestamp();
-        await accounts.RequestEmailConfirmationAsync(email, password, cancellationToken);
+        try
+        {
+            await accounts.RequestEmailConfirmationAsync(email, password, cancellationToken);
+        }
+        catch (AccountBusyException busy)
+        {
+            // Só conta existente espera a trava (o e-mail inexistente sai antes): 503 aqui revelaria a conta (#470).
+            // O reenvio desiste sem gravar nada e responde o 202 neutro; o motivo fica só no log.
+            LogResendSkippedAccountBusy(
+                loggers.CreateLogger(typeof(AuthEndpoints)), busy.Reason, (long)busy.WaitCeiling.TotalMilliseconds);
+        }
         // Piso monotônico e jitter para todos os 202; fora da transação, sem ocupar conexão durante a espera.
-        var floor = TimeSpan.FromMilliseconds(500 + Random.Shared.Next(101));
+        var jitter = Random.Shared.Next((int)NeutralResponseFloor.MaxJitter.TotalMilliseconds + 1);
+        var floor = NeutralResponseFloor.Floor + TimeSpan.FromMilliseconds(jitter);
         while (floor - Stopwatch.GetElapsedTime(startedAt) is var remaining && remaining > TimeSpan.Zero)
         {
             await Task.Delay(TimeSpan.FromMilliseconds(Math.Ceiling(remaining.TotalMilliseconds)), cancellationToken);
@@ -358,4 +374,12 @@ internal static class AuthEndpoints
 
     private static ProblemHttpResult InvalidToken() =>
         ApiProblems.Problem(StatusCodes.Status400BadRequest, ApiProblems.InvalidToken);
+
+    // Warning: conta ocupada isolada é contenção normal, mas em série indica lock longo ou rajada contra uma conta.
+    // Sem e-mail, id nem exceção (cuja mensagem um chamador poderia preencher); motivo e teto como no 503.
+    [LoggerMessage(Level = LogLevel.Warning,
+        Message = "Email confirmation resend skipped: account busy ({Reason}), ceiling {CeilingMilliseconds} ms; "
+            + "answered 202 to stay neutral")]
+    private static partial void LogResendSkippedAccountBusy(
+        ILogger logger, AccountBusyReason reason, long ceilingMilliseconds);
 }
