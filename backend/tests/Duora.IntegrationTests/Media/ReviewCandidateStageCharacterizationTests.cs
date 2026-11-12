@@ -323,6 +323,23 @@ public sealed class ReviewCandidateStageCharacterizationTests(PostgresFixture po
         await AssertOriginalKeptAsync(upload);
     }
 
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task ACommittedStageDeletesTheOriginalAndItsCleanupObligationUnlessTheDeletionFails(bool deletionFails)
+    {
+        var upload = await ProcessingUploadAsync();
+        var store = new WriteCountingStore(new FileSystemObjectStore(_root.FullName), refuseQuarantineDeletion: deletionFails);
+
+        var result = await StageAsync(
+            upload.Id, upload.Version, store, DateTimeOffset.UtcNow.AddMinutes(1), TimeProvider.System, ReviewSanitized());
+
+        Assert.IsType<ReviewCandidateStageResult.Staged>(result);
+        Assert.Equal(deletionFails, await OriginalExistsAsync(upload));
+        Assert.Equal(deletionFails ? 1 : 0, await ScalarAsync("select count(*) from media.original_cleanup where upload_id=$1", upload.Id));
+        Assert.Equal(1, await ScalarAsync("select count(*) from media.uploads where id=$1 and state='AwaitingReview'", upload.Id));
+    }
+
     [Fact]
     public async Task AManagedStoreIsRegisteredThenGetsEveryVariantThroughItsOwnPutThenSealedBeforeTheCaseCommits()
     {
@@ -415,11 +432,13 @@ public sealed class ReviewCandidateStageCharacterizationTests(PostgresFixture po
         return new UploadSeed(upload.Id, upload.Version + 1, upload.QuarantineKey);
     }
 
-    private async Task AssertOriginalKeptAsync(UploadSeed upload)
+    private async Task AssertOriginalKeptAsync(UploadSeed upload) => Assert.True(await OriginalExistsAsync(upload));
+
+    private async Task<bool> OriginalExistsAsync(UploadSeed upload)
     {
         await using var original = await new FileSystemObjectStore(_root.FullName)
             .OpenReadAsync(ObjectKey.Parse(upload.QuarantineKey), Ct);
-        Assert.NotNull(original);
+        return original is not null;
     }
 
     private async Task<long> CandidateRowsAsync(Guid uploadId) =>
@@ -487,7 +506,8 @@ public sealed class ReviewCandidateStageCharacterizationTests(PostgresFixture po
         }
     }
 
-    private sealed class WriteCountingStore(IObjectStore inner, int? failingPut = null) : IObjectStore
+    private sealed class WriteCountingStore(IObjectStore inner, int? failingPut = null, bool refuseQuarantineDeletion = false)
+        : IObjectStore
     {
         internal int Writes { get; private set; }
 
@@ -503,7 +523,10 @@ public sealed class ReviewCandidateStageCharacterizationTests(PostgresFixture po
 
         public Task<Stream?> OpenReadAsync(ObjectKey key, CancellationToken cancellationToken) => inner.OpenReadAsync(key, cancellationToken);
 
-        public Task DeleteAsync(ObjectKey key, CancellationToken cancellationToken) => inner.DeleteAsync(key, cancellationToken);
+        public Task DeleteAsync(ObjectKey key, CancellationToken cancellationToken) =>
+            refuseQuarantineDeletion && key.Area == StorageArea.Quarantine
+                ? throw new IOException("Synthetic original deletion failure")
+                : inner.DeleteAsync(key, cancellationToken);
     }
 
     /// <summary>Blocks the last variant's PUT until released, then completes it ignoring the caller's token.</summary>
