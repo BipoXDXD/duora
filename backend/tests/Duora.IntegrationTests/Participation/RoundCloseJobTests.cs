@@ -141,9 +141,12 @@ public sealed class RoundCloseJobTests(PostgresFixture postgres)
         Assert.Equal(0L, await round.ActiveReservationsAsync());
     }
 
-    /// <summary>A fila não entrega antes do prazo; aqui o job é adiantado à mão para exercitar a segunda barreira, a do próprio fechamento.</summary>
+    /// <summary>
+    /// A fila não entrega antes do prazo; aqui o job é adiantado à mão. Entregue cedo, o <c>close-round</c> não é consumido:
+    /// volta à fila no próprio prazo, sem gastar tentativa, e fecha a rodada quando o relógio chega lá.
+    /// </summary>
     [Fact]
-    public async Task ACloseRoundJobForcedBeforeTheDeadlineLeavesRoomsAndRoundUntouched()
+    public async Task ACloseRoundJobDeliveredBeforeTheDeadlineReturnsToTheQueueAndClosesTheRoundAtIt()
     {
         await using var round = await OpenRoundAsync();
         var invited = await round.RoomAsync(round.InvitedRoom);
@@ -153,14 +156,23 @@ public sealed class RoundCloseJobTests(PostgresFixture postgres)
         await round.ExecuteAsync("update ops.jobs set available_at=$2 where kind='close-round' and aggregate_id=$1", round.Round, round.Deadline.AddMinutes(-1));
         round.Clock.SetUtcNow(round.Deadline.AddTicks(-1));
 
-        var delivered = await RunDueJobsAsync(round.Service);
+        var early = await ClaimCloseJobAsync(round);
 
-        Assert.Contains(delivered, job => job.Kind == "close-round" && job.AggregateId == round.Round);
+        Assert.False(await round.Service.CompleteJobAsync(early, Ct));
         Assert.Equal(invited, await round.RoomAsync(round.InvitedRoom));
         Assert.Equal(active, await round.RoomAsync(round.ActiveRoom));
         Assert.Equal(inviting, await round.RoundRowAsync());
         Assert.Equal(running, await round.EventRowAsync());
         Assert.Equal(4L, await round.ActiveReservationsAsync());
+        Assert.Equal(("Pending", 0, round.Deadline), await round.CloseJobQueueRowAsync());
+
+        round.Clock.SetUtcNow(round.Deadline);
+
+        Assert.Contains(await RunDueJobsAsync(round.Service), job => job.Id == early.Id);
+        Assert.Equal(("Expired", invited.Version + 1), await round.RoomAsync(round.InvitedRoom));
+        Assert.Equal(("Closed", inviting.Version + 1), await round.RoundRowAsync());
+        Assert.Equal(0L, await round.ActiveReservationsAsync());
+        Assert.Equal(("Done", 1), await round.CloseJobRowAsync());
     }
 
     [Fact]
@@ -321,6 +333,15 @@ public sealed class RoundCloseJobTests(PostgresFixture postgres)
             await using var reader = await query.ExecuteReaderAsync(Ct);
             Assert.True(await reader.ReadAsync(Ct));
             return (reader.GetString(0), reader.GetInt32(1));
+        }
+
+        public async Task<(string Status, int Attempts, DateTimeOffset AvailableAt)> CloseJobQueueRowAsync()
+        {
+            await using var connection = await source.OpenConnectionAsync(Ct);
+            await using var query = Command(connection, "select status,attempts,available_at from ops.jobs where kind='close-round' and aggregate_id=$1", round);
+            await using var reader = await query.ExecuteReaderAsync(Ct);
+            Assert.True(await reader.ReadAsync(Ct));
+            return (reader.GetString(0), reader.GetInt32(1), reader.GetFieldValue<DateTimeOffset>(2));
         }
 
         public async Task<long> ActiveReservationsAsync()

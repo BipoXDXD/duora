@@ -5,6 +5,7 @@ import contextlib
 import io
 import json
 import os
+import re
 import subprocess
 import sys
 import unittest
@@ -54,6 +55,37 @@ def effective_timer_setting(unit_text: str, key: str) -> str | None:
     parser = CaseSensitiveUnitParser(strict=False, delimiters=("=",))
     parser.read_string(unit_text)
     return parser.get("Timer", key, fallback=None)
+
+
+REPO_ROOT = Path(__file__).resolve().parents[2]
+MINUTES_PER_DAY = 24 * 60
+# verify-repo-full leva ~31 min; o media-check ainda não foi medido. O dobro do maior medido, arredondado para cima.
+REBOOT_CLEARANCE_MINUTES = 60
+_NIGHT_CALENDAR = re.compile(r"(?:[A-Za-z.,]+ )?\*-\*-\* (?P<hour>\d{2}):(?P<minute>\d{2}):00 UTC")
+_REBOOT_TIME = re.compile(r'^duora_unattended_reboot_time: "(?P<hour>\d{2}):(?P<minute>\d{2})"$', re.MULTILINE)
+
+
+def night_timer_starts() -> dict[str, int]:
+    """Minuto do dia (UTC) em que cada timer de calendário do role backup dispara, menos o verify de 15 min."""
+    starts: dict[str, int] = {}
+    for path in sorted((REPO_ROOT / "infra" / "ansible" / "roles" / "backup" / "files").glob("*.timer")):
+        if path.name == "duora-backup-verify.timer":
+            continue
+        calendar = effective_timer_setting(path.read_text(encoding="utf-8"), "OnCalendar") or ""
+        match = _NIGHT_CALENDAR.fullmatch(calendar)
+        if match is None:
+            raise AssertionError(f"{path.name}: OnCalendar fora do formato 'dia *-*-* HH:MM:00 UTC': {calendar!r}")
+        starts[path.name] = int(match["hour"]) * 60 + int(match["minute"])
+    return starts
+
+
+def automatic_reboot_minute() -> int:
+    """Minuto do dia (UTC) do reinício do unattended-upgrades (group_vars, role base)."""
+    text = (REPO_ROOT / "infra" / "ansible" / "group_vars" / "all.yml").read_text(encoding="utf-8")
+    match = _REBOOT_TIME.search(text)
+    if match is None:
+        raise AssertionError("duora_unattended_reboot_time ausente ou fora do formato \"HH:MM\" no group_vars")
+    return int(match["hour"]) * 60 + int(match["minute"])
 
 
 def archiver(*, archived_ago: float | None = 30.0, failed_ago: float | None = None) -> backup.ArchiverStatus:
@@ -945,6 +977,17 @@ class VerifyRepositoryActionTests(unittest.TestCase):
                 self.assertIn(f"OnCalendar={calendar}\n", text)
                 self.assertNotIn("RandomizedDelaySec", text)
 
+    def test_automatic_reboot_leaves_room_for_every_night_timer_to_finish(self) -> None:
+        # Persistent não refaz um disparo já contado: o reinício no meio de um timer perde a execução da semana.
+        reboot = automatic_reboot_minute()
+        for timer, start in night_timer_starts().items():
+            with self.subTest(timer=timer):
+                self.assertGreaterEqual((reboot - start) % MINUTES_PER_DAY, REBOOT_CLEARANCE_MINUTES)
+
+    def test_automatic_reboot_falls_between_two_runs_of_the_fifteen_minute_verify(self) -> None:
+        # *:0/15 com até 60 s de atraso aleatório; o check leva segundos. Cinco minutos depois do disparo ele acabou.
+        self.assertGreaterEqual(automatic_reboot_minute() % 15, 5)
+
     def test_calendar_timers_catch_up_runs_missed_while_the_host_was_down(self) -> None:
         role = Path(__file__).resolve().parents[2] / "infra" / "ansible" / "roles" / "backup"
         timers = sorted(path for path in (role / "files").glob("*.timer") if path.name != "duora-backup-verify.timer")
@@ -1535,12 +1578,21 @@ class MediaBackupTests(unittest.TestCase):
             self.run_media("media-verify", runner)
         self.assertEqual([], runner.restic_calls())
 
+    def test_verify_accepts_the_snapshot_of_the_day(self) -> None:
+        # Timer: backup 03:10, verify 03:55. O restic data o snapshot no início do backup.
+        self.run_media("media-verify", media_runner(snapshots=snapshot(NOW - 45 * 60)))
+
     def test_verify_accepts_a_snapshot_on_the_age_limit_and_refuses_one_past_it(self) -> None:
-        limit = backup.MAX_MEDIA_SNAPSHOT_AGE_HOURS * HOUR
-        self.run_media("media-verify", media_runner(snapshots=snapshot(NOW - limit)))
+        # 24 h 30 min: verify manual até 03:40, meia hora depois do backup diário que ainda não rodou.
+        self.run_media("media-verify", media_runner(snapshots=snapshot(NOW - 24.5 * HOUR)))
 
         with self.assertRaisesRegex(backup.BackupError, "snapshot mais novo das fotos"):
-            self.run_media("media-verify", media_runner(snapshots=snapshot(NOW - limit - 1)))
+            self.run_media("media-verify", media_runner(snapshots=snapshot(NOW - 24.5 * HOUR - 1)))
+
+    def test_verify_refuses_the_snapshot_of_the_previous_day_after_a_lost_day(self) -> None:
+        # Backup de ontem 03:10 e o de hoje perdido: o verify das 03:55 vê 24 h 45 min.
+        with self.assertRaisesRegex(backup.BackupError, "snapshot mais novo das fotos"):
+            self.run_media("media-verify", media_runner(snapshots=snapshot(NOW - 24.75 * HOUR)))
 
     def test_verify_refuses_no_snapshot_or_an_unreadable_listing(self) -> None:
         for listing in ("[]", "not json", '[{"id": "x"}]', '[{"time": "ontem"}]', '[{"time": "2026-10-16T02:00:00"}]',
