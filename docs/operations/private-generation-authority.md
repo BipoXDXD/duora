@@ -92,7 +92,7 @@ python3 scripts/testing/storage-authority/run_linux.py --report-dir /tmp/duora-a
 python3 scripts/testing/storage-authority/run_linux.py --scenario alias --report-dir /tmp/duora-authority-alias-novo
 ```
 
-Relatório precisa de diretório novo. Runner usa Linux arm64 nativo com digest SDK10.0.403, não amd64.
+Relatório precisa de diretório novo. Runner usa Linux arm64 nativo com digest SDK 10.0.404, não amd64.
 Socket Docker local fica restrito ao runner Testcontainers autorizado. Não monta mídia, segredo real,
 PID namespace do host ou volume operacional. Registra volumes anteriores e verifica preservação; sem prune.
 
