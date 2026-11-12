@@ -31,7 +31,7 @@ public sealed partial class PhotoReviewApprovalTests
         using var replay = await browser.PostJsonAsync(path, new { reviewerId = moderator.UserId }, headers);
 
         var body = (await ProblemAssert.IsProblemAsync(replay, HttpStatusCode.Forbidden, "PHOTO_REVIEW_FORBIDDEN")).ToJsonString();
-        AssertWithout(body, item.CaseId, item.UploadId, moderator.UserId);
+        ReplayLeakAssert.ContainsNone(replay, body, item.CaseId, item.UploadId, moderator.UserId);
         Assert.Null(replay.Headers.ETag);
         Assert.Equal(2, await ScalarAsync("select version from safety.photo_review_cases where id=$1", item.CaseId));
         Assert.Equal(1, await ScalarAsync("select count(*) from safety.photo_review_assignments where case_id=$1", item.CaseId));
@@ -105,13 +105,4 @@ public sealed partial class PhotoReviewApprovalTests
         ["If-Match"] = tag,
         ["Idempotency-Key"] = key,
     });
-
-    private static void AssertWithout(string body, params Guid[] ids)
-    {
-        foreach (var id in ids)
-        {
-            Assert.DoesNotContain(id.ToString(), body, StringComparison.OrdinalIgnoreCase);
-            Assert.DoesNotContain(id.ToString("N"), body, StringComparison.OrdinalIgnoreCase);
-        }
-    }
 }
