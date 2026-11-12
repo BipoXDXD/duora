@@ -73,7 +73,7 @@ internal sealed class EligibleParticipantHandler(SelfieVerificationService verif
         catch (Exception exception) when (IsDatabaseUnavailable(exception))
         {
             // Sem banco não se sabe: falha fechada, mas como indisponibilidade (503), não como proibição (M7).
-            context.Fail(new EligibilityUnavailableReason(this));
+            context.Fail(new EligibilityUnavailableReason(this, exception));
             return;
         }
 
@@ -98,6 +98,12 @@ internal sealed class EligibleParticipantHandler(SelfieVerificationService verif
     }
 }
 
-/// <summary>A elegibilidade não pôde ser consultada (banco fora do ar).</summary>
-internal sealed class EligibilityUnavailableReason(IAuthorizationHandler handler)
-    : AuthorizationFailureReason(handler, "Elegibilidade indisponível.");
+/// <summary>
+/// A elegibilidade não pôde ser consultada (banco fora do ar). Guarda a falha para o 503 sair com o mesmo
+/// <c>Retry-After</c> que o handler global dá à mesma causa.
+/// </summary>
+internal sealed class EligibilityUnavailableReason(IAuthorizationHandler handler, Exception failure)
+    : AuthorizationFailureReason(handler, "Elegibilidade indisponível.")
+{
+    public Exception Failure { get; } = failure;
+}
