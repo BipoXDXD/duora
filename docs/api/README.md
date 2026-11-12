@@ -85,8 +85,17 @@ Um erro passageiro do banco responde `503` `TEMPORARILY_UNAVAILABLE` com `Retry-
 Quem decide é só o handler global (`DatabaseUnavailableExceptionHandler`); nenhum filtro de endpoint trata
 contenção por conta própria, e o teste de arquitetura `ContentionClassificationTests` impede que volte um.
 A elegibilidade indisponível (`EligibleParticipant`, `account-moderator`) não tem 503 próprio: ela monta a mesma
-resposta, pela mesma fonte do `Retry-After` (`DatabaseUnavailability.Unavailable`), e só o Warning fica com o
-handler global (#473).
+resposta, pela mesma fonte do `Retry-After` (`DatabaseUnavailability.Unavailable`), mas não loga. O Warning
+(`DatabaseUnavailable` ou `DatabaseContention`) sai só pelo handler global, então uma falha de banco vista só pela
+elegibilidade responde `503` sem nenhuma linha de log (#473).
+
+Os endpoints que montam o `503` de banco sem passar pelo handler (revisão de foto, mídia, bloqueio, suspensão de
+conta, reconciliação de cadastro e a entrega da evidência) também usam `DatabaseUnavailability` (`Unavailable` com a
+exceção, ou `Contention` quando o serviço devolve só `Busy`). Um teste de arquitetura (`RetryAfterSourceTests`) barra
+o prazo literal em `SetRetryAfter` e `Unavailable` e qualquer escrita do header fora de uma allowlist de arquivos, cada
+um com o motivo (#493). Dentro desses arquivos, mandar a exceção do Npgsql para a fonte é regra de revisão: o teste não
+distingue o `catch` de banco do de storage. O `503` de outra causa (fila de mídia, storage, capacidade, revisão sem
+evidência) declara o prazo numa constante nomeada perto dela.
 
 Valores (decisão da coordenação, 10/11):
 
@@ -94,7 +103,7 @@ Valores (decisão da coordenação, 10/11):
 |---|---|---|---|
 | Contenção: serialização, deadlock, `lock_timeout` (crua ou embrulhada pelo Npgsql ou pelo EF) | `40001`, `40P01`, `55P03` | `2` | `30` |
 | Banco fora do alcance: rede, pool, servidor sem conexões ou memória, no limite de configuração, com objeto em uso ou erro de E/S, ou desligando | `53300`, `53200`, `53400`, `55006`, `58030`, `57P01`–`57P03`, `08*`, falha do cliente | `5` | `30` |
-| Timeout de comando (`statement_timeout`) | `57014` | regra da rota (mídia e revisão de foto: `503`; outras: `500`) | `30` |
+| Timeout de comando (`statement_timeout`) | `57014` | regra da rota (mídia e revisão de foto: `503` com `2`; outras: `500`) | `30` |
 | Conta ocupada (`AccountBusyException`: fila, lock ou prazo) | — | o da exceção (na conta, `30`) | `30`; no cadastro e no reenvio, não é `503` (abaixo) |
 | Documentos legais indisponíveis no cadastro | — | — | `30` |
 
@@ -130,6 +139,10 @@ Mudança de contrato, sem mudança de schema (o OpenAPI não lista o `Retry-Afte
 - Contenção embrulhada pelo Npgsql: era `503` com `Retry-After: 5`, passa a `2`.
 - Rotas de Participation, Catalog, PhotoReview e Media: continuam `503` com `Retry-After: 2`; a resposta ganha
   `Expires: -1`, como todo erro tratado pelo handler global, e a falha passa a gerar o Warning com o SQLSTATE.
+- Entrega da evidência de revisão de foto (`GET /api/v1/admin/photo-reviews/{id}/evidence/{variant}`), falha antes do
+  primeiro byte (#493): a exceção do Npgsql que não é contenção nem `57014` (banco fora do alcance) era `503` com
+  `Retry-After: 2`, passa a `5`, como no handler global; contenção e `57014` continuam `2`, e a falha de I/O ou o
+  cancelamento sem exceção do Npgsql continuam `2`.
 - `53200`, `53400`, `55006` e `58030` crus (`PostgresException`): eram `500` `INTERNAL_ERROR`, passam a `503` com
   `Retry-After: 5` (`30` sob `/auth`), igual ao embrulhado pelo Npgsql ou pelo EF (#476).
 - Rotas sob `/auth`: todo `503` passa a `Retry-After: 30`; o `57014` passa de `500` a `503`; o `503` legal do

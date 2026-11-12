@@ -164,14 +164,14 @@ internal sealed class SessionAuthorizationResultHandler(IAntiforgery antiforgery
         var awaitsMfa = authorizeResult.Forbidden
             && authorizeResult.AuthorizationFailure?.FailureReasons.Any(
                 reason => reason.Message == ApiProblems.MfaEnrollmentRequired) == true;
-        var eligibilityUnavailable = authorizeResult.Forbidden
+        var unavailableReason = authorizeResult.Forbidden
             ? authorizeResult.AuthorizationFailure?.FailureReasons.OfType<EligibilityUnavailableReason>().FirstOrDefault()
             : null;
-        if (eligibilityUnavailable is not null)
+        if (unavailableReason is not null)
         {
             // Sem banco, a elegibilidade não é conhecida: 503 para o cliente tentar de novo, nunca 403 (ADR-0024). A
             // resposta é a do handler global para a mesma falha, com o mesmo Retry-After (#473).
-            await DatabaseUnavailability.Unavailable(context, DatabaseUnavailability.TemporaryCause(eligibilityUnavailable.Failure))
+            await DatabaseUnavailability.Unavailable(context, DatabaseUnavailability.TemporaryCause(unavailableReason.Failure))
                 .ExecuteAsync(context);
             return;
         }

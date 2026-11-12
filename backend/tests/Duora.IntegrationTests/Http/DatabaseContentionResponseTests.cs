@@ -133,6 +133,27 @@ public sealed class DatabaseContentionResponseTests(EnabledPhotoUploads media)
         Assert.Contains(described, warning.Text, StringComparison.Ordinal);
     }
 
+    /// <summary>
+    /// O timeout de comando (57014) é tratado pelos filtros de mídia e revisão de foto, que respondem pela mesma fonte
+    /// do handler global (#493): o mesmo 503 com <c>Retry-After</c> de 2 s, sem o Warning do handler.
+    /// </summary>
+    [Theory]
+    [InlineData("photo-review")]
+    [InlineData("media")]
+    public async Task ACommandTimeoutOnAFilteredRouteAnswersTheShortRetryAfter(string route)
+    {
+        var failure = new PostgresException(_canary, "ERROR", "ERROR", "57014");
+
+        var (whole, logs) = await RespondAsync(route, failure);
+
+        // O filtro monta o 503 sem o handler global, que é quem acrescenta o Expires: compara só o que é da fonte.
+        Assert.Equal(503, whole.Status);
+        Assert.Contains($"Retry-After: {ContentionRetryAfterSeconds}", whole.Headers, StringComparison.Ordinal);
+        Assert.Equal(Expected(ContentionRetryAfterSeconds).Body, whole.Body);
+        AssertNothingLeaks(whole, logs);
+        Assert.DoesNotContain(logs.Entries, entry => entry.Category == typeof(DatabaseUnavailableExceptionHandler).FullName);
+    }
+
     private Exception Envelope(PostgresException server, string envelope) => envelope switch
     {
         "cru" => server,
