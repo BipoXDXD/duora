@@ -14,7 +14,7 @@ deploy, manifesto e runbooks: [docs/operations/deploy.md](../docs/operations/dep
 | `../docs/operations/backblaze-setup.md` | Bucket de backup e application keys no Backblaze B2, criados pelo responsável com o CLI `b2` (sem OpenTofu por enquanto, como o resto da infraestrutura) |
 | `ansible/` | Configuração do host (roles `base`, `ssh`, `firewall`, `docker`, `app_dirs`, `backup`) |
 | `ansible/media-sanitizer.yml` | Runtime rootless do media-sanitizer, instalado inativo (role `media_sanitizer`; [runbook](../docs/operations/media-sanitizer-host.md)) |
-| `../scripts/deploy/` | `duora-deploy`, `duora-secrets`, `duora-backup` e o smoke local (Python 3.12, só biblioteca padrão) |
+| `../scripts/deploy/` | `duora-deploy`, `duora-secrets`, `duora-backup` e o smoke local (Python 3.12 na VPS, só biblioteca padrão; testado em 3.12 no CI) |
 | `../scripts/backup/` | Drill de restore PITR com MinIO de teste ([backup-restore.md](../docs/operations/backup-restore.md)) |
 
 Sem OpenTofu por enquanto: provedor e arquitetura da VPS não foram escolhidos (spec 2.3, "não inventar provider").
@@ -116,9 +116,16 @@ ansible-playbook -i ~/duora-ops/inventory.yml site.yml
 O inventário real fica fora do git (copie `inventory/example.yml`). Lint e sintaxe sem instalar nada global:
 
 ```sh
-uvx --from ansible-lint==26.10.1 --with ansible-core==2.21.5 ansible-lint
-uvx --from ansible-core==2.21.5 ansible-playbook -i inventory/example.yml site.yml --syntax-check
+uvx --python 3.14 --from ansible-lint==26.10.1 --with ansible-core==2.22.0 ansible-lint
+uvx --python 3.14 --from ansible-core==2.22.0 ansible-playbook -i inventory/example.yml site.yml --syntax-check
 ```
+
+Versão do Python (critério vale para o repositório todo): o tooling que só roda no runner ou na máquina do dev
+(ansible-core, ansible-lint, pyright, pipeline de ilustrações, verificadores de supply chain) usa Python 3.14.10, com
+lockfiles com hashes compilados para 3.14. O código que executa no Python do host da VPS (`duora-deploy`,
+`duora-secrets`, `duora-backup`, validador da chave do apt) continua testado em Python 3.12, o do Ubuntu 24.04 da VPS,
+até o dono atualizá-la. Quem subir a VPS para 3.14 deve mover esses testes do CI para 3.14 na mesma mudança. O pyright
+mantém `pythonVersion` 3.12 para barrar o que a VPS não tem.
 
 - `base`: pacotes, UTC, `unattended-upgrades` com reinício automático às 04:30 UTC (`duora_unattended_reboot`).
   `/proc` com `hidepid=invisible`: quem não é root não vê processos (e linhas de comando) de outros usuários.
