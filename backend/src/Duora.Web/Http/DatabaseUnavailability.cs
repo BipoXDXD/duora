@@ -7,11 +7,13 @@ namespace Duora.Web.Http;
 
 /// <summary>
 /// Banco temporariamente fora do alcance: conexão recusada ou caída, pool esgotado (o <c>Timeout</c> do pool venceu)
-/// ou servidor sem conexões livres (53300) ou desligando (57P01 a 57P03, classe 08). Também sete estados de recurso
-/// do servidor, crus como embrulhados: 53000 (recursos insuficientes), 53100 (disco cheio), 53200 (sem memória), 53400
-/// (limite de configuração), 55006 (objeto em uso), 57P05 (sessão ociosa encerrada) e 58030 (erro de E/S) (#476,
-/// #492). A lista é própria, sem paridade com o <c>IsTransient</c> do Npgsql: 55000 (defeito costuma ser permanente)
-/// e 58000 (genérico demais) ficam de fora de propósito e continuam 500 quando crus.
+/// ou servidor sem conexões livres (53300), desligando (57P01 a 57P03) ou com a conexão perdida (08000, 08001, 08003,
+/// 08004, 08006 e 08007). Também sete estados de recurso do servidor, crus como embrulhados: 53000 (recursos
+/// insuficientes), 53100 (disco cheio), 53200 (sem memória), 53400 (limite de configuração), 55006 (objeto em uso),
+/// 57P05 (sessão ociosa encerrada) e 58030 (erro de E/S) (#476, #492). A lista é própria, sem paridade com o
+/// <c>IsTransient</c> do Npgsql, exceto a classe 08, que segue exatamente os seis estados dele no Npgsql 10.0.3
+/// (#497; 08P01 e 08002 ficam de fora). 55000 (defeito costuma ser permanente) e 58000 (genérico demais) ficam de fora
+/// de propósito e continuam 500 quando crus.
 /// E a contenção, que passa sozinha: serialização (40001), deadlock (40P01) e <c>lock_timeout</c> (55P03), crua ou
 /// embrulhada pelo Npgsql (#465). O EF costuma embrulhar a causa numa <see cref="InvalidOperationException"/>
 /// ("transient failure"), então a cadeia inteira é examinada.
@@ -94,10 +96,13 @@ internal static class DatabaseUnavailability
                 or PostgresErrorCodes.LockNotAvailable,
         };
 
-    // Estados de recurso do servidor tratados como indisponibilidade, além de 53300, do desligamento e da classe 08:
-    // 53000 (recursos insuficientes), 53100 (disco cheio), 53200 (sem memória), 53400 (limite de configuração), 55006
-    // (objeto em uso), 57P05 (sessão ociosa encerrada) e 58030 (erro de E/S). Não é o conjunto do IsTransient do
+    // Estados de recurso do servidor tratados como indisponibilidade, além de 53300 e do desligamento: 53000 (recursos
+    // insuficientes), 53100 (disco cheio), 53200 (sem memória), 53400 (limite de configuração), 55006 (objeto em uso),
+    // 57P05 (sessão ociosa encerrada) e 58030 (erro de E/S). Não é o conjunto do IsTransient do
     // Npgsql: 55000 e 58000, que ele cobre, continuam 500 quando crus.
+    // Da classe 08, lista explícita e não o prefixo: é a do IsTransient do Npgsql 10.0.3 (08000, 08001, 08003, 08004,
+    // 08006 e 08007). 08P01 (protocol_violation) é defeito de código ou de proxy, como um bind com número de
+    // parâmetros errado, e 08002 (connection_already_exists) não é a rede fora: seguem 500 quando crus (#497).
     private static bool IsUnavailableState(string sqlState) =>
         sqlState is PostgresErrorCodes.TooManyConnections
             or PostgresErrorCodes.InsufficientResources
@@ -110,7 +115,12 @@ internal static class DatabaseUnavailability
             or PostgresErrorCodes.AdminShutdown
             or PostgresErrorCodes.CrashShutdown
             or PostgresErrorCodes.CannotConnectNow
-        || sqlState.StartsWith("08", StringComparison.Ordinal);
+            or PostgresErrorCodes.ConnectionException
+            or PostgresErrorCodes.SqlClientUnableToEstablishSqlConnection
+            or PostgresErrorCodes.ConnectionDoesNotExist
+            or PostgresErrorCodes.SqlServerRejectedEstablishmentOfSqlConnection
+            or PostgresErrorCodes.ConnectionFailure
+            or PostgresErrorCodes.TransactionResolutionUnknown;
 }
 
 /// <summary>

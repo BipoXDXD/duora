@@ -29,6 +29,12 @@ public sealed class NeutralUnavailabilityResponseTests(NeutralUnavailabilityResp
         + "\"title\":\"Service temporarily unavailable. Try again later.\","
         + "\"type\":\"urn:duora:problem:temporarily-unavailable\"}|Retry-After=" + BusyRetryAfterSeconds;
 
+    private const string ProtocolViolation = "08P01-cru";
+
+    private const string InternalError =
+        "500|{\"code\":\"INTERNAL_ERROR\",\"status\":500,\"title\":\"An unexpected error occurred.\","
+        + "\"type\":\"urn:duora:problem:internal-error\"}|Retry-After=(nenhum)";
+
     /// <summary>O cadastro (API-A02) e o reenvio de sempre: 202 sem corpo e sem <c>Retry-After</c>.</summary>
     private const string NeutralAccepted = "202||Retry-After=(nenhum)";
 
@@ -50,6 +56,7 @@ public sealed class NeutralUnavailabilityResponseTests(NeutralUnavailabilityResp
         "40001-npgsql", "40P01-npgsql", "55P03-npgsql",
         .. ResourceStates.SelectMany(state => Envelopes.Select(envelope => $"{state}-{envelope}")),
         "57014-cru",
+        ProtocolViolation,
     ];
 
     public static TheoryData<string, string> Cases()
@@ -105,9 +112,14 @@ public sealed class NeutralUnavailabilityResponseTests(NeutralUnavailabilityResp
     }
 
     private static string ExpectedFor(string route, string cause) =>
-        GiveUpOnBusyRoutes.Contains(route) && cause.StartsWith("busy-", StringComparison.Ordinal)
-            ? NeutralAccepted
-            : Expected;
+        cause switch
+        {
+            // Defeito de código ou de proxy (#497), não indisponibilidade: o 500 de sempre, sem Retry-After.
+            ProtocolViolation => InternalError,
+            _ when GiveUpOnBusyRoutes.Contains(route) && cause.StartsWith("busy-", StringComparison.Ordinal) =>
+                NeutralAccepted,
+            _ => Expected,
+        };
 
     private static Exception Failure(string cause) => cause switch
     {
