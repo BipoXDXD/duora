@@ -37,8 +37,9 @@ internal static partial class AuthEndpoints
         auth.MapPost("/email-confirmation-requests", RequestEmailConfirmationAsync)
             .WithDescription(
                 "Reenvia o código de confirmação. Responde 202 sem corpo, igual para conta pendente, conta "
-                + "confirmada, e-mail inexistente e conta ocupada (fila, lock ou prazo; até o #470 era 503). "
-                + "429 com Retry-After depois do limite do cadastro; 503 só com o banco indisponível.")
+                + "confirmada, e-mail inexistente e conta ocupada (fila, lock ou prazo). "
+                + "429 com Retry-After depois do limite do cadastro; 503 com o banco indisponível, "
+                + "com contenção no banco ou com o timeout de comando (statement_timeout).")
             .WithMetadata(new PublicAntiforgeryEndpoint())
             .RequireRateLimiting(AuthRateLimitPolicies.Register)
             .ProducesMutationProblems()
