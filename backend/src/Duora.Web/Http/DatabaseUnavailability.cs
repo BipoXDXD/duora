@@ -1,15 +1,22 @@
 using System.Diagnostics;
 using Microsoft.AspNetCore.Diagnostics;
+using Microsoft.AspNetCore.Http.HttpResults;
 using Npgsql;
 
 namespace Duora.Web.Http;
 
 /// <summary>
 /// Banco temporariamente fora do alcance: conexão recusada ou caída, pool esgotado (o <c>Timeout</c> do pool venceu)
-/// ou servidor sem conexões livres (53300) ou desligando (57P01 a 57P03, classe 08). Também a contenção, que passa
-/// sozinha: serialização (40001), deadlock (40P01) e <c>lock_timeout</c> (55P03), crua ou embrulhada pelo Npgsql
-/// (#465). O EF costuma embrulhar a causa numa <see cref="InvalidOperationException"/> ("transient failure"), então
-/// a cadeia inteira é examinada.
+/// ou servidor sem conexões livres (53300), desligando (57P01 a 57P03) ou com a conexão perdida (08000, 08001, 08003,
+/// 08004, 08006 e 08007). Também sete estados de recurso do servidor, crus como embrulhados: 53000 (recursos
+/// insuficientes), 53100 (disco cheio), 53200 (sem memória), 53400 (limite de configuração), 55006 (objeto em uso),
+/// 57P05 (sessão ociosa encerrada) e 58030 (erro de E/S) (#476, #492). A lista é própria, sem paridade com o
+/// <c>IsTransient</c> do Npgsql, exceto a classe 08, que segue exatamente os seis estados dele no Npgsql 10.0.3
+/// (#497; 08P01 e 08002 ficam de fora). 55000 (defeito costuma ser permanente) e 58000 (genérico demais) ficam de fora
+/// de propósito e continuam 500 quando crus.
+/// E a contenção, que passa sozinha: serialização (40001), deadlock (40P01) e <c>lock_timeout</c> (55P03), crua ou
+/// embrulhada pelo Npgsql (#465). O EF costuma embrulhar a causa numa <see cref="InvalidOperationException"/>
+/// ("transient failure"), então a cadeia inteira é examinada.
 /// </summary>
 internal static class DatabaseUnavailability
 {
@@ -53,6 +60,33 @@ internal static class DatabaseUnavailability
         return inner as PostgresException;
     }
 
+    // Passa sozinho em instantes: os lock_timeout e statement_timeout curtos do projeto ficam em 2 s e os 503 de
+    // contenção já respondiam 2, então outra tentativa nesse prazo costuma passar.
+    private static readonly TimeSpan ContentionRetryAfter = TimeSpan.FromSeconds(2);
+
+    // Banco fora do alcance (rede, pool, servidor cheio ou desligando): recuperar leva mais tempo.
+    private static readonly TimeSpan UnreachableRetryAfter = TimeSpan.FromSeconds(5);
+
+    /// <summary>
+    /// O 503 de banco indisponível, com o <c>Retry-After</c> da causa: fonte única para o handler global, a
+    /// elegibilidade (#473) e os endpoints que respondem sem o handler (#493). Contenção e timeout de comando (57014)
+    /// passam logo; sem causa conhecida (<paramref name="cause"/> nulo), vale o de banco fora do alcance. O 57014 só
+    /// chega aqui pelos filtros de mídia e revisão de foto; o handler global o trata como indisponibilidade só nas
+    /// rotas neutras, onde o valor do <c>Retry-After</c> é o da conta ocupada.
+    /// </summary>
+    public static ProblemHttpResult Unavailable(HttpContext httpContext, NpgsqlException? cause) =>
+        ApiProblems.Unavailable(httpContext, cause is not null && RecoversSoon(cause) ? ContentionRetryAfter : UnreachableRetryAfter);
+
+    /// <summary>
+    /// O 503 de contenção que esgotou as tentativas, quando o resultado do serviço já não carrega a exceção
+    /// (<c>Busy</c>): o mesmo <c>Retry-After</c> da contenção crua.
+    /// </summary>
+    public static ProblemHttpResult Contention(HttpContext httpContext) =>
+        ApiProblems.Unavailable(httpContext, ContentionRetryAfter);
+
+    private static bool RecoversSoon(NpgsqlException cause) =>
+        IsContention(cause) || cause is PostgresException { SqlState: PostgresErrorCodes.QueryCanceled };
+
     /// <summary>Contenção entre transações: a mesma operação costuma passar logo em seguida.</summary>
     public static bool IsContention(NpgsqlException cause) =>
         cause is PostgresException
@@ -62,12 +96,31 @@ internal static class DatabaseUnavailability
                 or PostgresErrorCodes.LockNotAvailable,
         };
 
+    // Estados de recurso do servidor tratados como indisponibilidade, além de 53300 e do desligamento: 53000 (recursos
+    // insuficientes), 53100 (disco cheio), 53200 (sem memória), 53400 (limite de configuração), 55006 (objeto em uso),
+    // 57P05 (sessão ociosa encerrada) e 58030 (erro de E/S). Não é o conjunto do IsTransient do
+    // Npgsql: 55000 e 58000, que ele cobre, continuam 500 quando crus.
+    // Da classe 08, lista explícita e não o prefixo: é a do IsTransient do Npgsql 10.0.3 (08000, 08001, 08003, 08004,
+    // 08006 e 08007). 08P01 (protocol_violation) é defeito de código ou de proxy, como um bind com número de
+    // parâmetros errado, e 08002 (connection_already_exists) não é a rede fora: seguem 500 quando crus (#497).
     private static bool IsUnavailableState(string sqlState) =>
         sqlState is PostgresErrorCodes.TooManyConnections
+            or PostgresErrorCodes.InsufficientResources
+            or PostgresErrorCodes.DiskFull
+            or PostgresErrorCodes.IdleSessionTimeout
+            or PostgresErrorCodes.OutOfMemory
+            or PostgresErrorCodes.ConfigurationLimitExceeded
+            or PostgresErrorCodes.ObjectInUse
+            or PostgresErrorCodes.IoError
             or PostgresErrorCodes.AdminShutdown
             or PostgresErrorCodes.CrashShutdown
             or PostgresErrorCodes.CannotConnectNow
-        || sqlState.StartsWith("08", StringComparison.Ordinal);
+            or PostgresErrorCodes.ConnectionException
+            or PostgresErrorCodes.SqlClientUnableToEstablishSqlConnection
+            or PostgresErrorCodes.ConnectionDoesNotExist
+            or PostgresErrorCodes.SqlServerRejectedEstablishmentOfSqlConnection
+            or PostgresErrorCodes.ConnectionFailure
+            or PostgresErrorCodes.TransactionResolutionUnknown;
 }
 
 /// <summary>
@@ -84,14 +137,8 @@ internal sealed partial class DatabaseUnavailableExceptionHandler(ILogger<Databa
     // Sem endpoint, o path é texto do cliente e sem limite de tamanho: não vai para o log.
     private const string NoEndpoint = "(no endpoint)";
 
-    // Contenção: os lock_timeout curtos do projeto ficam em 2 s e os 503 de contenção já respondiam 2, então outra
-    // tentativa nesse prazo costuma passar.
-    private static readonly TimeSpan ContentionRetryAfter = TimeSpan.FromSeconds(2);
-
-    // Banco fora do alcance (rede, pool, servidor cheio ou desligando): recuperar leva mais tempo.
-    private static readonly TimeSpan UnreachableRetryAfter = TimeSpan.FromSeconds(5);
-
-    public async ValueTask<bool> TryHandleAsync(HttpContext httpContext, Exception exception, CancellationToken cancellationToken)
+    public async ValueTask<bool> TryHandleAsync(HttpContext httpContext, Exception exception,
+        CancellationToken cancellationToken)
     {
         if (CauseFor(httpContext, exception) is not { } cause)
         {
@@ -100,8 +147,7 @@ internal sealed partial class DatabaseUnavailableExceptionHandler(ILogger<Databa
 
         var contention = DatabaseUnavailability.IsContention(cause);
         Log(contention, cause, httpContext);
-        await ApiProblems.Unavailable(httpContext, contention ? ContentionRetryAfter : UnreachableRetryAfter)
-            .ExecuteAsync(httpContext);
+        await DatabaseUnavailability.Unavailable(httpContext, cause).ExecuteAsync(httpContext);
         return true;
     }
 
