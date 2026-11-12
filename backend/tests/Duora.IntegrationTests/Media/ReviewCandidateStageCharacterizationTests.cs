@@ -356,6 +356,51 @@ public sealed class ReviewCandidateStageCharacterizationTests(PostgresFixture po
     [Theory]
     [InlineData(false)]
     [InlineData(true)]
+    public async Task AnOwnerRevokedDuringAPutLosesTheLeaseWithoutHoldingStorageLocksAndKeepsTheSettledCleanupObligation(
+        bool restrict)
+    {
+        var upload = await ProcessingUploadAsync();
+        var store = new LatePutStore(new FileSystemObjectStore(_root.FullName));
+        var staging = StageAsync(upload.Id, upload.Version, store, DateTimeOffset.UtcNow.AddMinutes(1), TimeProvider.System,
+            ReviewSanitized());
+        try
+        {
+            await store.PutEntered.Task.WaitAsync(TimeSpan.FromSeconds(5), Ct);
+            await using var connection = new NpgsqlConnection(_connectionString);
+            await connection.OpenAsync(Ct);
+            await using (var setup = new NpgsqlCommand("set lock_timeout='200ms'", connection))
+            {
+                await setup.ExecuteNonQueryAsync(Ct);
+            }
+
+            // Staging must hold no row lock while storage I/O is in flight, or this revocation would time out.
+            await using var revoke = new NpgsqlCommand(restrict
+                ? "update identity.users set status='Restricted' where id=$1"
+                : "update identity.users set email_confirmed=false where id=$1", connection);
+            revoke.Parameters.AddWithValue(upload.OwnerId);
+            await revoke.ExecuteNonQueryAsync(Ct);
+            store.AllowPut.TrySetResult();
+
+            Assert.IsType<ReviewCandidateStageResult.LeaseLost>(await staging.WaitAsync(TimeSpan.FromSeconds(10), Ct));
+        }
+        finally
+        {
+            store.AllowPut.TrySetResult();
+        }
+
+        Assert.Equal(0, await ScalarAsync("select count(*) from safety.photo_review_cases where upload_id=$1", upload.Id));
+        Assert.Equal(0, await ScalarAsync("select count(*) from media.original_cleanup where upload_id=$1", upload.Id));
+        Assert.Equal(1, await ScalarAsync("select count(*) from media.uploads where id=$1 and state='Processing'", upload.Id));
+        Assert.Equal(1, await ScalarAsync("""
+            select count(*) from media.review_candidates where upload_id=$1 and committed_at is null
+              and writer_settled_at is not null and cleanup_requested_at is not null
+            """, upload.Id));
+        await AssertOriginalKeptAsync(upload);
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
     public async Task ACommittedStageDeletesTheOriginalAndItsCleanupObligationUnlessTheDeletionFails(bool deletionFails)
     {
         var upload = await ProcessingUploadAsync();
@@ -459,7 +504,7 @@ public sealed class ReviewCandidateStageCharacterizationTests(PostgresFixture po
         using var bytes = new MemoryStream(original);
         await new FileSystemObjectStore(_root.FullName).PutAsync(
             ObjectKey.Parse(upload.QuarantineKey), bytes, original.Length, "image/jpeg", Ct);
-        return new UploadSeed(upload.Id, upload.Version + 1, upload.QuarantineKey);
+        return new UploadSeed(upload.Id, owner, upload.Version + 1, upload.QuarantineKey);
     }
 
     private async Task AssertOriginalKeptAsync(UploadSeed upload) => Assert.True(await OriginalExistsAsync(upload));
@@ -516,7 +561,7 @@ public sealed class ReviewCandidateStageCharacterizationTests(PostgresFixture po
     private static SanitizeOutcome.Sanitized ReviewSanitized() => new(PhotoFormat.Jpeg, 64, 32,
         [.. PhotoVariants.All.Select(kind => new SanitizedVariant(kind, TestImages.WebP(64, 32), 64, 32))]);
 
-    private sealed record UploadSeed(Guid Id, long Version, string QuarantineKey);
+    private sealed record UploadSeed(Guid Id, Guid OwnerId, long Version, string QuarantineKey);
 
     private sealed class RunBeforeCandidateInsert(Func<Task> beforeInsert) : DbCommandInterceptor
     {
