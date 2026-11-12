@@ -9,9 +9,9 @@ Inventário da máquina de desenvolvimento em 2026-11-05, lido com os comandos d
 | Item | Versão encontrada | Fixada em |
 |---|---|---|
 | Sistema | macOS 27.0.1 (build 26A434), `arm64` nativo (sem Rosetta) | — |
-| .NET SDK | 10.0.403 | `global.json` (`rollForward: latestPatch`) |
-| Runtime .NET / ASP.NET Core | 10.0.14 | vem com o SDK |
-| dotnet-ef | 10.0.13 | `.config/dotnet-tools.json` |
+| .NET SDK | 10.0.404 | `global.json` (`rollForward: latestPatch`) |
+| Runtime .NET / ASP.NET Core | 10.0.15 | vem com o SDK |
+| dotnet-ef | 10.0.15 | `.config/dotnet-tools.json` |
 | Docker Engine (Docker Desktop) | 29.8.2, runtime `linux/arm64`, contexto `desktop-linux` | — |
 | Docker Compose | 5.5.1 | — |
 | PostgreSQL (container) | 18.6 | `infra/compose/compose.dev.yml` e `PostgresFixture.cs` |

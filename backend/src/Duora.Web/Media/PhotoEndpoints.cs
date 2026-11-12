@@ -31,7 +31,7 @@ internal static class PhotoEndpoints
     private static readonly TimeSpan InProgressRetryAfter = TimeSpan.FromSeconds(5);
     private static readonly TimeSpan PendingLimitRetryAfter = TimeSpan.FromSeconds(60);
     private static readonly TimeSpan QueueFullRetryAfter = TimeSpan.FromSeconds(60);
-    private static readonly TimeSpan StorageRetryAfter = TimeSpan.FromSeconds(30);
+    internal static readonly TimeSpan StorageRetryAfter = TimeSpan.FromSeconds(30);
 
     public static void MapPhotoEndpoints(this IEndpointRouteBuilder api)
     {
