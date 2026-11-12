@@ -239,9 +239,11 @@ public sealed partial class PhotoUploads
         catch (Exception exception) when (exception is not OutOfMemoryException)
         {
             // Compensação (spec 16.2): a reserva e o objeto parcial saem; o erro não some, vira o resultado e o log.
+            // O cancelamento do cliente (token da requisição) e o corpo que não chegou inteiro são falha de quem envia.
+            // O estouro do prazo com o corpo inteiro entregue é do storage, que demorou a confirmar: 503, não 400.
             var clientFailed = counted.ClientFailed
-                || linked.IsCancellationRequested
-                || (IsTimeout(exception) && !counted.IsComplete);
+                || cancellationToken.IsCancellationRequested
+                || ((timeout.IsCancellationRequested || IsTimeout(exception)) && !counted.IsComplete);
             LogStreamingFailed(_logger, upload.Id, clientFailed, exception.GetType().Name);
             await DiscardReservationAsync(upload, key);
             return clientFailed ? new PhotoUploadResult.BodyIncomplete() : new PhotoUploadResult.StorageFailed();

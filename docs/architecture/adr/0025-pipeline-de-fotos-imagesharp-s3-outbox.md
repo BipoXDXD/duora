@@ -95,7 +95,8 @@ na outbox e sanitizá-la no Worker com ImageSharp, publicando só derivados reen
    lista o bucket, e o Web não lê a quarentena. Só `NoSuchKey` conta como objeto ausente; `AccessDenied` é
    erro de configuração, registrado como Error. Timeout por chamada e retry só do SDK, com teto; o timeout do PUT
    na quarentena é pelo menos o `Media:UploadTimeout` (conferido no boot), e um timeout com o corpo ainda
-   incompleto conta como falha do cliente.
+   incompleto, como o aborto do próprio cliente, conta como falha do cliente (`400 UPLOAD_INCOMPLETE`); com o
+   corpo inteiro já entregue, quem demorou foi o storage (`503 STORAGE_UNAVAILABLE` com `Retry-After`).
 6. **Fila.** O `Quarantined` grava `media.upload-quarantined` (schema 1, payload só com `uploadId`; a chave do
    objeto nunca vai ao payload) na outbox, com uma entrega ao consumidor `media-processing` e prazo de 24 h
    (= `abandon_after`). O Worker usa o mesmo protocolo da outbox de e-mail: claim com `SKIP LOCKED`, lease,
