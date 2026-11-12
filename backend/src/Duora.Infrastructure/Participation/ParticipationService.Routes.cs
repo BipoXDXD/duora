@@ -59,6 +59,11 @@ public sealed partial class ParticipationService
         {
             return ParticipationOutcome.Conflict;
         }
+        // Mesma regra de ActionAsync: ação nova depois do prazo recebe a 404 da sala expirada, antes e depois do job.
+        if (result is ActionValidation<UnlikelyRoutesState, UnlikelyRoutesAction>.Rejected { Reason: RejectionReason.DeadlineReached })
+        {
+            return ParticipationOutcome.Unavailable;
+        }
         if (result is not ActionValidation<UnlikelyRoutesState, UnlikelyRoutesAction>.Accepted accepted)
         {
             return ParticipationOutcome.Invalid;
