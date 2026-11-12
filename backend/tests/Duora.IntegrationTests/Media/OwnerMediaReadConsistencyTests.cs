@@ -109,8 +109,8 @@ public sealed class OwnerMediaReadConsistencyTests : IAsyncDisposable
 
     // Só IOException (disco, volume) é tratada como indisponibilidade passageira pelo gate das rotas M03/M04
     // (MediaAdmission). Falta de permissão no filesystem e as falhas de rede do SDK de um storage S3 não são
-    // IOException e viram 500 genérico, apesar de docs/api/media-review.md pedir 503 com Retry-After para storage
-    // transitório: a caracterização registra o que existe hoje, sem decidir por quem abre a issue.
+    // IOException e viram 500 genérico. Este teste caracteriza o comportamento atual, em divergência com
+    // docs/api/media-review.md:130 (storage transitório deveria dar 503 com Retry-After). Issue #504.
     [Theory]
     [InlineData("permission-denied")]
     [InlineData("network-failure")]
@@ -144,21 +144,22 @@ public sealed class OwnerMediaReadConsistencyTests : IAsyncDisposable
     [Fact]
     public async Task AStorageFailureBeforeTheFirstByteIs503WithRetryAfterAndReleasesTheStream()
     {
-        var (_, browser, _, asset) = await ApprovedAsync();
+        var (_, browser, upload, asset) = await ApprovedAsync();
         using var lifetime = browser;
         var key = asset.Variants[PhotoVariant.Full].Key.Value;
-        _store.ReadFailure = new IOException($"leitura interrompida em {key}");
+        var canary = $"CANARY-{Guid.NewGuid():N}";
+        _store.ReadFailure =
+            new IOException($"{canary} leitura interrompida em {key}: select * from media.media_variants");
 
         using var response = await browser.GetAsync($"/api/v1/media/{asset.AssetId}?variant=full");
 
         await ProblemAssert.IsProblemAsync(response, HttpStatusCode.ServiceUnavailable, "TEMPORARILY_UNAVAILABLE");
         Assert.Equal(2, ProblemAssert.RetryAfterSeconds(response));
         Assert.NotEqual("image/webp", response.Content.Headers.ContentType?.MediaType);
-        var text = await response.Content.ReadAsStringAsync(Ct);
-        Assert.DoesNotContain(key, text, StringComparison.Ordinal);
-        Assert.DoesNotContain(nameof(IOException), text, StringComparison.Ordinal);
+        await AssertNoInternalsAsync(response, canary, key);
         var opened = Assert.Single(_store.Opened);
         Assert.True(opened.Disposed, "O stream que falhou na leitura tem de ser descartado.");
+        await AssertUploadUntouchedAsync(upload);
     }
 
     private static async Task AssertNoInternalsAsync(HttpResponseMessage response, string canary, string key)

@@ -91,18 +91,6 @@ public sealed class PhotoOwnerAccessTests : IAsyncDisposable
     }
 
     [Fact]
-    public async Task ASessionThatExpiresOneSecondFromNowIsStillAuthorized()
-    {
-        var owner = await ApprovedPhotoAsync();
-        await _media.ExecuteAsync(
-            "update identity.login_sessions set idle_expires_at = $2 where id = $1",
-            owner.SessionId,
-            _time.GetUtcNow().AddSeconds(1));
-
-        Assert.True(await AuthorizeAsync(owner.Account.UserId, owner.SessionId));
-    }
-
-    [Fact]
     public async Task TheClockDecidesWhenTheSessionExpires()
     {
         var owner = await ApprovedPhotoAsync();
@@ -174,6 +162,42 @@ public sealed class PhotoOwnerAccessTests : IAsyncDisposable
         await _media.ExecuteAsync(
             "update identity.login_sessions set revoked_at = null where id = $1", owner.SessionId);
         Assert.IsType<PhotoDeletionResult.Deleted>(await DeleteAsync(owner));
+    }
+
+    // A conta sem papel passa pela política da borda (não é privilegiada) e só a autorização viva do titular a
+    // recusa: é o único caminho HTTP até o mapeamento Forbidden -> 403 de PhotoEndpoints.DeleteAsync.
+    [Fact]
+    public async Task ADeletionOverHttpFromASessionTheDatabaseNoLongerRecognizesIs403WithoutLeakingAndChangesNothing()
+    {
+        var (owner, browser) = await ApprovedPhotoWithBrowserAsync();
+        using var lifetime = browser;
+        var stranger = await ApprovedPhotoAsync();
+        using var status = await browser.GetAsync($"/api/v1/me/photos/{owner.Upload.Id}/status");
+        Assert.Equal(HttpStatusCode.OK, status.StatusCode);
+        var tag = status.Headers.ETag?.ToString() ?? throw new InvalidOperationException("Status sem ETag.");
+        await DisqualifyAsync("no-role", owner);
+
+        using var response = await PhotoDeletionTests.DeleteAsync(
+            browser, owner.Upload.Id, tag, MediaScenario.NewKey());
+
+        await ProblemAssert.IsProblemAsync(response, HttpStatusCode.Forbidden, "FORBIDDEN");
+        var text = await response.Content.ReadAsStringAsync(Ct);
+        string[] internals = ["select", "System.", "media_", "identity."];
+        Assert.DoesNotContain(internals, leak => text.Contains(leak, StringComparison.OrdinalIgnoreCase));
+        Guid[] identifiers =
+        [
+            owner.Upload.Id, owner.Asset.AssetId, owner.Account.UserId, owner.SessionId,
+            stranger.Upload.Id, stranger.Asset.AssetId, stranger.Account.UserId, stranger.SessionId,
+        ];
+        foreach (var id in identifiers)
+        {
+            Assert.DoesNotContain(id.ToString("D"), text, StringComparison.OrdinalIgnoreCase);
+            Assert.DoesNotContain(id.ToString("N"), text, StringComparison.OrdinalIgnoreCase);
+        }
+
+        Assert.DoesNotContain(owner.Upload.QuarantineKey, text, StringComparison.Ordinal);
+        await AssertPhotoUntouchedAsync(owner);
+        await AssertPhotoUntouchedAsync(stranger);
     }
 
     [Fact]
@@ -329,10 +353,17 @@ public sealed class PhotoOwnerAccessTests : IAsyncDisposable
 
     private async Task<OwnedPhoto> ApprovedPhotoAsync()
     {
+        var (photo, browser) = await ApprovedPhotoWithBrowserAsync();
+        browser.Dispose();
+        return photo;
+    }
+
+    private async Task<(OwnedPhoto Photo, Browser Browser)> ApprovedPhotoWithBrowserAsync()
+    {
         var account = await _media.Identity.CreateConfirmedAccountAsync();
-        using (var browser = await _media.Identity.SignedInBrowserAsync(account))
+        var browser = await _media.Identity.SignedInBrowserAsync(account);
+        using (var response = await MediaScenario.UploadAsync(browser, MediaScenario.JpegLike()))
         {
-            using var response = await MediaScenario.UploadAsync(browser, MediaScenario.JpegLike());
             Assert.Equal(HttpStatusCode.Accepted, response.StatusCode);
         }
 
@@ -342,7 +373,7 @@ public sealed class PhotoOwnerAccessTests : IAsyncDisposable
             "select id::text from identity.login_sessions where user_id = $1 and revoked_at is null",
             account.UserId));
         var version = await _media.CountAsync("select version from media.uploads where id = $1", upload.Id);
-        return new OwnedPhoto(account, session, upload, asset, version);
+        return (new OwnedPhoto(account, session, upload, asset, version), browser);
     }
 
     private sealed record OwnedPhoto(

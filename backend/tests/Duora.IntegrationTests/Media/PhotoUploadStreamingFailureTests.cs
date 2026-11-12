@@ -1,5 +1,4 @@
 using System.Net;
-using System.Net.Http.Headers;
 using System.Security.Cryptography;
 using Duora.Core.Media;
 using Duora.Infrastructure.Media;
@@ -103,19 +102,21 @@ public sealed class PhotoUploadStreamingFailureTests : IAsyncDisposable
     }
 
     [Theory]
-    [InlineData("timeout-fires", true)]
-    [InlineData("timeout-fires-and-the-store-reports-a-generic-error", true)]
-    [InlineData("timeout-fires-after-the-whole-body", true)]
-    [InlineData("request-aborts", true)]
-    [InlineData("sdk-timeout-while-the-body-is-incomplete", true)]
-    [InlineData("sdk-timeout-wrapped-while-the-body-is-incomplete", true)]
-    [InlineData("sdk-cancellation-while-the-body-is-incomplete", true)]
-    [InlineData("sdk-timeout-after-the-whole-body", false)]
-    [InlineData("sdk-timeout-wrapped-after-the-whole-body", false)]
-    [InlineData("generic-failure-while-the-body-is-incomplete", false)]
-    [InlineData("generic-failure-after-the-whole-body", false)]
+    [InlineData("timeout-fires", true, "TaskCanceledException")]
+    [InlineData("timeout-fires-and-the-store-reports-a-generic-error", true, "InvalidOperationException")]
+    // Caracteriza o comportamento atual: o prazo estourado depois de o corpo inteiro ser lido ainda é atribuído ao
+    // cliente (400 UPLOAD_INCOMPLETE), porque o cancelamento do prazo vale como falha do cliente. Issue #505.
+    [InlineData("timeout-fires-after-the-whole-body", true, "InvalidOperationException")]
+    [InlineData("request-aborts", true, "TaskCanceledException")]
+    [InlineData("sdk-timeout-while-the-body-is-incomplete", true, "TimeoutException")]
+    [InlineData("sdk-timeout-wrapped-while-the-body-is-incomplete", true, "HttpRequestException")]
+    [InlineData("sdk-cancellation-while-the-body-is-incomplete", true, "OperationCanceledException")]
+    [InlineData("sdk-timeout-after-the-whole-body", false, "TimeoutException")]
+    [InlineData("sdk-timeout-wrapped-after-the-whole-body", false, "HttpRequestException")]
+    [InlineData("generic-failure-while-the-body-is-incomplete", false, "InvalidOperationException")]
+    [InlineData("generic-failure-after-the-whole-body", false, "HttpRequestException")]
     public async Task AFailureWhileStoringBlamesTheClientOnlyWhenTheClientWasTheSlowOne(
-        string scenario, bool clientFailed)
+        string scenario, bool clientFailed, string cause)
     {
         var owner = await _media.Identity.CreateConfirmedAccountAsync();
         var bytes = MediaScenario.JpegLike();
@@ -148,12 +149,12 @@ public sealed class PhotoUploadStreamingFailureTests : IAsyncDisposable
             Assert.IsType<PhotoUploadResult.StorageFailed>(result);
         }
 
-        var thrown = Assert.IsAssignableFrom<Exception>(_store.Thrown);
+        Assert.NotNull(_store.Thrown);
         var warning = Assert.Single(
             _logs.Entries,
             entry => entry.Category == typeof(PhotoUploads).FullName && entry.Level == LogLevel.Warning);
         Assert.Equal(clientFailed, warning.Fields["ClientFailed"]);
-        Assert.Equal(thrown.GetType().Name, warning.Fields["Cause"]);
+        Assert.Equal(cause, warning.Fields["Cause"]);
         var key = Assert.IsType<ObjectKey>(_store.Key).Value;
         Assert.DoesNotContain(_logs.Entries, entry => entry.Text.Contains(key, StringComparison.Ordinal));
         Assert.Empty(await _media.UploadsOfAsync(owner.UserId));
@@ -447,30 +448,6 @@ public sealed class PhotoUploadStreamingFailureTests : IAsyncDisposable
             }
 
             base.Dispose(disposing);
-        }
-    }
-
-    /// <summary>Declara mais bytes do que manda: o cliente que cai no meio do upload.</summary>
-    private sealed class TruncatedContent : HttpContent
-    {
-        private readonly byte[] _bytes;
-        private readonly long _declaredLength;
-
-        public TruncatedContent(byte[] bytes, long declaredLength)
-        {
-            _bytes = bytes;
-            _declaredLength = declaredLength;
-            Headers.ContentType = new MediaTypeHeaderValue("image/jpeg");
-            Headers.ContentLength = declaredLength;
-        }
-
-        protected override Task SerializeToStreamAsync(Stream stream, TransportContext? context) =>
-            stream.WriteAsync(_bytes).AsTask();
-
-        protected override bool TryComputeLength(out long length)
-        {
-            length = _declaredLength;
-            return true;
         }
     }
 }
