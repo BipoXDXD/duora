@@ -318,6 +318,9 @@ public sealed class AccountSecurityService
     /// <summary>Padrão do PostgreSQL: sem teto para esperar lock; o timeout do comando continua valendo.</summary>
     private const string NoLockTimeout = "0";
 
+    /// <summary>Menor teto aplicável: abaixo de 1 ms o <c>lock_timeout</c> vira <c>0</c>, que desliga o teto.</summary>
+    private static readonly TimeSpan MinimumLockCeiling = TimeSpan.FromMilliseconds(1);
+
     // Os mesmos motivos que a revogação pela chave (ticket store) e a de A10 já gravavam.
     private const string LogoutReason = "logout";
     private const string RevokedByOwnerReason = "revoked-by-owner";
@@ -824,8 +827,9 @@ public sealed class AccountSecurityService
 
     /// <summary>
     /// Atalho de <see cref="WithLockCeilingAsync{T}(TimeSpan, Func{Task{T}}, CancellationToken)"/> com o teto do
-    /// login, <c>Identity:AccountLockTimeout</c>: o das operações que esperam a conta pelo tempo normal (login,
-    /// cadastro, revogação de sessão). As mesmas pré-condições e a mesma <see cref="AccountBusyException"/> valem aqui.
+    /// login, <c>Identity:AccountLockTimeout</c>, para quem espera a conta pelo tempo normal (hoje, a revogação de
+    /// sessão). Quem tem teto próprio chama a sobrecarga com o teto: o cadastro usa o seu, curto (#466). As mesmas
+    /// pré-condições e a mesma <see cref="AccountBusyException"/> valem aqui.
     /// </summary>
     internal Task<T> WithLockCeilingAsync<T>(Func<Task<T>> takeLock, CancellationToken cancellationToken) =>
         WithLockCeilingAsync(_lock.AccountLockTimeout, takeLock, cancellationToken);
@@ -841,7 +845,7 @@ public sealed class AccountSecurityService
     /// o lock fica sem teto; em outro contexto, o teto vale para a conexão errada.
     /// O teto é arredondado para baixo em ms inteiros: o <c>lock_timeout</c> recebe esse valor, e a
     /// <see cref="AccountBusyException.WaitCeiling"/> leva o mesmo. Arredondado, precisa ter ao menos
-    /// <see cref="RegistrationLockOptions.Minimum"/> (1 ms), porque <c>0</c> desliga o teto. Quem chama escolhe o
+    /// <see cref="MinimumLockCeiling"/> (1 ms), porque <c>0</c> desliga o teto. Quem chama escolhe o
     /// teto: o cadastro usa o seu, curto (#466), e o reenvio a espera curta (#470), para a espera não aparecer no
     /// tempo de resposta.
     /// </summary>
@@ -850,7 +854,7 @@ public sealed class AccountSecurityService
         TimeSpan ceiling, Func<Task<T>> takeLock, CancellationToken cancellationToken)
     {
         var appliedCeiling = TimeSpan.FromMilliseconds(Math.Floor(ceiling.TotalMilliseconds));
-        ArgumentOutOfRangeException.ThrowIfLessThan(appliedCeiling, RegistrationLockOptions.Minimum, nameof(ceiling));
+        ArgumentOutOfRangeException.ThrowIfLessThan(appliedCeiling, MinimumLockCeiling, nameof(ceiling));
         await SetLockTimeoutAsync($"{(long)appliedCeiling.TotalMilliseconds}ms", cancellationToken);
         T locked;
         try
