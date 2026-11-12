@@ -11,7 +11,8 @@ namespace Duora.Web.Media;
 /// </summary>
 internal static class MediaAdmission
 {
-    private static readonly TimeSpan RetryAfter = TimeSpan.FromSeconds(2);
+    // Falha de I/O sem exceção do Npgsql (em geral o storage): a causa de banco identificada usa DatabaseUnavailability.
+    private static readonly TimeSpan StorageRetryAfter = TimeSpan.FromSeconds(2);
 
     public static RouteHandlerBuilder RequireMediaAdmission(this RouteHandlerBuilder route) => route
         .ProducesProblem(StatusCodes.Status503ServiceUnavailable)
@@ -29,20 +30,20 @@ internal static class MediaAdmission
             }
             catch (PostgresException error) when (!http.RequestAborted.IsCancellationRequested && IsTransient(error))
             {
-                return Unavailable(http);
+                return DatabaseUnavailability.Unavailable(http, error);
             }
             catch (IOException) when (!http.RequestAborted.IsCancellationRequested)
             {
-                return Unavailable(http);
+                return StorageUnavailable(http);
             }
         });
 
     // Contenção (40001, 40P01, 55P03) segue para o handler global, que decide o Retry-After (#465).
     private static bool IsTransient(PostgresException error) => error.SqlState is PostgresErrorCodes.QueryCanceled;
 
-    private static Microsoft.AspNetCore.Http.HttpResults.ProblemHttpResult Unavailable(HttpContext http)
+    private static Microsoft.AspNetCore.Http.HttpResults.ProblemHttpResult StorageUnavailable(HttpContext http)
     {
-        ApiProblems.SetRetryAfter(http, RetryAfter);
+        ApiProblems.SetRetryAfter(http, StorageRetryAfter);
         return ApiProblems.Problem(StatusCodes.Status503ServiceUnavailable, ApiProblems.TemporarilyUnavailable);
     }
 }

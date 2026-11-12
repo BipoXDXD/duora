@@ -47,10 +47,16 @@ public static class AccountServiceCollectionExtensions
             provider.GetRequiredService<IOptions<AccountLifecycleOptions>>().Value,
             provider.GetRequiredService<TimeProvider>(),
             provider.GetRequiredService<LegalPublication>(),
-            provider.GetRequiredService<ILogger<AccountService>>()));
+            provider.GetRequiredService<ILogger<AccountService>>(),
+            provider.GetRequiredService<IOptions<RegistrationLockOptions>>().Value));
+        services.AddOptions<RegistrationLockOptions>()
+            .BindConfiguration(RegistrationLockOptions.Section)
+            .Validate(o => o.IsValid(), "Identity:RegistrationLockTimeout precisa ficar entre 1 ms e 50 ms.")
+            .ValidateOnStart();
         services.AddOptions<AccountLockOptions>()
             .BindConfiguration(AccountLockOptions.Section)
-            .Validate(o => o.IsValid(), "Identity:AccountLockTimeout e Identity:AccountQueueTimeout precisam ficar entre 100 ms e 1 min.")
+            .Validate(o => o.IsValid(),
+                "Identity:AccountLockTimeout e Identity:AccountQueueTimeout precisam ficar entre 100 ms e 1 min.")
             .ValidateOnStart();
         services.AddOptions<IdentityShortWaitOptions>()
             .BindConfiguration(IdentityShortWaitOptions.Section)

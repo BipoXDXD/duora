@@ -12,6 +12,11 @@ namespace Duora.IntegrationTests.Media;
 [Trait("Acceptance", "T-16")]
 public sealed class PhotoUploadTests : IAsyncDisposable
 {
+    /// <summary>
+    /// Teto da espera pelos envios simultâneos: um envio preso falha o teste em vez de travar a suíte.
+    /// </summary>
+    private static readonly TimeSpan ConcurrentUploadsTimeout = TimeSpan.FromSeconds(30);
+
     private readonly CapturingLoggerProvider _logs = new();
     private readonly DuoraWebFactory _factory;
     private readonly MediaScenario _media;
@@ -292,16 +297,33 @@ public sealed class PhotoUploadTests : IAsyncDisposable
         var account = await NewAccountAsync();
         using var browser = await SignInAsync(account);
         const int Attempts = 6;
-        using var barrier = new Barrier(Attempts);
 
-        var responses = await Task.WhenAll(Enumerable.Range(0, Attempts).Select(i => Task.Run(async () =>
+        // Largada única: os seis envios aguardam o mesmo sinal sem prender thread do pool e partem juntos no SetResult.
+        // RunContinuationsAsynchronously evita que o SetResult rode o início dos seis envios na própria thread
+        // do teste.
+        var start = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var uploads = Enumerable.Range(0, Attempts).Select(async i =>
         {
-            barrier.SignalAndWait(TestContext.Current.CancellationToken);
+            await start.Task;
             return await MediaScenario.UploadAsync(browser, MediaScenario.JpegLike(fill: (byte)i));
-        })));
+        }).ToList();
+        start.SetResult();
 
         try
         {
+            var all = Task.WhenAll(uploads);
+            try
+            {
+                await all.WaitAsync(ConcurrentUploadsTimeout, TestContext.Current.CancellationToken);
+            }
+            catch (TimeoutException)
+            {
+                Assert.Fail(
+                    $"{uploads.Count(u => !u.IsCompleted)} dos {Attempts} envios não terminaram "
+                + $"em {ConcurrentUploadsTimeout.TotalSeconds:0} s.");
+            }
+
+            var responses = await all;
             Assert.Equal(3, responses.Count(r => r.StatusCode == HttpStatusCode.Accepted));
             var refused = responses.Where(r => r.StatusCode != HttpStatusCode.Accepted).ToList();
             Assert.Equal(3, refused.Count);
@@ -315,9 +337,10 @@ public sealed class PhotoUploadTests : IAsyncDisposable
         }
         finally
         {
-            foreach (var response in responses)
+            // Também no estouro do teto: descarta as respostas que chegaram.
+            foreach (var upload in uploads.Where(u => u.IsCompletedSuccessfully))
             {
-                response.Dispose();
+                (await upload).Dispose();
             }
         }
     }
