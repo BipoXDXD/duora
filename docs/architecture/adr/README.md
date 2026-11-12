@@ -62,7 +62,7 @@ da spec. A partir do 0016, os ADRs resolvem lacunas encontradas na spec.
 | [0051](0051-papel-postgres-na-sonda-da-selfie.md) | Papel `postgres` na sonda do fornecedor da selfie, como exceção à spec 10 | Proposed | Troca da imagem do PostgreSQL ou mudança do `pg_hba` |
 | [0052](0052-saida-da-sala-sem-elegibilidade.md) | Saída da sala (API-R04) sem exigir elegibilidade (INV-01); não muda a API-R10 do ADR-0028 | Proposed | Novo estado de conta com sala aberta, novo efeito da saída ou implementação da voz |
 | [0054](0054-acao-depois-do-prazo-de-jogo-responde-404.md) | Ação nova depois do prazo de jogo responde `404`, igual à sala `Expired`, antes e depois do job; sala `Completed` incluída depois do prazo pela emenda do #463 | Accepted (2026-11-10); emendado (#463) | Sala `Expired` deixar de responder `404` nas rotas de ação, ou o replay idempotente mudar de regra |
-| [0055](0055-teto-curto-e-hash-sempre-no-cadastro.md) | Teto curto de trava (`Identity:RegistrationLockTimeout`, 5 ms) e os dois hashes em todo caminho do cadastro, contra o canal de tempo (TM-06, #466) | Proposed; decisão da coordenação, 10/11: (iv-a) | Desistências frequentes no log, segunda réplica web, mudança no cadastro pelo Google ou resíduo acima do ruído em produção |
+| [0055](0055-teto-curto-e-hash-sempre-no-cadastro.md) | Teto curto de trava (`Identity:RegistrationLockTimeout`, 5 ms) e os dois hashes em todo caminho do cadastro, contra o canal de tempo (TM-06, #466) | Accepted (2026-11-12), aceito pelo dono em 12/11; proposto pela coordenação, 10/11: (iv-a) | Desistências frequentes no log, segunda réplica web, mudança no cadastro pelo Google ou resíduo acima do ruído em produção |
 
 ## Regras
 
