@@ -7,15 +7,16 @@ namespace Duora.IntegrationTests.Safety;
 
 /// <summary>
 /// Revogação de suspensão (issue #299, ADR-0042) que não acha o que revogar: conta inexistente ou privilegiada e
-/// suspensão que não é daquela conta respondem o mesmo 404, sem gravar nada. Revogar uma suspensão já revogada não é
-/// 404: a medida existe, e a resposta é 412 (coberto em <c>AccountSuspensionTests</c>).
+/// suspensão que não é daquela conta respondem o mesmo 404, sem gravar nada. Revogar uma suspensão já revogada
+/// não é 404: a medida existe, e a resposta é 412 (coberto em <c>AccountSuspensionTests</c>).
 /// </summary>
 [Trait("Acceptance", "T-10")]
 public sealed class AccountSuspensionLiftNotFoundTests : IAsyncDisposable
 {
     private const string Lifted = "safety.account_suspension_lifted";
 
-    private readonly FakeTimeProvider _time = new(DateTimeOffset.FromUnixTimeSeconds(DateTimeOffset.UtcNow.ToUnixTimeSeconds()));
+    private readonly FakeTimeProvider _time =
+        new(DateTimeOffset.FromUnixTimeSeconds(DateTimeOffset.UtcNow.ToUnixTimeSeconds()));
     private readonly DuoraWebFactory _factory;
     private readonly AccountSuspensionScenario _scenario;
 
@@ -39,7 +40,9 @@ public sealed class AccountSuspensionLiftNotFoundTests : IAsyncDisposable
 
         var body = await ProblemAssert.IsProblemAsync(response, HttpStatusCode.NotFound, "NOT_FOUND");
         Assert.DoesNotContain(absent.ToString(), body.ToJsonString(), StringComparison.OrdinalIgnoreCase);
-        Assert.Equal(0, await _scenario.CountAsync("select count(*) from safety.user_guards where user_id = $1", absent));
+        Assert.Equal(
+            0,
+            await _scenario.CountAsync("select count(*) from safety.user_guards where user_id = $1", absent));
         await AssertNotAuditedAsync(suspensionId);
     }
 
@@ -93,8 +96,12 @@ public sealed class AccountSuspensionLiftNotFoundTests : IAsyncDisposable
         var suspension = await AccountSuspensionScenario.SuspendAsync(moderator, participant.UserId);
         var suspensionId = Guid.Parse((string)suspension["suspensionId"]!);
         await _scenario.ExecuteAsync(
-            "delete from identity.user_roles where user_id = $1 and role_id = (select id from identity.roles where name = $2)",
-            participant.UserId, AccountRoles.Participant);
+            """
+            delete from identity.user_roles
+            where user_id = $1 and role_id = (select id from identity.roles where name = $2)
+            """,
+            participant.UserId,
+            AccountRoles.Participant);
         await _scenario.ExecuteAsync(
             "insert into identity.user_roles (user_id, role_id) select $1, id from identity.roles where name = $2",
             participant.UserId, AccountRoles.Moderator);
@@ -109,7 +116,11 @@ public sealed class AccountSuspensionLiftNotFoundTests : IAsyncDisposable
     /// <summary>Etiqueta bem formada para uma suspensão que o cliente imagina existir, na versão 1.</summary>
     private static string Tag(Guid suspensionId) => $"\"suspension-{suspensionId:N}-1\"";
 
-    private static Task<HttpResponseMessage> LiftAsync(Browser moderator, Guid userId, Guid suspensionId, string eTag) =>
+    private static Task<HttpResponseMessage> LiftAsync(
+        Browser moderator,
+        Guid userId,
+        Guid suspensionId,
+        string eTag) =>
         moderator.PostJsonAsync(
             AccountSuspensionScenario.LiftPath(userId, suspensionId),
             new { internalReason = "Revogação que não encontra a medida." },
@@ -122,7 +133,13 @@ public sealed class AccountSuspensionLiftNotFoundTests : IAsyncDisposable
     private async Task AssertStillSuspendedAsync(Guid userId, Guid suspensionId)
     {
         Assert.Equal("Suspended", await _scenario.TextAsync("select status from identity.users where id = $1", userId));
-        Assert.Equal(1, await _scenario.CountAsync(
-            "select count(*) from safety.moderation_actions where id = $1 and lifted_at is null and version = 1", suspensionId));
+        Assert.Equal(
+            1,
+            await _scenario.CountAsync(
+                """
+                select count(*) from safety.moderation_actions
+                where id = $1 and lifted_at is null and version = 1
+                """,
+                suspensionId));
     }
 }

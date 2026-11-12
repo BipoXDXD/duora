@@ -6,8 +6,10 @@ using static Duora.Infrastructure.Participation.ParticipationSql;
 
 namespace Duora.IntegrationTests.Participation;
 
-/// <summary>Estado de uma sala lido direto do PostgreSQL, para comparar antes e depois de uma operação recusada.</summary>
-internal sealed record RoomFacts(
+/// <summary>
+/// Estado de uma sala lido direto do PostgreSQL, para comparar antes e depois de uma operação recusada.
+/// </summary>
+internal sealed record SceneRoomSnapshot(
     string State,
     long Version,
     DateTimeOffset? AliceAcceptedAt,
@@ -16,8 +18,9 @@ internal sealed record RoomFacts(
     long Actions);
 
 /// <summary>
-/// Cenário sintético de participação com relógio falso: a seed do navegador, o serviço real e, sob demanda, a fábrica
-/// web com navegadores logados. Serve às classes de teste que precisam de uma sala convidada ou de inscrições.
+/// Cenário sintético de participação com relógio falso: a seed do navegador, o serviço real e, sob demanda, a
+/// fábrica web com navegadores logados. Serve às classes de teste que precisam de uma sala convidada ou de
+/// inscrições.
 /// </summary>
 internal sealed class ParticipationScene : IAsyncDisposable
 {
@@ -26,7 +29,12 @@ internal sealed class ParticipationScene : IAsyncDisposable
     private readonly string _connectionString;
     private DuoraWebFactory? _factory;
 
-    private ParticipationScene(string connectionString, NpgsqlDataSource source, FakeTimeProvider clock, ParticipationService service, ParticipationSeed seed)
+    private ParticipationScene(
+        string connectionString,
+        NpgsqlDataSource source,
+        FakeTimeProvider clock,
+        ParticipationService service,
+        ParticipationSeed seed)
     {
         _connectionString = connectionString;
         Source = source;
@@ -56,7 +64,9 @@ internal sealed class ParticipationScene : IAsyncDisposable
         return new(connectionString, source, clock, new ParticipationService(source, clock), seed);
     }
 
-    /// <summary>Inscreve e faz check-in de Alice e Bob no primeiro evento, constrói a rodada e guarda a sala <c>Invited</c>.</summary>
+    /// <summary>
+    /// Inscreve e faz check-in de Alice e Bob no primeiro evento, constrói a rodada e guarda a sala <c>Invited</c>.
+    /// </summary>
     public async Task InviteAliceAndBobAsync()
     {
         var eventId = Seed.Events[0];
@@ -81,16 +91,25 @@ internal sealed class ParticipationScene : IAsyncDisposable
     public async Task CompleteTheGameAsync()
     {
         var version = (await Service.RoomAsync(Room, Seed.Alice, Ct))!.Version;
-        Assert.Equal(ParticipationOutcome.Done, await Service.ActionAsync(Room, Seed.Alice, Guid.NewGuid(), version, "choose-option", "morning", "tea", Ct));
+        Assert.Equal(
+            ParticipationOutcome.Done,
+            await Service.ActionAsync(
+                Room, Seed.Alice, Guid.NewGuid(), version, "choose-option", "morning", "tea", Ct));
         version = (await Service.RoomAsync(Room, Seed.Bob, Ct))!.Version;
-        Assert.Equal(ParticipationOutcome.Done, await Service.ActionAsync(Room, Seed.Bob, Guid.NewGuid(), version, "choose-option", "morning", "walk", Ct));
+        Assert.Equal(
+            ParticipationOutcome.Done,
+            await Service.ActionAsync(
+                Room, Seed.Bob, Guid.NewGuid(), version, "choose-option", "morning", "walk", Ct));
     }
 
     public async Task<Browser> SignInAsync(Guid user)
     {
         _factory ??= new DuoraWebFactory(_connectionString) { Time = Clock };
-        var email = user == Seed.Alice ? "alice@example.com" : user == Seed.Bob ? "bob@example.com" : "third@example.com";
-        return await new IdentityScenario(_connectionString, _factory).SignedInBrowserAsync(new(user, email, IdentityScenario.ValidPassword));
+        var email = user == Seed.Alice ? "alice@example.com"
+            : user == Seed.Bob ? "bob@example.com"
+            : "third@example.com";
+        return await new IdentityScenario(_connectionString, _factory)
+            .SignedInBrowserAsync(new(user, email, IdentityScenario.ValidPassword));
     }
 
     public Task<DateTimeOffset> InviteDeadlineAsync() =>
@@ -99,14 +118,17 @@ internal sealed class ParticipationScene : IAsyncDisposable
     public Task<DateTimeOffset> GameDeadlineAsync() =>
         ReadInstantAsync("select active_deadline_at from experiences.game_sessions where id=$1");
 
-    public async Task<RoomFacts> RoomFactsAsync()
+    public async Task<SceneRoomSnapshot> RoomSnapshotAsync()
     {
         await using var connection = await Source.OpenConnectionAsync(Ct);
         await using var query = Command(connection, """
             select s.state,s.version,
-              (select gp.accepted_at from experiences.game_participants gp where gp.game_session_id=s.id and gp.user_id=$2),
-              (select gp.accepted_at from experiences.game_participants gp where gp.game_session_id=s.id and gp.user_id=$3),
-              (select count(*) from events.pairing_participants pp where pp.pairing_id=s.pairing_id and pp.released_at is null),
+              (select gp.accepted_at from experiences.game_participants gp
+                where gp.game_session_id=s.id and gp.user_id=$2),
+              (select gp.accepted_at from experiences.game_participants gp
+                where gp.game_session_id=s.id and gp.user_id=$3),
+              (select count(*) from events.pairing_participants pp
+                where pp.pairing_id=s.pairing_id and pp.released_at is null),
               (select count(*) from experiences.game_actions a where a.game_session_id=s.id)
             from experiences.game_sessions s where s.id=$1
             """, Room, Seed.Alice, Seed.Bob);
@@ -118,7 +140,9 @@ internal sealed class ParticipationScene : IAsyncDisposable
             reader.GetInt64(4), reader.GetInt64(5));
     }
 
-    /// <summary>Adia os outros jobs pendentes, para o claim só poder escolher o job <paramref name="kind"/> da sala.</summary>
+    /// <summary>
+    /// Adia os outros jobs pendentes, para o claim só poder escolher o job <paramref name="kind"/> da sala.
+    /// </summary>
     public async Task IsolateJobAsync(string kind)
     {
         await using var connection = await Source.OpenConnectionAsync(Ct);
@@ -140,7 +164,25 @@ internal sealed class ParticipationScene : IAsyncDisposable
     public async Task<string> JobAsync(string kind)
     {
         await using var connection = await Source.OpenConnectionAsync(Ct);
-        await using var query = Command(connection, "select status||'|'||attempts from ops.jobs where kind=$2 and aggregate_id=$1", Room, kind);
+        await using var query = Command(
+            connection,
+            "select status||'|'||attempts from ops.jobs where kind=$2 and aggregate_id=$1",
+            Room,
+            kind);
+        return (string)(await query.ExecuteScalarAsync(Ct))!;
+    }
+
+    /// <summary>
+    /// <c>status|tentativas</c> do job de id <paramref name="jobId"/>, para quando a sala tem mais de um job do
+    /// mesmo kind.
+    /// </summary>
+    public async Task<string> JobByIdAsync(Guid jobId)
+    {
+        await using var connection = await Source.OpenConnectionAsync(Ct);
+        await using var query = Command(
+            connection,
+            "select status||'|'||attempts from ops.jobs where id=$1",
+            jobId);
         return (string)(await query.ExecuteScalarAsync(Ct))!;
     }
 

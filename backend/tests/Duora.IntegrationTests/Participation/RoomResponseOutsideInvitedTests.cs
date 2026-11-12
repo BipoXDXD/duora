@@ -21,12 +21,15 @@ public sealed class RoomResponseOutsideInvitedTests(PostgresFixture postgres)
     [InlineData("Completed", "reject", HttpStatusCode.NotFound)]
     [InlineData("Expired", "accept", HttpStatusCode.NotFound)]
     [InlineData("Expired", "reject", HttpStatusCode.NotFound)]
-    public async Task AnswerToARoomThatIsNoLongerInvitedChangesNothing(string state, string answer, HttpStatusCode expected)
+    public async Task AnswerToARoomThatIsNoLongerInvitedChangesNothing(
+        string state,
+        string answer,
+        HttpStatusCode expected)
     {
         await using var scene = await ParticipationScene.CreateAsync(postgres);
         await scene.InviteAliceAndBobAsync();
         await PutTheRoomInAsync(scene, state);
-        var before = await scene.RoomFactsAsync();
+        var before = await scene.RoomSnapshotAsync();
         Assert.Equal(state, before.State);
         using var alice = await scene.SignInAsync(scene.Seed.Alice);
 
@@ -42,10 +45,12 @@ public sealed class RoomResponseOutsideInvitedTests(PostgresFixture postgres)
             Assert.Equal(string.Empty, await response.Content.ReadAsStringAsync(Ct));
         }
 
-        Assert.Equal(before, await scene.RoomFactsAsync());
+        Assert.Equal(before, await scene.RoomSnapshotAsync());
     }
 
-    /// <summary>Aceitar de novo ainda em <c>Invited</c> responde 204 sem regravar o aceite nem mexer na versão da sala.</summary>
+    /// <summary>
+    /// Aceitar de novo ainda em <c>Invited</c> responde 204 sem regravar o aceite nem mexer na versão da sala.
+    /// </summary>
     [Fact]
     public async Task AcceptingAgainWhileStillInvitedKeepsTheFirstAcceptAndTheRoomVersion()
     {
@@ -57,7 +62,7 @@ public sealed class RoomResponseOutsideInvitedTests(PostgresFixture postgres)
             Assert.Equal(HttpStatusCode.NoContent, first.StatusCode);
         }
 
-        var accepted = await scene.RoomFactsAsync();
+        var accepted = await scene.RoomSnapshotAsync();
         Assert.Equal("Invited", accepted.State);
         Assert.NotNull(accepted.AliceAcceptedAt);
         Assert.Null(accepted.BobAcceptedAt);
@@ -67,7 +72,7 @@ public sealed class RoomResponseOutsideInvitedTests(PostgresFixture postgres)
 
         Assert.Equal(HttpStatusCode.NoContent, second.StatusCode);
         Assert.Equal(string.Empty, await second.Content.ReadAsStringAsync(Ct));
-        Assert.Equal(accepted, await scene.RoomFactsAsync());
+        Assert.Equal(accepted, await scene.RoomSnapshotAsync());
     }
 
     private static async Task PutTheRoomInAsync(ParticipationScene scene, string state)
