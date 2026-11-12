@@ -49,9 +49,10 @@ function problem(status: number): Response {
   )
 }
 
-/** A releitura continua devolvendo `Active`: o job de prazo ainda não rodou (#462). */
-function setup(kind: keyof typeof kinds, actionStatus: number) {
+/** Por padrão a releitura continua devolvendo `Active`: o job de prazo ainda não rodou (#462). Com `expiresOnReread`, a primeira leitura é `Active` e as seguintes `Expired`. */
+function setup(kind: keyof typeof kinds, actionStatus: number, expiresOnReread = false) {
   const { path, game, routesGame } = kinds[kind]
+  let reads = 0
   server.use(
     http.get(`${API}/me`, () =>
       HttpResponse.json(
@@ -68,7 +69,7 @@ function setup(kind: keyof typeof kinds, actionStatus: number) {
     http.get(`${API}/rooms/room-1`, () =>
       HttpResponse.json({
         roomId: 'room-1',
-        state: 'Active',
+        state: expiresOnReread && reads++ > 0 ? 'Expired' : 'Active',
         version: '2',
         communicationLanguage: 'en',
         communicationPolicyVersion: 1,
@@ -94,8 +95,17 @@ describe.each(Object.keys(kinds) as (keyof typeof kinds)[])('%s action after the
     expect(screen.queryByRole('button', { name: kinds[kind].button })).not.toBeInTheDocument()
     expect(screen.queryByRole('button', { name: 'Leave room' })).not.toBeInTheDocument()
   })
-  it('500 keeps the generic alert and the actions', async () => {
-    setup(kind, 500)
+  it('404 followed by an Expired reread shows only the expired progress, not the unavailable notice', async () => {
+    setup(kind, 404, true)
+    useAntiforgeryEndpoint()
+    const { user } = await renderApp('/rooms/room-1', undefined, 'en-US')
+    await user.click(await screen.findByRole('button', { name: kinds[kind].button }))
+    expect(await screen.findByText('Time is up. Your progress is shown below.')).toBeInTheDocument()
+    expect(screen.queryByText('This encounter is not available.')).not.toBeInTheDocument()
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument()
+  })
+  it.each([409, 500])('%i keeps the generic alert and the actions', async (status) => {
+    setup(kind, status)
     useAntiforgeryEndpoint()
     const { user } = await renderApp('/rooms/room-1', undefined, 'en-US')
     await user.click(await screen.findByRole('button', { name: kinds[kind].button }))

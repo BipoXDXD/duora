@@ -77,6 +77,7 @@ export function RoomPage(): React.JSX.Element {
     </Page>
   )
 }
+
 function isNotFound(failure: RequestFailure | null): boolean {
   return failure?.kind === 'problem' && failure.status === NOT_FOUND
 }
