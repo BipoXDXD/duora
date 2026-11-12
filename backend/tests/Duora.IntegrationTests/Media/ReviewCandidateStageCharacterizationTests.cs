@@ -121,9 +121,18 @@ public sealed class ReviewCandidateStageCharacterizationTests(PostgresFixture po
             _ => throw new ArgumentOutOfRangeException(nameof(window), window, "Unknown lease window."),
         };
 
-        var result = await StageAsync(upload.Id, expectedVersion, store, leaseExpiresAt, clock, ReviewSanitized());
+        var commands = new RecordCommands();
+
+        var result = await StageAsync(upload.Id, expectedVersion, store, leaseExpiresAt, clock, ReviewSanitized(),
+            interceptor: commands);
 
         Assert.IsType<ReviewCandidateStageResult.LeaseLost>(result);
+        if (window.StartsWith("version-", StringComparison.Ordinal))
+        {
+            // An unusable version is refused before any SQL; the upload's own version match would also refuse it, later.
+            Assert.Empty(commands.Texts);
+        }
+
         Assert.Equal(0, store.Writes);
         Assert.Equal(0, await CandidateRowsAsync(upload.Id));
         Assert.Equal(0, await ScalarAsync("select count(*) from safety.photo_review_cases where upload_id=$1", upload.Id));
@@ -183,10 +192,14 @@ public sealed class ReviewCandidateStageCharacterizationTests(PostgresFixture po
                 throw new ArgumentOutOfRangeException(nameof(mismatch), mismatch, "Unknown mismatch.");
         }
 
-        var result = await StageAsync(
-            uploadId, expectedVersion, store, DateTimeOffset.UtcNow.AddMinutes(1), TimeProvider.System, sanitized);
+        var commands = new RecordCommands();
+
+        var result = await StageAsync(uploadId, expectedVersion, store, DateTimeOffset.UtcNow.AddMinutes(1),
+            TimeProvider.System, sanitized, interceptor: commands);
 
         Assert.IsType<ReviewCandidateStageResult.LeaseLost>(result);
+        // Refused by the cheap pre-check, before the preparation transaction would insert anything.
+        Assert.DoesNotContain(commands.Texts, text => text.Contains("insert into media.review_candidates", StringComparison.Ordinal));
         Assert.Equal(0, store.Writes);
         Assert.Equal(0, await CandidateRowsAsync(upload.Id));
         Assert.Equal(0, await ScalarAsync("select count(*) from safety.photo_review_cases where upload_id=$1", upload.Id));
@@ -329,7 +342,9 @@ public sealed class ReviewCandidateStageCharacterizationTests(PostgresFixture po
         var upload = await ProcessingUploadAsync();
         var store = new LatePutStore(new FileSystemObjectStore(_root.FullName));
         var clock = new FakeTimeProvider(DateTimeOffset.UtcNow);
-        var staging = StageAsync(upload.Id, upload.Version, store, clock.GetUtcNow().AddMinutes(1), clock, ReviewSanitized());
+        var commands = new RecordCommands();
+        var staging = StageAsync(upload.Id, upload.Version, store, clock.GetUtcNow().AddMinutes(1), clock, ReviewSanitized(),
+            interceptor: commands);
         try
         {
             await store.PutEntered.Task.WaitAsync(TimeSpan.FromSeconds(5), Ct);
@@ -342,6 +357,9 @@ public sealed class ReviewCandidateStageCharacterizationTests(PostgresFixture po
         {
             store.AllowPut.TrySetResult();
         }
+
+        // The lease budget cancels the attempt before the guarded commit starts (it would also refuse an expired lease itself).
+        Assert.DoesNotContain(commands.Texts, text => text.Contains("safety.user_guards", StringComparison.Ordinal));
 
         Assert.Equal(0, await ScalarAsync("select count(*) from safety.photo_review_cases where upload_id=$1", upload.Id));
         Assert.Equal(0, await ScalarAsync("select count(*) from media.original_cleanup where upload_id=$1", upload.Id));
@@ -471,9 +489,9 @@ public sealed class ReviewCandidateStageCharacterizationTests(PostgresFixture po
 
     private async Task<ReviewCandidateStageResult> StageAsync(
         Guid uploadId, long expectedVersion, IObjectStore store, DateTimeOffset leaseExpiresAt, TimeProvider time,
-        SanitizeOutcome.Sanitized sanitized, CancellationToken? cancellationToken = null)
+        SanitizeOutcome.Sanitized sanitized, CancellationToken? cancellationToken = null, IInterceptor? interceptor = null)
     {
-        await using var db = Context();
+        await using var db = interceptor is null ? Context() : Context(interceptor);
         var stage = new PhotoReviewCandidates(db, store, time, new MediaProcessingOptions());
         return await stage.StageAsync(uploadId, expectedVersion, leaseExpiresAt, sanitized, cancellationToken ?? Ct);
     }
@@ -562,6 +580,37 @@ public sealed class ReviewCandidateStageCharacterizationTests(PostgresFixture po
         [.. PhotoVariants.All.Select(kind => new SanitizedVariant(kind, TestImages.WebP(64, 32), 64, 32))]);
 
     private sealed record UploadSeed(Guid Id, Guid OwnerId, long Version, string QuarantineKey);
+
+    private sealed class RecordCommands : DbCommandInterceptor
+    {
+        private readonly List<string> _texts = [];
+
+        internal IReadOnlyList<string> Texts => _texts;
+
+        public override ValueTask<InterceptionResult<int>> NonQueryExecutingAsync(
+            DbCommand command, CommandEventData eventData, InterceptionResult<int> result,
+            CancellationToken cancellationToken = default)
+        {
+            _texts.Add(command.CommandText);
+            return ValueTask.FromResult(result);
+        }
+
+        public override ValueTask<InterceptionResult<DbDataReader>> ReaderExecutingAsync(
+            DbCommand command, CommandEventData eventData, InterceptionResult<DbDataReader> result,
+            CancellationToken cancellationToken = default)
+        {
+            _texts.Add(command.CommandText);
+            return ValueTask.FromResult(result);
+        }
+
+        public override ValueTask<InterceptionResult<object>> ScalarExecutingAsync(
+            DbCommand command, CommandEventData eventData, InterceptionResult<object> result,
+            CancellationToken cancellationToken = default)
+        {
+            _texts.Add(command.CommandText);
+            return ValueTask.FromResult(result);
+        }
+    }
 
     private sealed class RunBeforeCandidateInsert(Func<Task> beforeInsert) : DbCommandInterceptor
     {
