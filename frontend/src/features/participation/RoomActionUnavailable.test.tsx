@@ -49,7 +49,10 @@ function problem(status: number): Response {
   )
 }
 
-/** Por padrão a releitura continua devolvendo `Active`: o job de prazo ainda não rodou (#462). Com `expiresOnReread`, a primeira leitura é `Active` e as seguintes `Expired`. */
+/**
+ * Por padrão a releitura continua devolvendo `Active`: o job de prazo ainda não rodou (#462).
+ * Com `expiresOnReread`, a primeira leitura é `Active` e as seguintes `Expired`.
+ */
 function setup(kind: keyof typeof kinds, actionStatus: number, expiresOnReread = false) {
   const { path, game, routesGame } = kinds[kind]
   let reads = 0
