@@ -184,7 +184,8 @@ public sealed partial class AccountSuspensions
             throw new ArgumentException("A recuperação exige entrega identificada e motivo de selfie.", nameof(failedDeliveryId));
         }
 
-        return SuspendAsync(moderator, order, key, cancellationToken, failedDeliveryId);
+        SelfieRecovery? recovery = failedDeliveryId is { } failedDelivery ? new SelfieRecovery(moderator, failedDelivery) : null;
+        return SuspendAsync(moderator, order, key, cancellationToken, recovery);
     }
 
     /// <exception cref="ArgumentException">A revogação não foi feita em nome do moderador da sessão.</exception>
@@ -254,13 +255,13 @@ public sealed partial class AccountSuspensions
         SuspensionOrder order,
         ModerationCommandKey key,
         CancellationToken cancellationToken,
-        Guid? failedDeliveryId = null)
+        SelfieRecovery? recovery = null)
     {
         for (var attempt = 0; attempt < 3; attempt++)
         {
             try
             {
-                return await RecordSuspensionAsync(moderator, order, key, failedDeliveryId, cancellationToken);
+                return await RecordSuspensionAsync(moderator, order, key, recovery, cancellationToken);
             }
             catch (RegistrationPlanChangedException)
             {
@@ -270,7 +271,7 @@ public sealed partial class AccountSuspensions
             {
                 return new SuspensionOutcome.Busy();
             }
-            catch (InvalidOperationException error) when (failedDeliveryId is not null
+            catch (InvalidOperationException error) when (recovery is not null
                 && error.InnerException is PostgresException postgres && IsContention(postgres))
             {
                 // Npgsql envolve o timeout de lock das consultas EF como falha transitória. A transação já foi
@@ -285,12 +286,12 @@ public sealed partial class AccountSuspensions
         ModeratorSession? moderator,
         SuspensionOrder order,
         ModerationCommandKey key,
-        Guid? failedDeliveryId,
+        SelfieRecovery? recovery,
         CancellationToken cancellationToken)
     {
         var subject = order.SubjectUserId;
         var commandKey = Convert.ToHexStringLower(SHA256.HashData(Encoding.UTF8.GetBytes(key.Scope)));
-        var intent = CommandIntent(order, failedDeliveryId);
+        var intent = CommandIntent(order, recovery);
         await using var transaction = await BeginAsync(cancellationToken);
         // Permissão antes de criar ou travar a guarda do alvo; depois das guardas, de novo, ao vivo.
         if (!await IsAllowedToSuspendAsync(moderator, cancellationToken))
@@ -310,7 +311,7 @@ public sealed partial class AccountSuspensions
             return replay;
         }
 
-        if (await RefuseSuspensionAsync(subject, failedDeliveryId, cancellationToken) is { } refusal)
+        if (await RefuseSuspensionAsync(subject, recovery, cancellationToken) is { } refusal)
         {
             return refusal;
         }
@@ -324,7 +325,7 @@ public sealed partial class AccountSuspensions
         }
 
         await ApplySuspensionAsync(connection, plan, subject, id, now, cancellationToken);
-        await AuditSuspensionAsync(moderator, id, key, failedDeliveryId, cancellationToken);
+        await AuditSuspensionAsync(moderator, id, key, recovery, cancellationToken);
         await transaction.CommitAsync(cancellationToken);
         return new SuspensionOutcome.Suspended(
             new SuspensionView(id, subject, order.Reason, order.Author is ModerationAuthor.Automated, now, 1, null),
@@ -355,17 +356,17 @@ public sealed partial class AccountSuspensions
     /// <summary>Trava a conta e devolve por que ela não é suspensa agora; nulo se a medida pode ser gravada.</summary>
     private async Task<SuspensionOutcome?> RefuseSuspensionAsync(
         Guid subject,
-        Guid? failedDeliveryId,
+        SelfieRecovery? recovery,
         CancellationToken cancellationToken)
     {
         var standing = await AccountSuspensionStatus.LockAsync(_db, subject, cancellationToken);
-        if (RefuseByStanding(standing, isRecovery: failedDeliveryId is not null) is { } refusal)
+        if (RefuseByStanding(standing, isRecovery: recovery is not null) is { } refusal)
         {
             return refusal;
         }
 
-        return failedDeliveryId is { } failed
-            ? await RefuseRecoveryAsync(subject, failed, standing, cancellationToken)
+        return recovery is { } selfieRecovery
+            ? await RefuseRecoveryAsync(subject, selfieRecovery.DeliveryId, standing, cancellationToken)
             : null;
     }
 
@@ -462,15 +463,15 @@ public sealed partial class AccountSuspensions
         ModeratorSession? moderator,
         Guid id,
         ModerationCommandKey key,
-        Guid? failedDeliveryId,
+        SelfieRecovery? recovery,
         CancellationToken cancellationToken)
     {
         await AuditAsync(moderator, AuditAction.AccountSuspended, id, version: 1, cancellationToken);
-        if (failedDeliveryId is { } recoveredDelivery && moderator is { } recoveringModerator)
+        if (recovery is { } selfieRecovery)
         {
             await new AuditTrail(_db, _time).AppendAsync(
-                new AuditRecord(AuditActorKind.Moderator, recoveringModerator.UserId,
-                    AuditAction.AccountSuspensionSourceRecorded, "outbox_delivery", recoveredDelivery), cancellationToken);
+                new AuditRecord(AuditActorKind.Moderator, selfieRecovery.Moderator.UserId,
+                    AuditAction.AccountSuspensionSourceRecorded, "outbox_delivery", selfieRecovery.DeliveryId), cancellationToken);
         }
 
         if (key.Source is { } source)
@@ -689,8 +690,8 @@ public sealed partial class AccountSuspensions
             $"{order.SubjectUserId:D}\n{Suspension}\n{order.Reason}\n{AuthorKind(order.Author)}\n{order.InternalReason}"));
 
     /// <summary>O hash do comando: o da recuperação de selfie, ligado à entrega, ou o do pedido comum.</summary>
-    private static byte[] CommandIntent(SuspensionOrder order, Guid? failedDeliveryId) =>
-        failedDeliveryId is { } recovery ? RecoveryIntent(order, recovery) : Intent(order);
+    private static byte[] CommandIntent(SuspensionOrder order, SelfieRecovery? recovery) =>
+        recovery is { } selfieRecovery ? RecoveryIntent(order, selfieRecovery.DeliveryId) : Intent(order);
 
     private static string AuthorKind(ModerationAuthor author) =>
         author is ModerationAuthor.Human ? "Human" : "Automated";
