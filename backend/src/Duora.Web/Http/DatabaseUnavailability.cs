@@ -91,7 +91,8 @@ internal sealed partial class DatabaseUnavailableExceptionHandler(ILogger<Databa
     // Banco fora do alcance (rede, pool, servidor cheio ou desligando): recuperar leva mais tempo.
     private static readonly TimeSpan UnreachableRetryAfter = TimeSpan.FromSeconds(5);
 
-    public async ValueTask<bool> TryHandleAsync(HttpContext httpContext, Exception exception, CancellationToken cancellationToken)
+    public async ValueTask<bool> TryHandleAsync(HttpContext httpContext, Exception exception,
+        CancellationToken cancellationToken)
     {
         if (CauseFor(httpContext, exception) is not { } cause)
         {

@@ -139,7 +139,8 @@ fica só no Warning do log. Só uma conta existente espera a trava, então o `50
 
 - Continua `503`: banco indisponível, contenção e timeout de comando (seção acima). Por isso o `503` segue
   declarado no OpenAPI; a descrição da operação registra a regra nova. `oasdiff breaking` não aponta breaking change.
-- Continua `429` com `Retry-After` depois do limite do cadastro (mesmo contador; `ResendUsesTheRegistrationAccountLimitAndReturnsRetryAfter`).
+- Continua `429` com `Retry-After` depois do limite do cadastro (mesmo contador;
+  `ResendUsesTheRegistrationAccountLimitAndReturnsRetryAfter`).
 - SPA: `CheckEmailPage` não trata `503` em ramo próprio (falha genérica por `classifyRequestFailure`), então não
   muda; o `202` já mostra o aviso neutro.
 - Testes: `EmailConfirmationResendBusyTests.ExistingMissingAndBusyAccountsGetTheSameEmptyAccepted` e

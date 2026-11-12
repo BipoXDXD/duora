@@ -24,7 +24,8 @@ public sealed class NeutralUnavailabilityResponseTests(NeutralUnavailabilityResp
     private const string BusyRetryAfterSeconds = "30";
 
     private const string Expected =
-        "503|{\"code\":\"TEMPORARILY_UNAVAILABLE\",\"status\":503,\"title\":\"Service temporarily unavailable. Try again later.\","
+        "503|{\"code\":\"TEMPORARILY_UNAVAILABLE\",\"status\":503,"
+        + "\"title\":\"Service temporarily unavailable. Try again later.\","
         + "\"type\":\"urn:duora:problem:temporarily-unavailable\"}|Retry-After=" + BusyRetryAfterSeconds;
 
     /// <summary>O cadastro (API-A02) e o reenvio de sempre: 202 sem corpo e sem <c>Retry-After</c>.</summary>
@@ -90,7 +91,8 @@ public sealed class NeutralUnavailabilityResponseTests(NeutralUnavailabilityResp
         await browser.FetchCsrfTokenAsync();
 
         using var response = await browser.PostJsonAsync(
-            "/api/v1/auth/register", IdentityScenario.RegistrationBody(IdentityScenario.NewEmail(), publication: unapproved));
+            "/api/v1/auth/register",
+            IdentityScenario.RegistrationBody(IdentityScenario.NewEmail(), publication: unapproved));
 
         Assert.Equal(Expected, await DescribeAsync(response));
     }
@@ -104,7 +106,8 @@ public sealed class NeutralUnavailabilityResponseTests(NeutralUnavailabilityResp
     {
         "busy-fila" => new AccountBusyException(TimeSpan.FromSeconds(2)),
         "busy-lock" => new AccountBusyException(
-            TimeSpan.FromMilliseconds(300), new PostgresException("lock", "ERROR", "ERROR", PostgresErrorCodes.LockNotAvailable)),
+            TimeSpan.FromMilliseconds(300),
+            new PostgresException("lock", "ERROR", "ERROR", PostgresErrorCodes.LockNotAvailable)),
         "busy-prazo" => new AccountBusyException(TimeSpan.FromSeconds(7), new OperationCanceledException()),
         "53300" => new PostgresException("cheio", "FATAL", "FATAL", PostgresErrorCodes.TooManyConnections),
         "cliente-timeout" => new NpgsqlException("timeout", new TimeoutException()),
@@ -121,7 +124,8 @@ public sealed class NeutralUnavailabilityResponseTests(NeutralUnavailabilityResp
         var email = IdentityScenario.NewEmail();
         return route switch
         {
-            "login" => browser.PostJsonAsync("/api/v1/auth/login", new { email, password = IdentityScenario.ValidPassword }),
+            "login" => browser.PostJsonAsync(
+                "/api/v1/auth/login", new { email, password = IdentityScenario.ValidPassword }),
             "register" => browser.PostJsonAsync("/api/v1/auth/register", IdentityScenario.RegistrationBody(email)),
             "email-confirmation-requests" => browser.PostJsonAsync(
                 "/api/v1/auth/email-confirmation-requests", new { email, password = IdentityScenario.ValidPassword }),
@@ -136,15 +140,19 @@ public sealed class NeutralUnavailabilityResponseTests(NeutralUnavailabilityResp
     private static async Task<string> DescribeAsync(HttpResponseMessage response)
     {
         var raw = await response.Content.ReadAsStringAsync(TestContext.Current.CancellationToken);
-        var retryAfter = response.Headers.TryGetValues("Retry-After", out var values) ? string.Join(',', values) : "(nenhum)";
+        var retryAfter = response.Headers.TryGetValues("Retry-After", out var values)
+            ? string.Join(',', values)
+            : "(nenhum)";
         if (raw.Length == 0)
         {
             return $"{(int)response.StatusCode}||Retry-After={retryAfter}";
         }
 
-        var problem = JsonNode.Parse(raw)?.AsObject() ?? throw new InvalidOperationException("Corpo não é um objeto JSON.");
+        var problem = JsonNode.Parse(raw)?.AsObject()
+            ?? throw new InvalidOperationException("Corpo não é um objeto JSON.");
         var body = new JsonObject();
-        foreach (var (key, value) in problem.Where(pair => pair.Key != "traceId").OrderBy(pair => pair.Key, StringComparer.Ordinal))
+        foreach (var (key, value) in problem.Where(pair => pair.Key != "traceId")
+                     .OrderBy(pair => pair.Key, StringComparer.Ordinal))
         {
             body[key] = value?.DeepClone();
         }

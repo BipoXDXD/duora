@@ -104,7 +104,9 @@ public sealed class AccountBusyException : Exception
         WaitCeiling = RetryAfter;
     }
 
-    /// <summary>Espera de <see cref="AccountBusyReason.Other"/>, cujo teto é o próprio <paramref name="retryAfter"/>.</summary>
+    /// <summary>
+    /// Espera de <see cref="AccountBusyReason.Other"/>, cujo teto é o próprio <paramref name="retryAfter"/>.
+    /// </summary>
     public AccountBusyException(TimeSpan retryAfter, Exception? innerException = null)
         : this(retryAfter, AccountBusyReason.Other, retryAfter, innerException)
     {
