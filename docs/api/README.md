@@ -84,6 +84,16 @@ para a SPA tratá-los:
 Um erro passageiro do banco responde `503` `TEMPORARILY_UNAVAILABLE` com `Retry-After`, sem detalhe da falha.
 Quem decide é só o handler global (`DatabaseUnavailableExceptionHandler`); nenhum filtro de endpoint trata
 contenção por conta própria, e o teste de arquitetura `ContentionClassificationTests` impede que volte um.
+A elegibilidade indisponível (`EligibleParticipant`, `account-moderator`) não tem 503 próprio: ela monta a mesma
+resposta, pela mesma fonte do `Retry-After` (`DatabaseUnavailability.Unavailable`), mas não loga. O Warning
+(`DatabaseUnavailable` ou `DatabaseContention`) sai só pelo handler global, então uma falha de banco vista só pela
+elegibilidade responde `503` sem nenhuma linha de log (#473).
+
+Os endpoints que montam o `503` de banco sem passar pelo handler (revisão de foto, mídia, bloqueio, suspensão de
+conta e a entrega da evidência) também usam `DatabaseUnavailability` (`Unavailable` com a exceção, ou `Contention`
+quando o serviço devolve só `Busy`), e um teste de arquitetura (`RetryAfterSourceTests`) barra o prazo literal e o
+`catch` do Npgsql que grava o header (#493). O `503` de outra causa (fila de mídia, storage, capacidade, revisão sem
+evidência) declara o prazo numa constante nomeada perto dela.
 
 Valores (decisão da coordenação, 10/11):
 
@@ -91,7 +101,7 @@ Valores (decisão da coordenação, 10/11):
 |---|---|---|---|
 | Contenção: serialização, deadlock, `lock_timeout` (crua ou embrulhada pelo Npgsql ou pelo EF) | `40001`, `40P01`, `55P03` | `2` | `30` |
 | Banco fora do alcance: rede, pool, servidor sem conexões, recursos, disco ou memória, no limite de configuração, com objeto em uso, erro de E/S, sessão ociosa encerrada, ou desligando | `53300`, `53000`, `53100`, `53200`, `53400`, `55006`, `57P05`, `58030`, `57P01`–`57P03`, `08*`, falha do cliente | `5` | `30` |
-| Timeout de comando (`statement_timeout`) | `57014` | regra da rota (mídia e revisão de foto: `503`; outras: `500`) | `30` |
+| Timeout de comando (`statement_timeout`) | `57014` | regra da rota (mídia e revisão de foto: `503` com `2`; outras: `500`) | `30` |
 | Conta ocupada (`AccountBusyException`: fila, lock ou prazo) | — | o da exceção (na conta, `30`) | `30`; no cadastro e no reenvio, não é `503` (abaixo) |
 | Documentos legais indisponíveis no cadastro | — | — | `30` |
 
@@ -132,6 +142,10 @@ ver o fim desta seção):
 - Contenção embrulhada pelo Npgsql: era `503` com `Retry-After: 5`, passa a `2`.
 - Rotas de Participation, Catalog, PhotoReview e Media: continuam `503` com `Retry-After: 2`; a resposta ganha
   `Expires: -1`, como todo erro tratado pelo handler global, e a falha passa a gerar o Warning com o SQLSTATE.
+- Entrega da evidência de revisão de foto (`GET /api/v1/admin/photo-reviews/{id}/evidence/{variant}`), falha antes do
+  primeiro byte (#493): a exceção do Npgsql que não é contenção nem `57014` (banco fora do alcance) era `503` com
+  `Retry-After: 2`, passa a `5`, como no handler global; contenção e `57014` continuam `2`, e a falha de I/O ou o
+  cancelamento sem exceção do Npgsql continuam `2`.
 - `53200`, `53400`, `55006` e `58030` crus (`PostgresException`): eram `500` `INTERNAL_ERROR`, passam a `503` com
   `Retry-After: 5` (`30` sob `/auth`), igual ao embrulhado pelo Npgsql ou pelo EF (#476). O mesmo vale para `53000`,
   `53100` e `57P05` crus (#492).
@@ -156,7 +170,8 @@ fica só no Warning do log. Só uma conta existente espera a trava, então o `50
 
 - Continua `503`: banco indisponível, contenção e timeout de comando (seção acima). Por isso o `503` segue
   declarado no OpenAPI; a descrição da operação registra a regra nova. `oasdiff breaking` não aponta breaking change.
-- Continua `429` com `Retry-After` depois do limite do cadastro (mesmo contador; `ResendUsesTheRegistrationAccountLimitAndReturnsRetryAfter`).
+- Continua `429` com `Retry-After` depois do limite do cadastro (mesmo contador;
+  `ResendUsesTheRegistrationAccountLimitAndReturnsRetryAfter`).
 - SPA: `CheckEmailPage` não trata `503` em ramo próprio (falha genérica por `classifyRequestFailure`), então não
   muda; o `202` já mostra o aviso neutro.
 - Testes: `EmailConfirmationResendBusyTests.ExistingMissingAndBusyAccountsGetTheSameEmptyAccepted` e
