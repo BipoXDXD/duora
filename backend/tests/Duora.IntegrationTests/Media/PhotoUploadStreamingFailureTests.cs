@@ -104,9 +104,8 @@ public sealed class PhotoUploadStreamingFailureTests : IAsyncDisposable
     [Theory]
     [InlineData("timeout-fires", true, "TaskCanceledException")]
     [InlineData("timeout-fires-and-the-store-reports-a-generic-error", true, "InvalidOperationException")]
-    // Caracteriza o comportamento atual: o prazo estourado depois de o corpo inteiro ser lido ainda é atribuído ao
-    // cliente (400 UPLOAD_INCOMPLETE), porque o cancelamento do prazo vale como falha do cliente. Issue #505.
-    [InlineData("timeout-fires-after-the-whole-body", true, "InvalidOperationException")]
+    // Prazo estourado depois de o corpo inteiro ser lido é falha do armazenamento (503), não do cliente (#505).
+    [InlineData("timeout-fires-after-the-whole-body", false, "InvalidOperationException")]
     [InlineData("request-aborts", true, "TaskCanceledException")]
     [InlineData("sdk-timeout-while-the-body-is-incomplete", true, "TimeoutException")]
     [InlineData("sdk-timeout-wrapped-while-the-body-is-incomplete", true, "HttpRequestException")]
