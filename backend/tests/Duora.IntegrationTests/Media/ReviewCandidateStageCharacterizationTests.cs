@@ -323,6 +323,36 @@ public sealed class ReviewCandidateStageCharacterizationTests(PostgresFixture po
         await AssertOriginalKeptAsync(upload);
     }
 
+    [Fact]
+    public async Task ALeaseThatExpiresDuringAPutLosesTheLeaseAndKeepsTheSettledCleanupObligation()
+    {
+        var upload = await ProcessingUploadAsync();
+        var store = new LatePutStore(new FileSystemObjectStore(_root.FullName));
+        var clock = new FakeTimeProvider(DateTimeOffset.UtcNow);
+        var staging = StageAsync(upload.Id, upload.Version, store, clock.GetUtcNow().AddMinutes(1), clock, ReviewSanitized());
+        try
+        {
+            await store.PutEntered.Task.WaitAsync(TimeSpan.FromSeconds(5), Ct);
+            clock.Advance(TimeSpan.FromMinutes(2));
+            store.AllowPut.TrySetResult();
+
+            Assert.IsType<ReviewCandidateStageResult.LeaseLost>(await staging.WaitAsync(TimeSpan.FromSeconds(10), Ct));
+        }
+        finally
+        {
+            store.AllowPut.TrySetResult();
+        }
+
+        Assert.Equal(0, await ScalarAsync("select count(*) from safety.photo_review_cases where upload_id=$1", upload.Id));
+        Assert.Equal(0, await ScalarAsync("select count(*) from media.original_cleanup where upload_id=$1", upload.Id));
+        Assert.Equal(1, await ScalarAsync("select count(*) from media.uploads where id=$1 and state='Processing'", upload.Id));
+        Assert.Equal(1, await ScalarAsync("""
+            select count(*) from media.review_candidates where upload_id=$1 and committed_at is null and case_id is null
+              and writer_settled_at is not null and cleanup_requested_at is not null
+            """, upload.Id));
+        await AssertOriginalKeptAsync(upload);
+    }
+
     [Theory]
     [InlineData(false)]
     [InlineData(true)]
