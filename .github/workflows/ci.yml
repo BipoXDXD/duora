@@ -34,7 +34,8 @@ jobs:
   backend:
     name: backend
     runs-on: ubuntu-24.04
-    timeout-minutes: 40
+    # Interino até os shards (#510): a suíte passou de 40 min por tamanho, não por teste preso (#507).
+    timeout-minutes: 60
     steps:
       - name: Registrar arquitetura do runner (spec 2.4)
         run: |
