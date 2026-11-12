@@ -63,11 +63,12 @@ public sealed class DatabaseContentionResponseTests(EnabledPhotoUploads media)
     }
 
     /// <summary>
-    /// Estados de recurso do servidor tratados como indisponibilidade, fora da contenção: 53200 (sem memória), 53400
-    /// (limite de configuração), 55006 (objeto em uso) e 58030 (erro de E/S). Crus ou embrulhados, a resposta é a
-    /// mesma (#476).
+    /// Estados de recurso do servidor tratados como indisponibilidade, fora da contenção: 53000 (recursos
+    /// insuficientes), 53100 (disco cheio), 53200 (sem memória), 53400 (limite de configuração), 55006 (objeto em uso),
+    /// 57P05 (sessão ociosa encerrada) e 58030 (erro de E/S). Crus ou embrulhados, a resposta é a mesma (#476, #492).
     /// </summary>
-    private static readonly string[] TransientServerStates = ["53200", "53400", "55006", "58030"];
+    private static readonly string[] TransientServerStates =
+        ["53000", "53100", "53200", "53400", "55006", "57P05", "58030"];
 
     public static TheoryData<string, string, string> UnreachableCases()
     {

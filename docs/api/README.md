@@ -102,7 +102,7 @@ Valores (decisão da coordenação, 10/11):
 | Falha | SQLSTATE | `Retry-After` fora de `/auth` | `Retry-After` em `/auth` |
 |---|---|---|---|
 | Contenção: serialização, deadlock, `lock_timeout` (crua ou embrulhada pelo Npgsql ou pelo EF) | `40001`, `40P01`, `55P03` | `2` | `30` |
-| Banco fora do alcance: rede, pool, servidor sem conexões ou memória, no limite de configuração, com objeto em uso ou erro de E/S, ou desligando | `53300`, `53200`, `53400`, `55006`, `58030`, `57P01`–`57P03`, `08*`, falha do cliente | `5` | `30` |
+| Banco fora do alcance: rede, pool, servidor sem conexões, recursos, disco ou memória, no limite de configuração, com objeto em uso, erro de E/S, sessão ociosa encerrada, ou desligando | `53300`, `53000`, `53100`, `53200`, `53400`, `55006`, `57P05`, `58030`, `57P01`–`57P03`, `08*`, falha do cliente | `5` | `30` |
 | Timeout de comando (`statement_timeout`) | `57014` | regra da rota (mídia e revisão de foto: `503` com `2`; outras: `500`) | `30` |
 | Conta ocupada (`AccountBusyException`: fila, lock ou prazo) | — | o da exceção (na conta, `30`) | `30`; no cadastro e no reenvio, não é `503` (abaixo) |
 | Documentos legais indisponíveis no cadastro | — | — | `30` |
@@ -130,10 +130,15 @@ Entra numa release só com o #451, que é a base deste PR: o #451 dá ao handler
 (SQLSTATE, tipo da exceção, padrão da rota e trace, nunca a mensagem do Npgsql nem a connection string) e trata o
 erro passageiro do servidor embrulhado pelo Npgsql como indisponibilidade. O #465 parte daí, separa o Warning em
 dois eventos e unifica cru e embrulhado na contenção (`40001`, `40P01`, `55P03`). O #476 unifica também `53200`,
-`53400`, `55006` e `58030` (sem memória, limite de configuração, objeto em uso e erro de E/S): antes, embrulhados
-davam `503` com `5` e crus davam `500`. A lista é própria e não acompanha o `IsTransient` do Npgsql.
+`53400`, `55006` e `58030` (sem memória, limite de configuração, objeto em uso e erro de E/S) e o #492 acrescenta
+`53000`, `53100` e `57P05` (recursos insuficientes, disco cheio e sessão ociosa encerrada): antes, embrulhados davam
+`503` com `5` e crus davam `500`. A lista é própria e não acompanha o `IsTransient` do Npgsql: `55000` (defeito
+costuma ser permanente) e `58000` (genérico demais) ficam de fora de propósito e, crus, seguem `500`. Embrulhados pelo Npgsql,
+esses dois seguem `503`, pelo `IsTransient`. Um `57P05` recorrente indica `idle_session_timeout` do servidor ou do proxy
+menor que o idle do pool do Npgsql (`ConnectionIdleLifetime`, padrão 300 s): é configuração, não falha passageira.
 
-Mudança de contrato, sem mudança de schema (o OpenAPI não lista o `Retry-After` desses 503):
+Mudança de contrato, sem mudança de schema de corpo (antes do #492 o OpenAPI não listava o `Retry-After` desses 503;
+ver o fim desta seção):
 
 - Contenção crua numa rota sem filtro próprio: era `500` `INTERNAL_ERROR`, passa a `503` com `Retry-After: 2`.
 - Contenção embrulhada pelo Npgsql: era `503` com `Retry-After: 5`, passa a `2`.
@@ -144,9 +149,18 @@ Mudança de contrato, sem mudança de schema (o OpenAPI não lista o `Retry-Afte
   `Retry-After: 2`, passa a `5`, como no handler global; contenção e `57014` continuam `2`, e a falha de I/O ou o
   cancelamento sem exceção do Npgsql continuam `2`.
 - `53200`, `53400`, `55006` e `58030` crus (`PostgresException`): eram `500` `INTERNAL_ERROR`, passam a `503` com
-  `Retry-After: 5` (`30` sob `/auth`), igual ao embrulhado pelo Npgsql ou pelo EF (#476).
+  `Retry-After: 5` (`30` sob `/auth`), igual ao embrulhado pelo Npgsql ou pelo EF (#476). O mesmo vale para `53000`,
+  `53100` e `57P05` crus (#492).
 - Rotas sob `/auth`: todo `503` passa a `Retry-After: 30`; o `57014` passa de `500` a `503`; o `503` legal do
   cadastro e os `503` do Google passam a levar `Retry-After`.
+
+Declaração no OpenAPI (#492): toda operação de `/api/v1` declara o `503` `ProblemDetails` com o header `Retry-After`
+(inteiro, em segundos, mínimo 1), porque qualquer rota pode recebê-lo: o cookie de sessão é validado no banco a cada
+requisição, inclusive nas rotas anônimas que o recebem. A declaração vem de um transformer único
+(`ServiceUnavailableOpenApi`), não de cada rota: as rotas que já declaram o `503` ganham só o header. O header é
+documentado como enviado com `TEMPORARILY_UNAVAILABLE`; outros `503` de uma rota (por exemplo `SELFIE_UNAVAILABLE`)
+podem não o levar. Antes eram 48 das 85 operações; agora são as 85. Só adiciona respostas e um header opcional, sem
+breaking change para o `oasdiff`. `ServiceUnavailableOpenApiTests` confere o contrato gerado e o versionado.
 
 ## Reenvio da confirmação com a conta ocupada (#470)
 

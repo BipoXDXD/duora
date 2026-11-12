@@ -37,16 +37,18 @@ public sealed class NeutralUnavailabilityResponseTests(NeutralUnavailabilityResp
 
     private static readonly string[] IdentityRoutes = ["login", "register", "email-confirmation-requests"];
 
+    /// <summary>Estados de recurso do servidor tratados como indisponibilidade (#476, #492).</summary>
+    private static readonly string[] ResourceStates = ["53000", "53100", "53200", "53400", "55006", "57P05", "58030"];
+
+    private static readonly string[] Envelopes = ["cru", "npgsql", "npgsql2", "ef"];
+
     private static readonly string[] Causes =
     [
         "busy-fila", "busy-lock", "busy-prazo",
         "53300", "cliente-timeout",
         "40001-cru", "40P01-cru", "55P03-cru",
         "40001-npgsql", "40P01-npgsql", "55P03-npgsql",
-        "53200-cru", "53400-cru", "55006-cru", "58030-cru",
-        "53200-npgsql", "53400-npgsql", "55006-npgsql", "58030-npgsql",
-        "53200-npgsql2", "53400-npgsql2", "55006-npgsql2", "58030-npgsql2",
-        "53200-ef", "53400-ef", "55006-ef", "58030-ef",
+        .. ResourceStates.SelectMany(state => Envelopes.Select(envelope => $"{state}-{envelope}")),
         "57014-cru",
     ];
 

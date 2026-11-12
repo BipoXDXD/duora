@@ -7,10 +7,11 @@ namespace Duora.Web.Http;
 
 /// <summary>
 /// Banco temporariamente fora do alcance: conexão recusada ou caída, pool esgotado (o <c>Timeout</c> do pool venceu)
-/// ou servidor sem conexões livres (53300) ou desligando (57P01 a 57P03, classe 08). Também quatro estados de
-/// recurso do servidor, crus como embrulhados: 53200 (sem memória), 53400 (limite de configuração), 55006 (objeto em
-/// uso) e 58030 (erro de E/S) (#476). A lista é própria, sem paridade com o <c>IsTransient</c> do Npgsql, que cobre
-/// outros estados também.
+/// ou servidor sem conexões livres (53300) ou desligando (57P01 a 57P03, classe 08). Também sete estados de recurso
+/// do servidor, crus como embrulhados: 53000 (recursos insuficientes), 53100 (disco cheio), 53200 (sem memória), 53400
+/// (limite de configuração), 55006 (objeto em uso), 57P05 (sessão ociosa encerrada) e 58030 (erro de E/S) (#476,
+/// #492). A lista é própria, sem paridade com o <c>IsTransient</c> do Npgsql: 55000 (defeito costuma ser permanente)
+/// e 58000 (genérico demais) ficam de fora de propósito e continuam 500 quando crus.
 /// E a contenção, que passa sozinha: serialização (40001), deadlock (40P01) e <c>lock_timeout</c> (55P03), crua ou
 /// embrulhada pelo Npgsql (#465). O EF costuma embrulhar a causa numa <see cref="InvalidOperationException"/>
 /// ("transient failure"), então a cadeia inteira é examinada.
@@ -94,10 +95,14 @@ internal static class DatabaseUnavailability
         };
 
     // Estados de recurso do servidor tratados como indisponibilidade, além de 53300, do desligamento e da classe 08:
-    // 53200 (sem memória), 53400 (limite de configuração), 55006 (objeto em uso) e 58030 (erro de E/S). Não é o
-    // conjunto do IsTransient do Npgsql: outros estados passageiros dele continuam 500 quando crus.
+    // 53000 (recursos insuficientes), 53100 (disco cheio), 53200 (sem memória), 53400 (limite de configuração), 55006
+    // (objeto em uso), 57P05 (sessão ociosa encerrada) e 58030 (erro de E/S). Não é o conjunto do IsTransient do
+    // Npgsql: 55000 e 58000, que ele cobre, continuam 500 quando crus.
     private static bool IsUnavailableState(string sqlState) =>
         sqlState is PostgresErrorCodes.TooManyConnections
+            or PostgresErrorCodes.InsufficientResources
+            or PostgresErrorCodes.DiskFull
+            or PostgresErrorCodes.IdleSessionTimeout
             or PostgresErrorCodes.OutOfMemory
             or PostgresErrorCodes.ConfigurationLimitExceeded
             or PostgresErrorCodes.ObjectInUse

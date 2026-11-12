@@ -420,8 +420,8 @@ job na ordem 0; efeito externo autoriza no banco antes de agir no storage. Job d
 | Autorização, validação, versão divergente | — | **Não** |
 
 Contenção que escapa do retry (`40001`, `40P01`, `55P03`) chega ao handler global e responde `503`
-`TEMPORARILY_UNAVAILABLE` com `Retry-After: 2`, e banco fora do alcance (inclusive `53200`, `53400`, `55006` e
-`58030`, crus ou embrulhados, #476) com `Retry-After: 5`; sob `/auth`, todo `503`
+`TEMPORARILY_UNAVAILABLE` com `Retry-After: 2`, e banco fora do alcance (inclusive `53000`, `53100`, `53200`,
+`53400`, `55006`, `57P05` e `58030`, crus ou embrulhados, #476 e #492) com `Retry-After: 5`; sob `/auth`, todo `503`
 usa o `Retry-After` da conta ocupada (30 s) para não revelar a causa (decisão da coordenação, 10/11;
 [contrato](../api/README.md#indisponibilidade-temporária-do-banco-465)).
 
