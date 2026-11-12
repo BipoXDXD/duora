@@ -181,6 +181,16 @@ API-E03, API-E04 e promoção da lista de espera (M2). Teste T-28.
 4. Retirada ou no-show: mesmo lock do evento; liberar a vaga e promover a inscrição `Waitlisted` de menor
    posição (determinístico), na mesma transação, com outbox para a pessoa promovida.
 
+**Retirada voluntária (API-E04, ADR-0053).** Mesma ordem da inscrição: plano preliminar (a pessoa e toda a espera),
+guardas e contas em ordem de UUID, `events.events FOR UPDATE`, plano relido (pessoa ou evento novo → reinício
+integral, até três tentativas, depois `503`) e só então o relógio. Sem revalidar elegibilidade: sair não exige ser
+elegível. Grava `withdrawn_at`, `withdrawn_from_state` e a posição antiga, sem suspensão, com escrita condicional
+ao estado ativo; decrementa só quem ocupava vaga e promove a menor posição elegível com `agora < starts_at`. Linha
+já `Withdrawn`, por qualquer origem, é sucesso sem escrita. Evento `Running` ou já iniciado recusa sem efeito: a
+retirada que libera reserva e sala fica para outra entrega. O lock do evento é a única barreira contra o build da
+rodada, que só guarda quem fez check-in; `VoluntaryWithdrawalConcurrencyTests` cobre esse caso, a última vaga com
+retirada concorrente ao check-in, check-in × retirada nas duas ordens, retiradas simultâneas e retirada × suspensão.
+
 O `CHECK (confirmed_count BETWEEN 0 AND capacity)` e os `UNIQUE` de inscrição e de posição garantem que um bug
 no protocolo vire erro, não lotação estourada.
 
@@ -420,7 +430,8 @@ job na ordem 0; efeito externo autoriza no banco antes de agir no storage. Job d
 | Autorização, validação, versão divergente | — | **Não** |
 
 Contenção que escapa do retry (`40001`, `40P01`, `55P03`) chega ao handler global e responde `503`
-`TEMPORARILY_UNAVAILABLE` com `Retry-After: 2`, e banco fora do alcance com `Retry-After: 5`; sob `/auth`, todo `503`
+`TEMPORARILY_UNAVAILABLE` com `Retry-After: 2`, e banco fora do alcance (inclusive `53000`, `53100`, `53200`,
+`53400`, `55006`, `57P05` e `58030`, crus ou embrulhados, #476 e #492) com `Retry-After: 5`; sob `/auth`, todo `503`
 usa o `Retry-After` da conta ocupada (30 s) para não revelar a causa (decisão da coordenação, 10/11;
 [contrato](../api/README.md#indisponibilidade-temporária-do-banco-465)).
 
@@ -501,6 +512,7 @@ falham (A10), e os demais `429` já estavam no contrato ([limites](../security/a
 | `AccountQueueTimeout` | 30 s | Sem conexão; cada admissão na fila tem seu teto | `503 TEMPORARILY_UNAVAILABLE`, `Retry-After: 30` |
 | `AccountLockTimeout` | 5 s | Uma conexão por conta e processo na disputa do lock SQL | Mesmo contrato, `Retry-After: 30` (o teto da fila, não o do lock; issue #468); rollback e liberação da conexão |
 | `LoginTimeout` | 30 s | Prazo das esperas do login (A04): filas, lock e piso | Mesmo contrato, `Retry-After: 30` (o teto da fila); a espera em andamento é cancelada, e nada foi gravado, exceto no estouro durante o piso, quando a falha já conta |
+| `RegistrationLockTimeout` | 5 ms | Só o cadastro (A02): o upsert da linha da conta, sem fila em memória | `202` de sempre, sem gravar nem enviar e-mail; Warning sem e-mail nem id ([ADR-0055](../architecture/adr/0055-teto-curto-e-hash-sempre-no-cadastro.md)) |
 
 O `Retry-After` de toda conta ocupada é um só: o teto da fila (`AccountQueueTimeout`), arredondado
 para cima em segundos, qualquer que seja o teto que estourou. A regra mora em
@@ -522,7 +534,8 @@ O valor único alcança toda operação que espera a conta, não só o login: lo
 (A10), reset de senha (A07) e MFA (A11–A16) também passam de `Retry-After: 5` para `30` quando o lock SQL
 estoura.
 
-Os dois primeiros aceitam de 100 ms a 1 min e são validados no boot, independentemente. O teto SQL é
+Os dois primeiros aceitam de 100 ms a 1 min e são validados no boot, independentemente. O
+`RegistrationLockTimeout` aceita de 1 ms a 50 ms e também é validado no boot; veja a seção do cadastro abaixo. O teto SQL é
 removido após adquirir o lock, como antes. Os dois são tetos de fase; o prazo do pedido inteiro é o
 `LoginTimeout`, um `CancellationTokenSource` ligado ao `RequestAborted`, em tempo real como o piso
 (`LoginConcurrencyTests.ALoginPastItsTotalDeadlineAnswers503BeforeTheQueueTimeout`). Ele aceita do
@@ -591,8 +604,30 @@ O reenvio da confirmação (API-A03, issue #470) trava a mesma linha, mas não u
 ela existe. A fila por UUID e o `lock_timeout` do reenvio esperam `Identity:ShortWait:LockTimeout` cada um (100 ms,
 validado entre 1 ms e 125 ms, porque as duas esperas se somam), dentro do piso de 500 ms da rota. Estourou, o
 reenvio desiste sem gravar nada e responde o mesmo `202`, com o motivo só num Warning
-(`EmailConfirmationResendBusyTests`, `EmailConfirmationResendTimingTests`). O cadastro (#466) segue a mesma decisão e
-deve usar a mesma configuração.
+(`EmailConfirmationResendBusyTests`, `EmailConfirmationResendTimingTests`). O cadastro (#466) segue a mesma decisão
+com um teto próprio, abaixo.
+
+### Cadastro com a conta travada (issues #461 e #466)
+
+O cadastro (A02) não passa pela fila em memória: o upsert por `ON CONFLICT` no e-mail normalizado espera a linha da
+conta direto no PostgreSQL, com o teto próprio `Identity:RegistrationLockTimeout` (5 ms). Passou do teto, o cadastro
+desiste sem gravar nada e responde o mesmo `202` de qualquer cadastro (TM-06); só o Warning
+`Registration gave up waiting for the account row lock`, sem e-mail nem id, distingue o caso. O teto vale para qualquer
+lock que o upsert espere: outro cadastro do mesmo e-mail em andamento ou um DDL na tabela também caem nele.
+
+O teto não é o do login porque o tempo também responde. Com os 5 s do `AccountLockTimeout`, a conta travada respondia
+~5 s mais devagar que um e-mail novo, e o `202` idêntico não escondia mais nada. Pela mesma razão, o código de
+confirmação e o hash dele saem antes da transação: a desistência pela trava e o cadastro recusado pelo orçamento de
+emissão (3 por hora, cadastro e reenvio) pagam os dois hashes, que são quase todo o tempo do cadastro.
+
+Sobra um resíduo de poucos ms, do SQL que a desistência não roda e do próprio teto. Medido com PBKDF2 real (Mac local,
+mediana das diferenças pareadas, N = 31): conta travada +2,5 ms e orçamento esgotado −3,8 a −4,5 ms, contra um desvio
+por amostra de 2,2–3,9 ms. `RegistrationTimingTests` mantém esse resíduo dentro de ±25 ms, com hash de custo fixo de
+40 ms (como o `LoginConcurrencyTests`, que injeta atraso sobre o hasher), numa coleção que roda sem paralelismo.
+
+O custo é um cadastro legítimo que coincide com login, confirmação, reset ou outro cadastro do mesmo e-mail desistir mais
+vezes: recebe o `202`, não recebe e-mail e tenta de novo. Decisão e alternativas no
+[ADR-0055](../architecture/adr/0055-teto-curto-e-hash-sempre-no-cadastro.md).
 
 ### Com mais de uma instância web
 
