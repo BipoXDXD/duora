@@ -241,7 +241,7 @@ public sealed partial class PhotoReviewApprovalTests
                         """
                     : """
                         delete from media.review_promotion_variants
-                        where kind='full' and generation=(select generation from media.review_promotions where case_id=$1)
+                        where kind='thumb' and generation=(select generation from media.review_promotions where case_id=$1)
                         """, bypassForeignKeys: true, item.CaseId);
             }
         });
