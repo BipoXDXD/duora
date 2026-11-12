@@ -69,21 +69,12 @@ jobs:
       # Sem limite interno: quem corta é o timeout-minutes do job. O maior verde levou 35m58s aqui e 39m57s no job.
       # O TRX só é gravado no fim do módulo e não existe no corte; o .diag em Trace identifica o teste que ficou
       # em andamento (InProgress sem resultado).
-      # Watchdog (#507): aos 32 min de teste, ~36 do job, tira dump com heap dos hosts de teste ainda vivos, para que
-      # um corte traga as pilhas (fome do thread pool, teste preso) e não só o nome do teste aberto.
       - name: Testes
         run: |
           results="$RUNNER_TEMP/backend-test-results"
-          mkdir -p "$results"
-          scripts/ci/test-watchdog.sh 1920 "$results" &
-          watchdog=$!
-          status=0
           dotnet test --solution backend/Duora.slnx --no-build \
             --report-xunit-trx --results-directory "$results" \
-            --diagnostic --diagnostic-verbosity Trace --diagnostic-output-directory "$results" || status=$?
-          pkill -P "$watchdog" 2>/dev/null || true
-          kill "$watchdog" 2>/dev/null || true
-          exit "$status"
+            --diagnostic --diagnostic-verbosity Trace --diagnostic-output-directory "$results"
 
       # Tempo de parede por classe e testes ainda abertos, em verde também (#507): só nomes de teste e tempos vão
       # para o resumo do job, nunca o .diag. Informativo: não muda o veredito.
@@ -102,7 +93,6 @@ jobs:
           path: |
             ${{ runner.temp }}/backend-test-results/*.trx
             ${{ runner.temp }}/backend-test-results/*.diag
-            ${{ runner.temp }}/backend-test-results/*_watchdog.dmp
           if-no-files-found: warn
           retention-days: 7
 

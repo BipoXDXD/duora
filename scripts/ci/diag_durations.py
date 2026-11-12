@@ -21,7 +21,8 @@ STAMP = re.compile(r"^(\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d\.\d+)\d*([+-]\d\d:\d\d) ")
 UPDATE = re.compile(
     r"^TestNodeUpdateMessage \{.*?TestNodeUid \{ Value = (?P<uid>[^ ]+) \}"
     r".*?Namespace = (?P<namespace>[^,]+), TypeName = (?P<type>[^,]+), MethodName = (?P<method>[^,]+),"
-    r".*\b(?P<state>[A-Za-z]+)TestNodeStateProperty \{"
+    r".*\b(?P<state>[A-Za-z]+)TestNodeStateProperty \{",
+    re.DOTALL,
 )
 IN_PROGRESS = "InProgress"
 FAILED_OUTCOMES = frozenset({"Failed", "Error", "Timeout", "Cancelled"})
@@ -52,30 +53,48 @@ class ClassSummary:
 
 
 def parse_lines(lines: Iterable[str]) -> list[TestRun]:
-    """Uma entrada por teste; teste sem estado final fica aberto até o último carimbo do arquivo."""
+    """Uma entrada por teste; teste sem estado final fica aberto até o último carimbo do arquivo.
+
+    A mensagem de teste pode ocupar várias linhas: a saída do ITestOutputHelper vem dentro dela, antes do estado.
+    Por isso a mensagem é juntada até a próxima linha com carimbo.
+    """
     runs: dict[str, TestRun] = {}
     now: datetime | None = None
+    message: list[str] = []
+    message_time: datetime | None = None
     for line in lines:
         stamp = STAMP.match(line)
         if stamp:
+            _apply(runs, message, message_time)
+            message = []
             now = _parse_stamp(stamp)
-            continue
-        update = UPDATE.match(line)
-        if update is None or now is None:
-            continue
-        state = update["state"]
-        uid = update["uid"]
-        if state == IN_PROGRESS:
-            runs.setdefault(uid, TestRun(uid, _class_name(update["namespace"], update["type"]),
-                                         update["method"], now, now, None))
-        elif uid in runs:
-            runs[uid].end = now
-            runs[uid].outcome = state
+        elif line.startswith("TestNodeUpdateMessage {"):
+            _apply(runs, message, message_time)
+            message, message_time = [line], now
+        elif message:
+            message.append(line)
+    _apply(runs, message, message_time)
     if now is not None:
         for run in runs.values():
             if run.outcome is None:
                 run.end = now
     return list(runs.values())
+
+
+def _apply(runs: dict[str, TestRun], message: list[str], time: datetime | None) -> None:
+    if not message or time is None:
+        return
+    update = UPDATE.match("".join(message))
+    if update is None:
+        return
+    state = update["state"]
+    uid = update["uid"]
+    if state == IN_PROGRESS:
+        runs.setdefault(uid, TestRun(uid, _class_name(update["namespace"], update["type"]),
+                                     update["method"], time, time, None))
+    elif uid in runs:
+        runs[uid].end = time
+        runs[uid].outcome = state
 
 
 def summarize_classes(runs: list[TestRun]) -> list[ClassSummary]:

@@ -74,6 +74,24 @@ class ParseTests(unittest.TestCase):
 
         self.assertEqual(["Cancelled", "Error", "Failed", "Skipped", "Timeout"], outcomes)
 
+    def test_a_state_after_multiline_test_output_still_closes_the_test(self):
+        # Teste que escreve no ITestOutputHelper: a saída vem dentro da mensagem, com quebras de linha, antes do estado.
+        passed = update("a", DATABASE, "PostgresMemoryProfileTests", "Fits", "Passed")
+        head, state = passed.split("PassedTestNodeStateProperty", 1)
+        runs = diag.parse_lines([
+            stamp("00:31:20.0000000"),
+            update("a", DATABASE, "PostgresMemoryProfileTests", "Fits", "InProgress"),
+            stamp("00:31:23.0000000"),
+            head + "StandardOutputProperty { StandardOutput = HostConfig.ShmSize=268435456",
+            "DockerHost.MemTotal=16000000000 }, ",
+            "PassedTestNodeStateProperty" + state,
+            stamp("00:41:20.0000000"),
+        ])
+
+        self.assertEqual(1, len(runs))
+        self.assertEqual("Passed", runs[0].outcome)
+        self.assertEqual(3.0, runs[0].seconds)
+
     def test_an_update_before_any_stamp_is_ignored(self):
         self.assertEqual([], diag.parse_lines([update("a", IDENTITY, "X", "Y", "InProgress")]))
 
