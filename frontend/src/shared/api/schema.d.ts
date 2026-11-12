@@ -192,6 +192,7 @@ export interface paths {
         };
         get?: never;
         put?: never;
+        /** @description Reenvia o código de confirmação. Responde 202 sem corpo, igual para conta pendente, conta confirmada, e-mail inexistente e conta ocupada (fila, lock ou prazo). 429 com Retry-After depois do limite do cadastro; 503 com o banco indisponível, com contenção no banco ou com o timeout de comando (statement_timeout). */
         post: {
             parameters: {
                 query?: never;

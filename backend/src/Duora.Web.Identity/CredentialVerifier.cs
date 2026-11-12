@@ -60,8 +60,9 @@ internal sealed class LoginTimingOptions
 
     /// <summary>
     /// Prazo das esperas do login (filas, lock e piso), 30 s, hipótese; as gravações depois do hash não
-    /// cancelam. Estourou, <see cref="AccountBusyException"/> (503) com esse valor no <c>Retry-After</c>. Precisa
-    /// caber o piso inteiro, ou toda falha viraria 503.
+    /// cancelam. Estourou, <see cref="AccountBusyException"/> (503) com o <c>Retry-After</c> único da conta
+    /// ocupada (<see cref="AccountLockOptions.BusyRetryAfter"/>), não este prazo. Precisa caber o piso inteiro,
+    /// ou toda falha viraria 503.
     /// </summary>
     public TimeSpan LoginTimeout { get; set; } = TimeSpan.FromSeconds(30);
 
@@ -80,6 +81,7 @@ public sealed partial class CredentialVerifier
     private readonly SignInManager<DuoraUser> _signIn;
     private readonly DecoyPasswordHash _decoy;
     private readonly LoginTimingOptions _timing;
+    private readonly AccountLockOptions _accountLock;
     private readonly AccountSecurityService _security;
     private readonly LoginMetrics _metrics;
     private readonly ILogger<CredentialVerifier> _logger;
@@ -90,6 +92,7 @@ public sealed partial class CredentialVerifier
         SignInManager<DuoraUser> signIn,
         DecoyPasswordHash decoy,
         IOptions<LoginTimingOptions> timing,
+        IOptions<AccountLockOptions> accountLock,
         AccountSecurityService security,
         LoginMetrics metrics,
         ILogger<CredentialVerifier> logger,
@@ -99,6 +102,7 @@ public sealed partial class CredentialVerifier
         _signIn = signIn;
         _decoy = decoy;
         _timing = timing.Value;
+        _accountLock = accountLock.Value;
         _security = security;
         _metrics = metrics;
         _logger = logger;
@@ -129,7 +133,8 @@ public sealed partial class CredentialVerifier
         catch (OperationCanceledException expired)
             when (deadline.IsCancellationRequested && !cancellationToken.IsCancellationRequested)
         {
-            throw new AccountBusyException(_timing.LoginTimeout, expired);
+            throw new AccountBusyException(
+                _accountLock.BusyRetryAfter, AccountBusyReason.LoginDeadline, _timing.LoginTimeout, expired);
         }
     }
 
