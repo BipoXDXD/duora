@@ -95,6 +95,7 @@ describe.each(Object.keys(kinds) as (keyof typeof kinds)[])('%s action after the
     await user.click(await screen.findByRole('button', { name: kinds[kind].button }))
     expect(await screen.findByText('This room is not available.', { exact: false })).toHaveAttribute('role', 'status')
     expect(screen.queryByRole('alert')).not.toBeInTheDocument()
+    expect(screen.queryByText('This room has been closed.')).not.toBeInTheDocument()
     expect(screen.queryByRole('button', { name: kinds[kind].button })).not.toBeInTheDocument()
     expect(screen.queryByRole('button', { name: 'Leave room' })).not.toBeInTheDocument()
   })
@@ -117,6 +118,7 @@ describe.each(Object.keys(kinds) as (keyof typeof kinds)[])('%s action after the
     expect(await screen.findByText('Time is up. Your progress is shown below.')).toBeInTheDocument()
     expect(screen.queryByText('This room is not available.')).not.toBeInTheDocument()
     expect(screen.queryByRole('alert')).not.toBeInTheDocument()
+    expect(screen.queryByText('This room has been closed.')).not.toBeInTheDocument()
   })
   it.each([409, 500])('%i keeps the generic alert and the actions', async (status) => {
     setup(kind, status)
