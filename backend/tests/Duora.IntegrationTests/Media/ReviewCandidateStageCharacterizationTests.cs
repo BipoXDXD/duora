@@ -480,6 +480,119 @@ public sealed class ReviewCandidateStageCharacterizationTests(PostgresFixture po
         await AssertOriginalKeptAsync(upload);
     }
 
+    // The tests below pin four details a structural change could drop without failing any test above (review of PR #523).
+    // Each is observable through the double or the SQL trace, so none is an equivalent mutant:
+    //  - register/seal token and winner-lookup token replaced by CancellationToken.None: the call no longer ends when the
+    //    caller cancels or the lease budget runs out (killed by the two cancellation tests);
+    //  - PUT content type changed: the object would be stored with another type (killed by the PUT details test);
+    //  - NeedsCleanup => Prepared (no "&& !Committed"): rows stay the same, because the UPDATEs filter committed_at is null,
+    //    but two extra UPDATEs run after every successful commit (killed by the SQL trace test; it is "equivalent" only in rows).
+
+    [Fact]
+    public async Task EveryVariantIsPutWithTheWebPContentTypeAndItsExactLength()
+    {
+        var upload = await ProcessingUploadAsync();
+        var store = new PutDetailsStore(new FileSystemObjectStore(_root.FullName));
+
+        Assert.IsType<ReviewCandidateStageResult.Staged>(await StageAsync(
+            upload.Id, upload.Version, store, DateTimeOffset.UtcNow.AddMinutes(1), TimeProvider.System, ReviewSanitized()));
+
+        var expectedLength = TestImages.WebP(64, 32).Length;
+        Assert.Equal(3, store.Puts.Count);
+        Assert.All(store.Puts, put =>
+        {
+            Assert.Equal("image/webp", put.ContentType);
+            Assert.Equal(expectedLength, put.Length);
+        });
+    }
+
+    [Theory]
+    [InlineData("register", false)]
+    [InlineData("register", true)]
+    [InlineData("seal", false)]
+    [InlineData("seal", true)]
+    public async Task TheManagedRegisterAndSealCallsEndWhenTheCallerCancelsOrTheLeaseBudgetRunsOut(
+        string blockedCall, bool leaseExpires)
+    {
+        var upload = await ProcessingUploadAsync();
+        var store = new BlockingManagedStore(new FileSystemObjectStore(_root.FullName), blockedCall);
+        var clock = new FakeTimeProvider(DateTimeOffset.UtcNow);
+        using var attempt = CancellationTokenSource.CreateLinkedTokenSource(Ct);
+        var staging = StageAsync(upload.Id, upload.Version, store, clock.GetUtcNow().AddMinutes(1), clock,
+            ReviewSanitized(), attempt.Token);
+        try
+        {
+            await store.Entered.Task.WaitAsync(TimeSpan.FromSeconds(5), Ct);
+            if (leaseExpires)
+            {
+                clock.Advance(TimeSpan.FromMinutes(2));
+                Assert.IsType<ReviewCandidateStageResult.LeaseLost>(await staging.WaitAsync(TimeSpan.FromSeconds(10), Ct));
+            }
+            else
+            {
+                await attempt.CancelAsync();
+                await Assert.ThrowsAnyAsync<OperationCanceledException>(() => staging.WaitAsync(TimeSpan.FromSeconds(10), Ct));
+            }
+        }
+        finally
+        {
+            store.Release.TrySetResult();
+            await attempt.CancelAsync();
+            try
+            {
+                await staging.WaitAsync(TimeSpan.FromSeconds(10), Ct);
+            }
+            catch (OperationCanceledException)
+            {
+                // The cancellation is the behavior under test; observe it before disposing the database fixture.
+            }
+        }
+
+        Assert.Equal(0, await ScalarAsync("select count(*) from safety.photo_review_cases where upload_id=$1", upload.Id));
+        Assert.Equal(1, await ScalarAsync("select count(*) from media.uploads where id=$1 and state='Processing'", upload.Id));
+        Assert.Equal(1, await ScalarAsync("""
+            select count(*) from media.review_candidates where upload_id=$1 and committed_at is null and case_id is null
+              and cleanup_requested_at is not null
+            """, upload.Id));
+        await AssertOriginalKeptAsync(upload);
+    }
+
+    [Fact]
+    public async Task CallerCancellationWhileLookingUpTheWinnerPropagatesInsteadOfReturningTheCommittedCase()
+    {
+        var upload = await ProcessingUploadAsync();
+        var store = new WriteCountingStore(new FileSystemObjectStore(_root.FullName));
+        var deadline = DateTimeOffset.UtcNow.AddMinutes(1);
+        using var attempt = CancellationTokenSource.CreateLinkedTokenSource(Ct);
+        var competes = new RunBeforeCandidateInsert(async () =>
+            Assert.IsType<ReviewCandidateStageResult.Staged>(
+                await StageAsync(upload.Id, upload.Version, store, deadline, TimeProvider.System, ReviewSanitized())));
+        // The loser looks the case up twice: first to replay, then to find the winner whose insert it lost.
+        var cancelsAtTheWinnerLookup = new CancelAtNthConfirmedCaseLookup(attempt, nth: 2);
+
+        await using var db = Context(competes, cancelsAtTheWinnerLookup);
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() =>
+            new PhotoReviewCandidates(db, store, TimeProvider.System, new MediaProcessingOptions())
+                .StageAsync(upload.Id, upload.Version, deadline, ReviewSanitized(), attempt.Token));
+
+        Assert.Equal(2, cancelsAtTheWinnerLookup.Lookups);
+        Assert.Equal(1, await ScalarAsync("select count(*) from safety.photo_review_cases where upload_id=$1", upload.Id));
+    }
+
+    [Fact]
+    public async Task ACommittedStageIssuesNoCleanupUpdateAfterTheCommit()
+    {
+        var upload = await ProcessingUploadAsync();
+        var commands = new RecordCommands();
+
+        Assert.IsType<ReviewCandidateStageResult.Staged>(await StageAsync(
+            upload.Id, upload.Version, new WriteCountingStore(new FileSystemObjectStore(_root.FullName)),
+            DateTimeOffset.UtcNow.AddMinutes(1), TimeProvider.System, ReviewSanitized(), interceptor: commands));
+
+        Assert.Single(commands.Texts, text => text.Contains("writer_settled_at=coalesce", StringComparison.Ordinal));
+        Assert.DoesNotContain(commands.Texts, text => text.Contains("cleanup_requested_at=coalesce", StringComparison.Ordinal));
+    }
+
     private DuoraDbContext Context(params IInterceptor[] interceptors)
     {
         var options = new DbContextOptionsBuilder<DuoraDbContext>();
@@ -732,6 +845,93 @@ public sealed class ReviewCandidateStageCharacterizationTests(PostgresFixture po
             {
                 throw new IOException("Synthetic managed storage failure");
             }
+        }
+    }
+
+    private sealed class CancelAtNthConfirmedCaseLookup(CancellationTokenSource caller, int nth) : DbCommandInterceptor
+    {
+        internal int Lookups { get; private set; }
+
+        public override ValueTask<InterceptionResult<DbDataReader>> ReaderExecutingAsync(
+            DbCommand command, CommandEventData eventData, InterceptionResult<DbDataReader> result,
+            CancellationToken cancellationToken = default)
+        {
+            if (command.CommandText.Contains("c.committed_at is not null", StringComparison.Ordinal) && ++Lookups == nth)
+            {
+                caller.Cancel();
+                // The lookup runs under the token it was given: it must be the one linked to the caller.
+                cancellationToken.ThrowIfCancellationRequested();
+            }
+
+            return ValueTask.FromResult(result);
+        }
+    }
+
+    private sealed class PutDetailsStore(IObjectStore inner) : IObjectStore
+    {
+        internal List<(string ContentType, long Length)> Puts { get; } = [];
+
+        public Task PutAsync(ObjectKey key, Stream content, long length, string contentType, CancellationToken cancellationToken)
+        {
+            if (key.Area == StorageArea.ReviewCandidates)
+            {
+                Puts.Add((contentType, length));
+            }
+
+            return inner.PutAsync(key, content, length, contentType, cancellationToken);
+        }
+
+        public Task<Stream?> OpenReadAsync(ObjectKey key, CancellationToken cancellationToken) => inner.OpenReadAsync(key, cancellationToken);
+
+        public Task DeleteAsync(ObjectKey key, CancellationToken cancellationToken) => inner.DeleteAsync(key, cancellationToken);
+    }
+
+    /// <summary>Blocks the named managed call (register or seal) until its token is cancelled or the test releases it.</summary>
+    private sealed class BlockingManagedStore(IObjectStore inner, string blockedCall) : IObjectStore, IPrivateGenerationStore
+    {
+        public PrivateGenerationDomain Domain { get; } = new(Guid.NewGuid(), 1, 1);
+
+        internal TaskCompletionSource Entered { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        internal TaskCompletionSource Release { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        public Task RegisterAsync(PrivateGenerationManifest manifest, CancellationToken cancellationToken) =>
+            BlockIfNamedAsync("register", cancellationToken);
+
+        public Task PutVariantAsync(PrivateGenerationManifest manifest, PhotoVariant kind, Stream content,
+            CancellationToken cancellationToken) =>
+            inner.PutAsync(manifest.Key(kind), content, manifest.Variants.Single(v => v.Kind == kind).Length,
+                IPhotoSanitizer.VariantContentType, cancellationToken);
+
+        public Task SealAsync(PrivateGenerationManifest manifest, CancellationToken cancellationToken) =>
+            BlockIfNamedAsync("seal", cancellationToken);
+
+        public Task PutAsync(ObjectKey key, Stream content, long length, string contentType, CancellationToken cancellationToken)
+        {
+            Assert.NotEqual(StorageArea.ReviewCandidates, key.Area);
+            return inner.PutAsync(key, content, length, contentType, cancellationToken);
+        }
+
+        public Task<Stream?> OpenReadAsync(ObjectKey key, CancellationToken cancellationToken) => inner.OpenReadAsync(key, cancellationToken);
+
+        public Task DeleteAsync(ObjectKey key, CancellationToken cancellationToken) => inner.DeleteAsync(key, cancellationToken);
+
+        public Task<PrivateGenerationCloseReceipt> CloseAsync(PrivateGenerationIdentity identity, CancellationToken cancellationToken) =>
+            throw new InvalidOperationException("Staging never closes a generation.");
+
+        public Task<Guid> SweepAsync(PrivateGenerationCloseReceipt receipt, Guid cleanupToken, CancellationToken cancellationToken) =>
+            throw new InvalidOperationException("Staging never sweeps a generation.");
+
+        private async Task BlockIfNamedAsync(string call, CancellationToken cancellationToken)
+        {
+            if (call != blockedCall)
+            {
+                return;
+            }
+
+            Entered.TrySetResult();
+            await Task.WhenAny(Task.Delay(Timeout.Infinite, cancellationToken), Release.Task);
+            cancellationToken.ThrowIfCancellationRequested();
         }
     }
 }
