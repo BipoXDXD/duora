@@ -27,7 +27,7 @@
     "@aws-amplify/ui-react-liveness": "3.7.0",
     "@hookform/resolvers": "^6.0.2",
     "@tailwindcss/vite": "^4.3.4",
-    "@tanstack/react-query": "^5.105.0",
+    "@tanstack/react-query": "^5.106.0",
     "aws-amplify": "6.22.2",
     "class-variance-authority": "^0.7.1",
     "cn": "^0.5.2",
