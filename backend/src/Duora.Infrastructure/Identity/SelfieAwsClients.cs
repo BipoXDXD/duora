@@ -12,15 +12,32 @@ namespace Duora.Infrastructure.Identity;
 internal sealed class SelfieAwsClients(
     IOptions<SelfieAwsCredentialOptions> credentials, IOptions<SelfieProviderOptions> provider, HttpClientFactory? transport)
 {
+    /// <summary>
+    /// Repetições do SDK por chamada (2 repetições = 3 chamadas HTTP, o que já se mede em 5xx e throttling). Fixadas
+    /// aqui porque, sem isso, <c>AWS_MAX_ATTEMPTS</c>, <c>AWS_RETRY_MODE</c> ou o padrão de uma versão nova do pacote
+    /// mudariam o teto em silêncio. O modo Standard espera com backoff entre as tentativas (até ~3 s por chamada) e
+    /// consome a cota de repetições do SDK, compartilhada no processo: esgotada a cota, o SDK não repete. O web não
+    /// repete o AssumeRole por fora; o worker repete o Rekognition a cada 5 s, dentro do corte de 10 s. Mexer nestes
+    /// dois números muda a carga sobre o fornecedor: decisão do dono.
+    /// </summary>
+    private const int SecurityTokenServiceMaxRetries = 2;
+
+    private const int RekognitionMaxRetries = 2;
+
     public IAmazonSecurityTokenService CreateSecurityTokenService() =>
-        new AmazonSecurityTokenServiceClient(credentials.Value.ToAwsCredentials(), Configure(new AmazonSecurityTokenServiceConfig()));
+        new AmazonSecurityTokenServiceClient(
+            credentials.Value.ToAwsCredentials(),
+            Configure(new AmazonSecurityTokenServiceConfig(), SecurityTokenServiceMaxRetries));
 
     public IAmazonRekognition CreateRekognition() =>
-        new AmazonRekognitionClient(credentials.Value.ToAwsCredentials(), Configure(new AmazonRekognitionConfig()));
+        new AmazonRekognitionClient(
+            credentials.Value.ToAwsCredentials(), Configure(new AmazonRekognitionConfig(), RekognitionMaxRetries));
 
-    private T Configure<T>(T config)
+    private T Configure<T>(T config, int maxRetries)
         where T : ClientConfig
     {
+        config.MaxErrorRetry = maxRetries;
+        config.RetryMode = RequestRetryMode.Standard;
         config.RegionEndpoint = Amazon.RegionEndpoint.GetBySystemName(provider.Value.Region);
         if (transport is not null)
         {

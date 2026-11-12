@@ -141,6 +141,44 @@ public sealed partial class RoomNeutralityTests(PostgresFixture postgres)
         await AssertRoomStillVisibleAsync(scene, "Completed", "Completed", ct);
     }
 
+    /// <summary>
+    /// Fixa o comportamento atual até a decisão de INV-03 sobre sala encerrada: é o risco residual aceito do TM-24
+    /// ("depois do fim do jogo"). Em sala <c>Completed</c>, quem fica ainda distingue o bloqueio da saída e da suspensão
+    /// do par: só o bloqueio tira o <c>roomId</c> do status. Quando o dono decidir, este teste muda junto, em vez de a
+    /// diferença sumir ou aparecer em silêncio.
+    /// </summary>
+    [Theory]
+    [InlineData("block", HttpStatusCode.NotFound, "Waiting", false)]
+    [InlineData("exit", HttpStatusCode.OK, "Completed", true)]
+    [InlineData("suspension", HttpStatusCode.NotFound, "Completed", true)]
+    public async Task ACompletedRoomStillTellsBlockFromExitUntilTheInv03Decision(string how, HttpStatusCode roomStatus, string participationState, bool keepsRoom)
+    {
+        var ct = TestContext.Current.CancellationToken;
+        await using var scene = await SceneAsync(Constellation, Active, ct);
+        var version = (await scene.Service.RoomAsync(scene.Room, scene.Seed.Alice, ct))!.Version;
+        Assert.Equal(ParticipationOutcome.Done, await scene.Service.ActionAsync(scene.Room, scene.Seed.Alice, Guid.NewGuid(), version, "choose-option", "morning", "tea", ct));
+        version = (await scene.Service.RoomAsync(scene.Room, scene.Seed.Bob, ct))!.Version;
+        Assert.Equal(ParticipationOutcome.Done, await scene.Service.ActionAsync(scene.Room, scene.Seed.Bob, Guid.NewGuid(), version, "choose-option", "morning", "walk", ct));
+        Assert.Equal("Completed", (await scene.Service.RoomAsync(scene.Room, scene.Seed.Bob, ct))!.State);
+
+        await EndByPartnerAsync(scene, how, ct);
+
+        using var read = await scene.Bob.GetAsync($"/api/v1/rooms/{scene.Room}");
+        Assert.Equal(roomStatus, read.StatusCode);
+        using var status = await scene.Bob.GetAsync($"/api/v1/events/{scene.EventId}/participation");
+        using var json = JsonDocument.Parse(await status.Content.ReadAsStringAsync(ct));
+        Assert.Equal(participationState, json.RootElement.GetProperty("state").GetString());
+        var roomId = json.RootElement.GetProperty("roomId");
+        if (keepsRoom)
+        {
+            Assert.Equal(scene.Room, roomId.GetGuid());
+        }
+        else
+        {
+            Assert.Equal(JsonValueKind.Null, roomId.ValueKind);
+        }
+    }
+
     [Fact]
     public async Task AnExpiredInvitationStaysReadableAndKeepsItsRoomInTheStatus()
     {

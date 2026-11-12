@@ -121,10 +121,12 @@ class RootlessAptTests(unittest.TestCase):
                   test "$1" = apt-get
                   shift
                   printf 'apt-call:%s\n' "$*"
+                  # Retries=0 depois de "$@": o helper do workflow pede 5 retries do apt, que no 503 sintético
+                  # levariam mais que o teto do teste. O laço de 3 tentativas do helper continua valendo.
                   if [[ " $* " == *" install "* ]]; then
-                    /usr/bin/apt-get "${fixture_options[@]}" --simulate "$@"
+                    /usr/bin/apt-get "${fixture_options[@]}" --simulate "$@" -o Acquire::Retries=0
                   else
-                    /usr/bin/apt-get "${fixture_options[@]}" "$@"
+                    /usr/bin/apt-get "${fixture_options[@]}" "$@" -o Acquire::Retries=0
                   fi
                 }
             '''
@@ -134,7 +136,12 @@ class RootlessAptTests(unittest.TestCase):
                 "uidmap dbus-user-session slirp4netns docker-ce-rootless-extras", PACKAGE)
             return subprocess.run(["bash", "-euo", "pipefail", "-c",
                                    textwrap.dedent(harness) + commands],
-                                  env={**os.environ, "fixture": str(fixture), "apt_root": str(scoped)},
+                                  # GITHUB_WORKSPACE: o passo carrega o helper de retry por ele. Esperas zeradas:
+                                  # as 3 tentativas continuam, só sem os 15 s e 45 s reais. Sonda de DNS em localhost:
+                                  # a queda do DNS do runner não pode trocar o espelho nem gastar o teto do teste.
+                                  env={**os.environ, "fixture": str(fixture), "apt_root": str(scoped),
+                                       "GITHUB_WORKSPACE": str(ROOT), "CI_RETRY_DELAYS": "0 0",
+                                       "CI_APT_PROBE_HOSTS": "localhost"},
                                   capture_output=True, text=True, timeout=30)
 
     def test_unscoped_baseline_reproduces_403_before_install(self):
