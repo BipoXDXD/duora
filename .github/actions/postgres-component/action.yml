@@ -82,10 +82,30 @@ runs:
         PY
         sudo install -m 0644 "$RUNNER_TEMP/component-daemon.json" /etc/docker/daemon.json
         # Se o daemon não subir, o job mostra o porquê em vez de só "Job for docker.service failed".
+        # O restart logo depois do upgrade do docker-ce às vezes falha com o limite de partidas do systemd
+        # (runs 42739401041 e 42746167683; o PR #444 reproduziu com start-limit-hit). Na falha, registra o
+        # diagnóstico, limpa o estado de falha, espera o containerd ativo e tenta uma única vez mais.
+        # Se a segunda falhar, o job falha com o diagnóstico.
+        show_docker_diagnostics() {
+          echo "::group::docker.service não reiniciou: diagnóstico"
+          sudo systemctl status docker docker.socket containerd --no-pager --lines=50 || true
+          sudo journalctl -u docker -u docker.socket -u containerd --no-pager --since '5 min ago' | tail -n 200 || true
+          echo "::endgroup::"
+        }
         if ! sudo systemctl restart docker; then
-          sudo systemctl status docker containerd --no-pager || true
-          sudo journalctl -u docker -u containerd --no-pager -n 120 || true
-          exit 1
+          show_docker_diagnostics
+          echo "::warning title=Restart do Docker falhou; tentando uma segunda vez::diagnóstico no grupo acima; se a segunda tentativa falhar, o job falha"
+          sudo systemctl reset-failed docker.service docker.socket
+          containerd_deadline=$((SECONDS + 60))
+          until systemctl is-active --quiet containerd && sudo test -S /run/containerd/containerd.sock; do
+            if [ "$SECONDS" -ge "$containerd_deadline" ]; then echo "containerd não ficou ativo em 60 s"; exit 1; fi
+            sleep 2
+          done
+          echo "Segunda e última tentativa de reiniciar o docker"
+          if ! sudo systemctl restart docker; then
+            show_docker_diagnostics
+            exit 1
+          fi
         fi
         test "$(readlink -f "$(command -v docker)")" = /usr/bin/docker
         docker version --format '{{json .}}' > "$RUNNER_TEMP/postgres-component/docker-runtime-after.json"
