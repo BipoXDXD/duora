@@ -1,5 +1,5 @@
 import { withSessionContext } from '@/test/private-context'
-import { screen } from '@testing-library/react'
+import { screen, waitFor } from '@testing-library/react'
 import { http, HttpResponse } from 'msw'
 import { describe, expect, it } from 'vitest'
 import { API, server, useAntiforgeryEndpoint } from '@/test/msw'
@@ -97,6 +97,31 @@ describe.each(Object.keys(kinds) as (keyof typeof kinds)[])('%s action after the
     expect(screen.queryByRole('alert')).not.toBeInTheDocument()
     expect(screen.queryByText('This room has been closed.')).not.toBeInTheDocument()
     expect(screen.queryByRole('button', { name: kinds[kind].button })).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'Leave room' })).not.toBeInTheDocument()
+  })
+  it('404 hides the actions before the reread resolves', async () => {
+    setup(kind, 404)
+    useAntiforgeryEndpoint()
+    const { user } = await renderApp('/rooms/room-1', undefined, 'en-US')
+    const button = await screen.findByRole('button', { name: kinds[kind].button })
+    let releaseReread = (): void => undefined
+    const rereadHeld = new Promise<void>((resolve) => {
+      releaseReread = resolve
+    })
+    // Sem resposta, o MSW passa ao handler de `setup`: só a releitura fica retida.
+    server.use(
+      http.get(`${API}/rooms/room-1`, async () => {
+        await rereadHeld
+      }),
+    )
+    await user.click(button)
+    await waitFor(() => {
+      expect(screen.queryByRole('button', { name: kinds[kind].button })).not.toBeInTheDocument()
+    })
+    expect(screen.queryByRole('button', { name: 'Leave room' })).not.toBeInTheDocument()
+    expect(screen.queryByText("Your last choice wasn't saved.")).not.toBeInTheDocument()
+    releaseReread()
+    expect(await screen.findByText("Your last choice wasn't saved.")).toHaveAttribute('role', 'status')
     expect(screen.queryByRole('button', { name: 'Leave room' })).not.toBeInTheDocument()
   })
   it('404 followed by an Expired reread shows the expired progress with the choice-not-saved notice, no alert', async () => {

@@ -148,7 +148,11 @@ function RoomBody({
 }): React.JSX.Element {
   const { t, formatDateTime } = useI18n()
   const notices = useFailureNotices<FailureSource>(room.state)
-  const recordAfterReread = (source: FailureSource) => async (failure: Error) => {
+  // Escolha recusada com 404: esconde os controles já na falha. A mutação só expõe o erro depois da releitura, e o
+  // aviso só depois de o pai renderizar o estado relido; sem isso os controles somem e voltam por um render.
+  const [refusedChoice, setRefusedChoice] = useState<unknown>()
+  const recordAfterReread = (source: FailureSource) => async (failure: Error, variables: unknown) => {
+    if (source !== 'command' && isNotFound(classifyRequestFailure(failure))) setRefusedChoice(variables)
     const stateAtFailure = await reread()
     if (stateAtFailure !== undefined) notices.record(source, failure, stateAtFailure)
   }
@@ -174,6 +178,7 @@ function RoomBody({
   // Depois do prazo a ação recebe 404 (ADR-0054) enquanto a releitura ainda devolve Active, até o job rodar (#462):
   // sem os controles do jogo, só o aviso `choiceNotSaved`, que vale até o estado da sala mudar (#450).
   const choiceRefused =
+    (refusedChoice !== undefined && (action.variables === refusedChoice || routesAction.variables === refusedChoice)) ||
     (notices.shows('action', action) && isNotFound(classifyRequestFailure(action.error))) ||
     (notices.shows('routes', routesAction) && isNotFound(classifyRequestFailure(routesAction.error)))
   const active = activeState && !choiceRefused
