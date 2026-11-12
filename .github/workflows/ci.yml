@@ -31,10 +31,11 @@ env:
   OASDIFF_IMAGE: tufin/oasdiff:v1.33.0@sha256:6263a96dd2ef0726c54e21fea9b8e1607eac4841add0079324b424c1f52b819c
 
 jobs:
-  # A suíte passou de 40 min em um runner só por tamanho, não por teste preso (#507): a soma por namespace dos
-  # testes de integração é Identity ~51 min, Media + Participation ~38, o resto ~43, em 4 vCPU. Cada shard é um
-  # runner próprio. Identity e Media/Participation filtram o projeto de integração; "resto" roda a solução inteira
-  # menos esses namespaces, então teste novo em namespace novo cai nele e nenhum fica de fora.
+  # A suíte passou de 40 min em um runner só por tamanho, não por teste preso (#507). Soma do tempo de teste no corte
+  # do #503, por shard: Identity A–L ~25 min, Identity M–Z ~26, Media ~29, Participation + Profiles ~23, resto ~30
+  # (Safety e os projetos de unidade, arquitetura e corpus). Identity é um namespace só e divide pela inicial da
+  # classe. Cada shard é um runner próprio. "identity-m-z" e "resto" são complementos (namespace menos o que outro
+  # shard pegou), então classe ou namespace novo cai num deles e nenhum teste fica de fora.
   backend-tests:
     name: backend (${{ matrix.shard }})
     runs-on: ubuntu-24.04
@@ -43,18 +44,39 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - shard: identity
+          - shard: identity-a-l
             target: --project backend/tests/Duora.IntegrationTests/Duora.IntegrationTests.csproj
-            filter: --filter-namespace "Duora.IntegrationTests.Identity*"
-          - shard: media-participation
+            filter: >-
+              --filter-class "Duora.IntegrationTests.Identity.A*" --filter-class "Duora.IntegrationTests.Identity.B*" --filter-class "Duora.IntegrationTests.Identity.C*" --filter-class "Duora.IntegrationTests.Identity.D*" --filter-class "Duora.IntegrationTests.Identity.E*" --filter-class "Duora.IntegrationTests.Identity.F*" --filter-class "Duora.IntegrationTests.Identity.G*" --filter-class "Duora.IntegrationTests.Identity.H*" --filter-class "Duora.IntegrationTests.Identity.I*" --filter-class "Duora.IntegrationTests.Identity.J*" --filter-class "Duora.IntegrationTests.Identity.K*" --filter-class "Duora.IntegrationTests.Identity.L*"
+          - shard: identity-m-z
             target: --project backend/tests/Duora.IntegrationTests/Duora.IntegrationTests.csproj
-            filter: --filter-namespace "Duora.IntegrationTests.Media*" --filter-namespace "Duora.IntegrationTests.Participation*"
+            filter: >-
+              --filter-namespace "Duora.IntegrationTests.Identity*"
+              --filter-not-class "Duora.IntegrationTests.Identity.A*"
+              --filter-not-class "Duora.IntegrationTests.Identity.B*"
+              --filter-not-class "Duora.IntegrationTests.Identity.C*"
+              --filter-not-class "Duora.IntegrationTests.Identity.D*"
+              --filter-not-class "Duora.IntegrationTests.Identity.E*"
+              --filter-not-class "Duora.IntegrationTests.Identity.F*"
+              --filter-not-class "Duora.IntegrationTests.Identity.G*"
+              --filter-not-class "Duora.IntegrationTests.Identity.H*"
+              --filter-not-class "Duora.IntegrationTests.Identity.I*"
+              --filter-not-class "Duora.IntegrationTests.Identity.J*"
+              --filter-not-class "Duora.IntegrationTests.Identity.K*"
+              --filter-not-class "Duora.IntegrationTests.Identity.L*"
+          - shard: media
+            target: --project backend/tests/Duora.IntegrationTests/Duora.IntegrationTests.csproj
+            filter: --filter-namespace "Duora.IntegrationTests.Media*"
+          - shard: participation-profiles
+            target: --project backend/tests/Duora.IntegrationTests/Duora.IntegrationTests.csproj
+            filter: --filter-namespace "Duora.IntegrationTests.Participation*" --filter-namespace "Duora.IntegrationTests.Profiles*"
           - shard: resto
             target: --solution backend/Duora.slnx
             filter: >-
               --filter-not-namespace "Duora.IntegrationTests.Identity*"
               --filter-not-namespace "Duora.IntegrationTests.Media*"
               --filter-not-namespace "Duora.IntegrationTests.Participation*"
+              --filter-not-namespace "Duora.IntegrationTests.Profiles*"
     steps:
       - name: Registrar arquitetura do runner (spec 2.4)
         run: |
