@@ -1,6 +1,6 @@
 # ADR-0054: Ação depois do prazo de jogo responde 404
 
-- **Status:** Accepted (2026-11-10), decisão da coordenação com delegação do dono.
+- **Status:** Accepted (2026-11-10), decisão da coordenação com delegação do dono. Emendado em 2026-11-10 pela issue #463 (PR #471): sala `Completed`.
 - **Origem:** PR #446; INV-08 (prazo da sala); T-18 e TM-24 (`docs/testing/acceptance.md`, `docs/security/threat-model.md`)
 - **Revisar quando:** a sala `Expired` deixar de responder `404` nas rotas de ação, ou o replay idempotente mudar de regra
 
@@ -34,6 +34,9 @@ A regra vale para a sala que ainda está `Active` no banco. Ela **não cobre a s
 prazo (`ExperienceEngine.ValidateAction` devolve `SessionFinished` antes de `DeadlineReached`), e as rotas só respondem
 `404` direto para as salas `Aborted` e `Expired`.
 
+> **Resolvido pelo PR #471 (issue #463).** O parágrafo acima descreve a regra original. Depois do prazo, a sala
+> `Completed` passou a seguir a mesma `404`; ver "Emenda: sala `Completed` (#463)".
+
 ## Consequências
 
 - Cliente que tratava `400` depois do prazo passa a receber `404`. O frontend deve tratar `404` como sala encerrada ou
@@ -43,8 +46,11 @@ prazo (`ExperienceEngine.ValidateAction` devolve `SessionFinished` antes de `Dea
 - Resíduo aceito: o reenvio idempotente e o `actionId` reutilizado seguem a regra de replay até o job (`204` sem gravar
   de novo e `400`) e dão `404` depois dele. Só o autor vê a diferença, e só sobre a própria ação; fechá-la quebraria a
   idempotência.
+  **Ressalva (PR #471, issue #463):** isso vale para a sala que expira com o job. Na sala `Completed`, o resíduo não
+  termina com o job; ver a emenda abaixo.
 - Lacuna conhecida: a sala `Completed` fica fora da regra e responde `400 VALIDATION_FAILED` a uma ação nova, antes e
   depois do prazo. Este ADR não muda esse comportamento; trazê-la para o `404` pede nova decisão da coordenação.
+  **Resolvido pelo PR #471 (issue #463)**, para depois do prazo; ver a emenda abaixo.
 - O OpenAPI ainda não declara `400` nem `404` nessas rotas. Fica para PR próprio: #449.
 
 ## Compliance
@@ -60,3 +66,29 @@ Testes que comparam status, corpo sem `traceId` e headers com os de uma sala ine
 O resíduo e o `400` antes do prazo ficam fixados em `GameDeadlineTests.AnActionAppliedInTimeIsReplayedAfterTheDeadlineUntilTheJobRuns`,
 `AReusedActionIdBeforeTheDeadlineIsStillAValidationFailure` e `AnInvalidActionBeforeTheDeadlineIsStillAValidationFailure`,
 e em `RoutesParticipationTests.AnActionAppliedInTimeIsReplayedAtTheDeadlineUntilTheJobRuns`.
+
+## Emenda: sala `Completed` (#463)
+
+- **Data:** 2026-11-10. **Issue:** #463. **PR:** #471.
+- **Decisão de:** decisão da coordenação, 10/11 (padronizar): o `400` da sala `Completed` no prazo ou depois dele passa
+  ao `404` da sala `Expired`; o `400` antes do prazo fica mantido pela regra original.
+- **Decisão:** uma ação **nova** numa sala `Completed`, no prazo de jogo ou depois dele, em `actions` e `routes-actions`,
+  recebe a mesma `404 NOT_FOUND` da sala `Expired` e de uma sala inexistente, antes e depois do job `game-deadline`.
+  Antes do prazo, ela segue `400 VALIDATION_FAILED`.
+- **Alternativa descartada:** manter o `400` e documentá-lo como contrato. Deixaria duas respostas para "a sala não
+  aceita mais ações depois do prazo", conforme a sala tenha terminado ou não antes dele.
+- **Como:** o motor continua checando o fim da sessão antes do prazo. O serviço trata `SessionFinished` com o prazo
+  vencido como `DeadlineReached` (`IsAtOrAfterTheDeadline`, em `ParticipationService.Rooms.cs`). Replay idempotente
+  e `actionId` reutilizado seguem decididos antes, pelo motor, como na regra original.
+- **Resíduo permanente na sala `Completed`:** o job `game-deadline` não muda a sala `Completed` (o motor devolve
+  `AlreadyFinished`), e as rotas só respondem `404` direto para `Aborted` e `Expired`. Por isso, o reenvio da própria
+  ação segue `204` sem gravar de novo, e o mesmo `actionId` com outro corpo segue `400`, mesmo depois do prazo e do job.
+  Diferente da sala `Active`, o resíduo não termina com o job. Só o autor vê isso, e só sobre a própria ação; fechá-lo
+  quebraria a idempotência.
+- **Compliance:** `GameDeadlineTests` e `RoutesParticipationTests`, com
+  `ANewActionInACompletedRoomAtOrAfterTheDeadlineGetsTheSame404BeforeAndAfterTheJob` (0 s e 60 s depois do prazo,
+  comparados pelo `NeutralResponse.DescribeAsync` com uma sala inexistente) e
+  `ANewActionInACompletedRoomBeforeTheDeadlineIsStillAValidationFailure`; o resíduo, em
+  `TheActionThatCompletedTheRoomIsStillReplayedAfterTheDeadlineAndTheJob` (nas duas classes); e, em `GameDeadlineTests`,
+  `ANewActionWithAStaleVersionInACompletedRoomAfterTheDeadlineGetsTheSame404` e
+  `AnOutsiderActingOnACompletedRoomAfterTheDeadlineGetsTheNeutral404`.

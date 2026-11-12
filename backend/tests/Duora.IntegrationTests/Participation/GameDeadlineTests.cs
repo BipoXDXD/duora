@@ -249,6 +249,124 @@ public sealed class GameDeadlineTests(PostgresFixture postgres)
         Assert.Equal(active, await scene.RoomFactsAsync());
     }
 
+    /// <summary>
+    /// Issue #463: numa sala <c>Completed</c>, uma ação nova no prazo ou depois dele recebe a mesma <c>404</c> da sala
+    /// <c>Expired</c> e de uma sala inexistente, em status, corpo sem <c>traceId</c> e headers, antes e depois do job, sem
+    /// gravar nada. O job não muda a sala <c>Completed</c>.
+    /// </summary>
+    [Theory]
+    [InlineData(0)]
+    [InlineData(60)]
+    public async Task ANewActionInACompletedRoomAtOrAfterTheDeadlineGetsTheSame404BeforeAndAfterTheJob(int secondsAfterDeadline)
+    {
+        await using var scene = await ActiveRoomAsync();
+        using var alice = await scene.SignInAliceAsync();
+        await scene.CompleteRoomAsync();
+        var completed = await scene.RoomFactsAsync();
+        Assert.Equal(("Completed", 0L, 2L), (completed.State, completed.ActiveReservations, completed.Actions));
+        scene.Clock.SetUtcNow(scene.Deadline.AddSeconds(secondsAfterDeadline));
+
+        using var late = await ChooseOptionAsync(alice, scene.Room, completed.Version);
+
+        Assert.Equal(HttpStatusCode.NotFound, late.StatusCode);
+        Assert.Equal("NOT_FOUND", await ProblemCodeAsync(late));
+        var unknownRoom = await UnknownRoomAsync(alice, completed.Version);
+        Assert.Equal(unknownRoom, await NeutralResponse.DescribeAsync(late, Ct));
+        Assert.Equal(completed, await scene.RoomFactsAsync());
+
+        var job = await scene.Service.ClaimJobAsync(Ct);
+        Assert.NotNull(job);
+        Assert.Equal(("game-deadline", scene.Room), (job.Kind, job.AggregateId));
+        Assert.True(await scene.Service.CompleteJobAsync(job, Ct));
+        Assert.Equal(completed, await scene.RoomFactsAsync());
+
+        using var afterTheJob = await ChooseOptionAsync(alice, scene.Room, completed.Version);
+        Assert.Equal(unknownRoom, await NeutralResponse.DescribeAsync(afterTheJob, Ct));
+        Assert.Equal(completed, await scene.RoomFactsAsync());
+    }
+
+    /// <summary>Só o depois do prazo mudou: numa sala <c>Completed</c>, uma ação nova antes do prazo continua <c>400 VALIDATION_FAILED</c>, sem gravar.</summary>
+    [Fact]
+    public async Task ANewActionInACompletedRoomBeforeTheDeadlineIsStillAValidationFailure()
+    {
+        await using var scene = await ActiveRoomAsync();
+        using var alice = await scene.SignInAliceAsync();
+        await scene.CompleteRoomAsync();
+        var completed = await scene.RoomFactsAsync();
+        Assert.Equal("Completed", completed.State);
+        scene.Clock.SetUtcNow(scene.Deadline - OneTick);
+
+        using var refused = await ChooseOptionAsync(alice, scene.Room, completed.Version);
+
+        Assert.Equal(HttpStatusCode.BadRequest, refused.StatusCode);
+        Assert.Equal("VALIDATION_FAILED", await ProblemCodeAsync(refused));
+        Assert.Equal(completed, await scene.RoomFactsAsync());
+    }
+
+    /// <summary>
+    /// Resíduo do replay na sala <c>Completed</c>: o job <c>game-deadline</c> não muda a sala, e a rota só responde
+    /// <c>404</c> direto para <c>Aborted</c> e <c>Expired</c>. Por isso, mesmo depois do prazo e do job, a ação que completou
+    /// a sala, reenviada, responde <c>204</c> sem gravar de novo, e o mesmo <c>actionId</c> com outro corpo responde
+    /// <c>400</c>. Só o autor vê isso, e só sobre a própria ação.
+    /// </summary>
+    [Fact]
+    public async Task TheActionThatCompletedTheRoomIsStillReplayedAfterTheDeadlineAndTheJob()
+    {
+        await using var scene = await ActiveRoomAsync();
+        using var alice = await scene.SignInAliceAsync();
+        var completing = await scene.CompleteRoomAsync();
+        var completed = await scene.RoomFactsAsync();
+        Assert.Equal("Completed", completed.State);
+        scene.Clock.SetUtcNow(scene.Deadline.AddSeconds(60));
+        var job = await scene.Service.ClaimJobAsync(Ct);
+        Assert.NotNull(job);
+        Assert.Equal(("game-deadline", scene.Room), (job.Kind, job.AggregateId));
+        Assert.True(await scene.Service.CompleteJobAsync(job, Ct));
+        Assert.Equal("Done|1", await scene.GameDeadlineJobAsync());
+
+        using var replay = await PostActionAsync(alice, scene.Room, completing);
+        using var reused = await PostActionAsync(alice, scene.Room, SkipCardWithTheSameId(completing));
+
+        Assert.Equal(HttpStatusCode.NoContent, replay.StatusCode);
+        Assert.Equal(HttpStatusCode.BadRequest, reused.StatusCode);
+        Assert.Equal("VALIDATION_FAILED", await ProblemCodeAsync(reused));
+        Assert.Equal(completed, await scene.RoomFactsAsync());
+    }
+
+    /// <summary>Na sala <c>Completed</c> depois do prazo, a ação nova com <c>expectedVersion</c> desatualizado também recebe a <c>404</c> neutra, não o <c>409</c>.</summary>
+    [Fact]
+    public async Task ANewActionWithAStaleVersionInACompletedRoomAfterTheDeadlineGetsTheSame404()
+    {
+        await using var scene = await ActiveRoomAsync();
+        using var alice = await scene.SignInAliceAsync();
+        await scene.CompleteRoomAsync();
+        var completed = await scene.RoomFactsAsync();
+        scene.Clock.SetUtcNow(scene.Deadline);
+
+        using var stale = await ChooseOptionAsync(alice, scene.Room, completed.Version - 1);
+
+        Assert.Equal(HttpStatusCode.NotFound, stale.StatusCode);
+        Assert.Equal(await UnknownRoomAsync(alice, completed.Version - 1), await NeutralResponse.DescribeAsync(stale, Ct));
+        Assert.Equal(completed, await scene.RoomFactsAsync());
+    }
+
+    /// <summary>Quem não participa da sala <c>Completed</c> recebe, depois do prazo, a mesma <c>404</c> de uma sala inexistente.</summary>
+    [Fact]
+    public async Task AnOutsiderActingOnACompletedRoomAfterTheDeadlineGetsTheNeutral404()
+    {
+        await using var scene = await ActiveRoomAsync();
+        using var third = await scene.SignInThirdAsync();
+        await scene.CompleteRoomAsync();
+        var completed = await scene.RoomFactsAsync();
+        scene.Clock.SetUtcNow(scene.Deadline);
+
+        using var outsider = await ChooseOptionAsync(third, scene.Room, completed.Version);
+
+        Assert.Equal(HttpStatusCode.NotFound, outsider.StatusCode);
+        Assert.Equal(await UnknownRoomAsync(third, completed.Version), await NeutralResponse.DescribeAsync(outsider, Ct));
+        Assert.Equal(completed, await scene.RoomFactsAsync());
+    }
+
     [Fact]
     public async Task AnActionOneTickBeforeTheDeadlineIsApplied()
     {
@@ -326,6 +444,23 @@ public sealed class GameDeadlineTests(PostgresFixture postgres)
         public Guid Room => room;
 
         public DateTimeOffset Deadline { get; private set; }
+
+        /// <summary>
+        /// Bob e depois Alice respondem à única carta pelo serviço, antes do prazo: a sala termina <c>Completed</c>. Devolve a
+        /// ação de Alice, a que completou a sala, para o teste de replay.
+        /// </summary>
+        public async Task<RoomActionRequest> CompleteRoomAsync()
+        {
+            var bobVersion = (await service.RoomAsync(room, seed.Bob, Ct))!.Version;
+            Assert.Equal(ParticipationOutcome.Done, await service.ActionAsync(room, seed.Bob, Guid.NewGuid(), bobVersion, "choose-option", "morning", "walk", Ct));
+            var completing = ChooseOption((await service.RoomAsync(room, seed.Alice, Ct))!.Version);
+            Assert.Equal(ParticipationOutcome.Done, await service.ActionAsync(room, seed.Alice, completing.ActionId,
+                long.Parse(completing.ExpectedVersion, CultureInfo.InvariantCulture), completing.Type, completing.CardId, completing.OptionId, Ct));
+            return completing;
+        }
+
+        public Task<Browser> SignInThirdAsync() =>
+            new IdentityScenario(connectionString, factory).SignedInBrowserAsync(new(seed.Third, "third@example.com", IdentityScenario.ValidPassword));
 
         public Task<Browser> SignInAliceAsync() =>
             new IdentityScenario(connectionString, factory).SignedInBrowserAsync(new(seed.Alice, "alice@example.com", IdentityScenario.ValidPassword));
