@@ -153,7 +153,8 @@ public sealed partial class ParticipationService
         {
             await ReleaseAsync(connection, row, row.Expires <= now ? "Expired" : "Aborted", ct);
             await tx.CommitAsync(ct);
-            return ParticipationOutcome.Done;
+            // Aceite que chega aqui venceu: libera as reservas como o job faria, mas não aceitou nada.
+            return accept ? ParticipationOutcome.Unavailable : ParticipationOutcome.Done;
         }
         var changed = await Execute(connection, "update experiences.game_participants set accepted_at=$3 where game_session_id=$1 and user_id=$2 and accepted_at is null", ct, room, user, now);
         if (changed == 0)

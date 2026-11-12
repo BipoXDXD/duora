@@ -88,23 +88,23 @@ function setup(kind: keyof typeof kinds, actionStatus: number, expiresOnReread =
 }
 
 describe.each(Object.keys(kinds) as (keyof typeof kinds)[])('%s action after the deadline', (kind) => {
-  it('404 shows the neutral notice and hides the actions even when the reread is still Active', async () => {
+  it('404 shows the choice-not-saved notice and hides the actions even when the reread is still Active', async () => {
     setup(kind, 404)
     useAntiforgeryEndpoint()
     const { user } = await renderApp('/rooms/room-1', undefined, 'en-US')
     await user.click(await screen.findByRole('button', { name: kinds[kind].button }))
-    expect(await screen.findByText('This encounter is not available.')).toHaveAttribute('role', 'status')
+    expect(await screen.findByText("Your last choice wasn't saved.")).toHaveAttribute('role', 'status')
     expect(screen.queryByRole('alert')).not.toBeInTheDocument()
     expect(screen.queryByRole('button', { name: kinds[kind].button })).not.toBeInTheDocument()
     expect(screen.queryByRole('button', { name: 'Leave room' })).not.toBeInTheDocument()
   })
-  it('404 followed by an Expired reread shows only the expired progress, not the unavailable notice', async () => {
+  it('404 followed by an Expired reread shows the expired progress with the choice-not-saved notice, no alert', async () => {
     setup(kind, 404, true)
     useAntiforgeryEndpoint()
     const { user } = await renderApp('/rooms/room-1', undefined, 'en-US')
     await user.click(await screen.findByRole('button', { name: kinds[kind].button }))
     expect(await screen.findByText('Time is up. Your progress is shown below.')).toBeInTheDocument()
-    expect(screen.queryByText('This encounter is not available.')).not.toBeInTheDocument()
+    expect(screen.getByText("Your last choice wasn't saved.")).toHaveAttribute('role', 'status')
     expect(screen.queryByRole('alert')).not.toBeInTheDocument()
   })
   it.each([409, 500])('%i keeps the generic alert and the actions', async (status) => {
@@ -113,7 +113,7 @@ describe.each(Object.keys(kinds) as (keyof typeof kinds)[])('%s action after the
     const { user } = await renderApp('/rooms/room-1', undefined, 'en-US')
     await user.click(await screen.findByRole('button', { name: kinds[kind].button }))
     expect(await screen.findByRole('alert')).toBeInTheDocument()
-    expect(screen.queryByText('This encounter is not available.')).not.toBeInTheDocument()
+    expect(screen.queryByText("Your last choice wasn't saved.")).not.toBeInTheDocument()
     expect(screen.getByRole('button', { name: kinds[kind].button })).toBeInTheDocument()
   })
 })

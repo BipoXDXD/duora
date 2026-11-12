@@ -51,6 +51,17 @@ function statusMessage(
 
 type EntryCommand = 'register' | 'checkIn' | 'withdraw'
 
+const NOT_FOUND = 404
+
+/**
+ * O servidor recusa a retirada com 404 (API-E04) depois do início, com o evento fora de Published ou com a inscrição
+ * em outro estado: a tela avisa que a retirada fechou, sem afirmar o motivo, em vez do alerta genérico.
+ */
+function withdrawalRefused(error: Error | null): boolean {
+  const failure = classifyRequestFailure(error)
+  return failure.kind === 'problem' && failure.status === NOT_FOUND
+}
+
 function sendCommand(operation: Parameters<typeof register>[0], eventId: string, action: EntryCommand): Promise<void> {
   switch (action) {
     case 'register':
@@ -74,8 +85,9 @@ function EventEntry({ event, userId }: { readonly event: Event; readonly userId:
   const withdrawButton = useRef<HTMLButtonElement>(null)
   const warning = useRef<HTMLParagraphElement>(null)
   const outcome = useRef<HTMLParagraphElement>(null)
-  const heading = useRef<HTMLHeadingElement>(null)
-  const [startedDuringConfirmation, setStartedDuringConfirmation] = useState(false)
+  const closedNotice = useRef<HTMLParagraphElement>(null)
+  // A retirada fechou com a confirmação aberta: o encontro começou na tela ou o servidor recusou com 404.
+  const [withdrawClosed, setWithdrawClosed] = useState(false)
   const pendingFocus = useRef<WithdrawalFocus | null>(null)
   const key = ['account', userId, 'participation', event.eventId]
   const participation = useQuery({
@@ -93,23 +105,34 @@ function EventEntry({ event, userId }: { readonly event: Event; readonly userId:
       setConfirmingWithdrawal(false)
       await client.invalidateQueries({ queryKey: key })
     },
+    onError: (error, action) => {
+      if (action === 'withdraw' && withdrawalRefused(error)) {
+        setConfirmingWithdrawal(false)
+        setWithdrawClosed(true)
+      }
+    },
   })
   const state = participation.data?.state.toLowerCase()
   const withdrawn = state === 'withdrawn'
+  const roundCancelled = participation.data?.roundCancelled === true
+  // Com check-in feito, inscrição e presença já não têm o que fazer: o aviso de status diz o que vem a seguir.
+  const awaitingRound = state === 'waiting' || state === 'checkedin' || roundCancelled
   // O instante da última leitura do estado: puro na renderização e renovado pelo polling de 3 s.
   const canWithdraw = canWithdrawRegistration(state, event.startsAt, participation.dataUpdatedAt)
   if (confirmingWithdrawal && !canWithdraw) {
     // O encontro começou (ou a inscrição mudou) com a confirmação aberta: ela fecha, como o servidor recusaria.
     setConfirmingWithdrawal(false)
-    setStartedDuringConfirmation(true)
+    setWithdrawClosed(true)
   }
   useEffect(() => {
-    // A confirmação sumiu com o foco dentro dela; o título do encontro é estável e diz onde a pessoa está.
-    if (startedDuringConfirmation && document.activeElement === document.body) {
-      heading.current?.focus()
+    // A confirmação sumiu com o foco dentro dela; o aviso que a substitui diz por quê.
+    if (withdrawClosed && document.activeElement === document.body) {
+      closedNotice.current?.focus()
     }
-  }, [startedDuringConfirmation])
-  const withdrawLabel = t(state === 'waitlisted' ? 'participation.leaveWaitlist' : 'participation.withdraw')
+  }, [withdrawClosed])
+  const waitlisted = state === 'waitlisted'
+  const withdrawLabel = t(waitlisted ? 'participation.leaveWaitlist' : 'participation.withdraw')
+  const commandFailed = command.isError && !(command.variables === 'withdraw' && withdrawalRefused(command.error))
   useEffect(() => {
     const focus = pendingFocus.current
     if (focus === null) {
@@ -123,41 +146,52 @@ function EventEntry({ event, userId }: { readonly event: Event; readonly userId:
   })
   return (
     <section className="flex flex-col gap-4 rounded-lg border border-border p-5">
-      <h2 ref={heading} tabIndex={-1} className="text-xl font-semibold">
-        {event.title}
-      </h2>
+      <h2 className="text-xl font-semibold">{event.title}</h2>
       <p>
         <time className="whitespace-pre-line" dateTime={event.startsAt}>
           {formatEventDateTime(new Date(event.startsAt), event.timeZone)}
         </time>
       </p>
       {participation.isError ? <RequestFailureAlert failure={classifyRequestFailure(participation.error)} /> : null}
-      {command.isError ? <RequestFailureAlert failure={classifyRequestFailure(command.error)} /> : null}
-      {participation.data?.roomId === null || participation.data?.roomId === undefined ? (
+      {commandFailed ? <RequestFailureAlert failure={classifyRequestFailure(command.error)} /> : null}
+      {participation.data === undefined ? (
+        participation.isError ? null : (
+          <p role="status">{t('participation.loadingStatus')}</p>
+        )
+      ) : participation.data.roomId === null ? (
         withdrawn ? (
           <p ref={outcome} role="status" tabIndex={-1}>
             {t('participation.withdrawn')}
           </p>
         ) : (
           <>
-            <p role="status">{t(statusMessage(state, participation.data?.roundCancelled === true))}</p>
-            <Button
-              disabled={command.isPending}
-              onClick={() => {
-                command.mutate('register')
-              }}
-            >
-              {t('participation.register')}
-            </Button>
-            <Button
-              disabled={command.isPending}
-              onClick={() => {
-                command.mutate('checkIn')
-              }}
-            >
-              {t('participation.checkIn')}
-            </Button>
-            {canWithdraw && !confirmingWithdrawal ? (
+            <p role="status">{t(statusMessage(state, roundCancelled))}</p>
+            {awaitingRound ? null : (
+              <>
+                <Button
+                  disabled={command.isPending}
+                  onClick={() => {
+                    command.mutate('register')
+                  }}
+                >
+                  {t('participation.register')}
+                </Button>
+                <Button
+                  disabled={command.isPending}
+                  onClick={() => {
+                    command.mutate('checkIn')
+                  }}
+                >
+                  {t('participation.checkIn')}
+                </Button>
+              </>
+            )}
+            {withdrawClosed ? (
+              <p ref={closedNotice} role="status" tabIndex={-1}>
+                {t('participation.withdrawClosed')}
+              </p>
+            ) : null}
+            {canWithdraw && !confirmingWithdrawal && !withdrawClosed ? (
               <Button
                 ref={withdrawButton}
                 variant="secondary"
@@ -176,16 +210,6 @@ function EventEntry({ event, userId }: { readonly event: Event; readonly userId:
                   {t('participation.withdrawWarning')}
                 </p>
                 <Button
-                  variant="destructive"
-                  aria-describedby={warningId}
-                  disabled={command.isPending}
-                  onClick={() => {
-                    command.mutate('withdraw')
-                  }}
-                >
-                  {t('participation.confirmWithdraw')}
-                </Button>
-                <Button
                   variant="neutral"
                   disabled={command.isPending}
                   onClick={() => {
@@ -193,7 +217,17 @@ function EventEntry({ event, userId }: { readonly event: Event; readonly userId:
                     setConfirmingWithdrawal(false)
                   }}
                 >
-                  {t('participation.keepRegistration')}
+                  {t(waitlisted ? 'participation.stayOnWaitlist' : 'participation.keepRegistration')}
+                </Button>
+                <Button
+                  variant="destructive"
+                  aria-describedby={warningId}
+                  disabled={command.isPending}
+                  onClick={() => {
+                    command.mutate('withdraw')
+                  }}
+                >
+                  {t(waitlisted ? 'participation.confirmLeaveWaitlist' : 'participation.confirmWithdraw')}
                 </Button>
               </div>
             ) : null}

@@ -17,9 +17,13 @@ const me = {
 }
 const eventId = '0199f1a2-3b4c-7d5e-8f60-718293a4b5c7'
 const roomId = '0199f1a2-3b4c-7d5e-8f60-718293a4b5c8'
-const ROUND_CANCELLED_PT = 'A rodada foi cancelada. Sua inscrição continua valendo e você não precisa fazer nada.'
+const ROUND_CANCELLED_PT =
+  'A rodada foi cancelada. Sua presença continua confirmada. Se houver outra rodada, o convite aparece aqui.'
 const ROUND_CANCELLED_EN =
-  'The round was cancelled. Your registration still stands and there is nothing you need to do.'
+  "This round was cancelled. You're still checked in. If there's another round, your invitation will appear here."
+
+const WITHDRAW_CLOSED_PT = 'Não é mais possível cancelar a inscrição.'
+const WITHDRAW_CLOSED_EN = 'You can no longer cancel your registration.'
 
 interface ParticipationBody {
   readonly state: string
@@ -104,14 +108,14 @@ describe('events after a cancelled round', () => {
     serveEventWithParticipation(() => body)
     const { queryClient } = await renderApp('/events')
     await screen.findByText(/Aguardando um par compatível/)
-    const register = screen.getByRole('button', { name: 'Inscrever-se' })
-    register.focus()
+    const withdraw = screen.getByRole('button', { name: 'Cancelar inscrição' })
+    withdraw.focus()
 
     body = { state: 'Waiting', roomId: null, roundCancelled: true }
     await queryClient.refetchQueries()
 
     expect(await screen.findByText(ROUND_CANCELLED_PT)).toBeInTheDocument()
-    expect(register).toHaveFocus()
+    expect(withdraw).toHaveFocus()
   })
 
   it('goes away when the person gets a room in a new round', async () => {
@@ -138,6 +142,64 @@ describe('events after a cancelled round', () => {
 
     expect(await screen.findByText(/Aguardando um par compatível/)).toBeInTheDocument()
     expect(screen.queryByText(ROUND_CANCELLED_PT)).not.toBeInTheDocument()
+  })
+})
+
+// Quem já fez check-in não tem mais o que fazer com "Inscrever-se" e "Confirmar presença" (#434).
+describe('registration and check-in buttons', () => {
+  it.each([
+    ['Waiting', false],
+    ['CheckedIn', false],
+    ['Confirmed', true],
+  ])('hides them when they no longer apply (%s)', async (state, round) => {
+    serveEventWithParticipation(() => ({ state, roomId: null, roundCancelled: round }))
+    await renderApp('/events')
+
+    await screen.findByRole('button', { name: /Cancelar inscrição/ })
+    expect(screen.queryByRole('button', { name: 'Inscrever-se' })).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'Confirmar presença' })).not.toBeInTheDocument()
+  })
+
+  it('offers them before registration', async () => {
+    serveEventWithParticipation(() => ({ state: 'Unregistered', roomId: null, roundCancelled: false }))
+    await renderApp('/events')
+
+    expect(await screen.findByRole('button', { name: 'Inscrever-se' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Confirmar presença' })).toBeInTheDocument()
+  })
+
+  it('shows a loading status for the event until its participation arrives', async () => {
+    let release: () => void = () => undefined
+    const gate = new Promise<void>((resolve) => {
+      release = resolve
+    })
+    server.use(
+      http.get(`${API}/me`, () => HttpResponse.json(withSessionContext(me))),
+      http.get(`${API}/events`, () =>
+        HttpResponse.json([
+          {
+            eventId,
+            title: 'Evento sintético',
+            startsAt: '2099-01-01T00:00:00Z',
+            timeZone: 'UTC',
+            checkInOpensAt: '2098-12-31T23:50:00Z',
+            state: 'Published',
+          },
+        ]),
+      ),
+      http.get(`${API}/events/${eventId}/participation`, async () => {
+        await gate
+        return HttpResponse.json({ state: 'Unregistered', roomId: null })
+      }),
+    )
+    await renderApp('/events')
+
+    expect(await screen.findByText('Carregando sua situação neste encontro…')).toHaveAttribute('role', 'status')
+    expect(screen.queryByText(/Inscreva-se e confirme/)).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'Inscrever-se' })).not.toBeInTheDocument()
+    release()
+    expect(await screen.findByRole('button', { name: 'Inscrever-se' })).toBeInTheDocument()
+    expect(screen.queryByText('Carregando sua situação neste encontro…')).not.toBeInTheDocument()
   })
 })
 
@@ -212,7 +274,9 @@ describe('withdrawing from an event (API-E04)', () => {
 
     const warning = screen.getByText(/não poderá se inscrever de novo neste encontro/)
     expect(warning).toHaveFocus()
-    expect(screen.getByRole('button', { name: 'Confirmar saída' })).toHaveAccessibleDescription(warning.textContent)
+    expect(screen.getByRole('button', { name: 'Sim, cancelar inscrição' })).toHaveAccessibleDescription(
+      warning.textContent,
+    )
     expect(deletes).toHaveLength(0)
     await user.click(screen.getByRole('button', { name: 'Manter inscrição' }))
 
@@ -226,7 +290,7 @@ describe('withdrawing from an event (API-E04)', () => {
     const deletes = eventsWith('Waitlisted')
     await renderApp('/events')
     await user.click(await screen.findByRole('button', { name: 'Sair da lista de espera' }))
-    await user.click(screen.getByRole('button', { name: 'Confirmar saída' }))
+    await user.click(screen.getByRole('button', { name: 'Sim, sair da lista' }))
 
     const outcome = await screen.findByText('Você saiu deste encontro.')
     await waitFor(() => {
@@ -239,7 +303,37 @@ describe('withdrawing from an event (API-E04)', () => {
     expect(screen.queryByRole('button', { name: /Sair da lista/ })).not.toBeInTheDocument()
   })
 
-  it('shows an alert and keeps the registration when the server refuses', async () => {
+  // A ação segura vem antes do destrutivo, como nos diálogos de saída (A11Y-03).
+  it.each([
+    ['Confirmed', 'Cancelar inscrição', ['Manter inscrição', 'Sim, cancelar inscrição']],
+    ['Waitlisted', 'Sair da lista de espera', ['Continuar na lista', 'Sim, sair da lista']],
+  ])('puts the safe choice first when confirming (%s)', async (state, trigger, expected) => {
+    const user = userEvent.setup()
+    eventsWith(state)
+    await renderApp('/events')
+    await user.click(await screen.findByRole('button', { name: trigger }))
+
+    const group = screen.getByRole('group', { name: trigger })
+    expect(
+      within(group)
+        .getAllByRole('button')
+        .map((button) => button.textContent),
+    ).toEqual(expected)
+  })
+
+  it('confirms in English with the wording of each state', async () => {
+    const user = userEvent.setup()
+    eventsWith('Waitlisted')
+    await renderApp('/events', undefined, 'en-US')
+    await user.click(await screen.findByRole('button', { name: 'Leave the waitlist' }))
+
+    expect(screen.getByRole('button', { name: 'Stay on the waitlist' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Yes, leave the waitlist' })).toBeInTheDocument()
+  })
+
+  // O servidor recusa com 404 no início do encontro, com o evento fora de Published (cancelado) ou com a inscrição
+  // em outro estado: a tela diz só que a retirada fechou, sem alerta genérico e sem afirmar um motivo.
+  it('says neutrally that withdrawal is closed when the server refuses with 404', async () => {
     const user = userEvent.setup()
     eventsWith('Confirmed', () =>
       HttpResponse.json(
@@ -249,10 +343,49 @@ describe('withdrawing from an event (API-E04)', () => {
     )
     await renderApp('/events')
     await user.click(await screen.findByRole('button', { name: 'Cancelar inscrição' }))
-    await user.click(screen.getByRole('button', { name: 'Confirmar saída' }))
+    await user.click(screen.getByRole('button', { name: 'Sim, cancelar inscrição' }))
+
+    const notice = await screen.findByText(WITHDRAW_CLOSED_PT)
+    expect(notice).toHaveAttribute('role', 'status')
+    await waitFor(() => {
+      expect(notice).toHaveFocus()
+    })
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument()
+    expect(screen.queryByText('Você saiu deste encontro.')).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: /Cancelar inscrição/ })).not.toBeInTheDocument()
+  })
+
+  it('says neutrally in English that withdrawal is closed when the server refuses with 404', async () => {
+    const user = userEvent.setup()
+    eventsWith('Confirmed', () =>
+      HttpResponse.json(
+        { type: 'urn:duora:problem:not-found', title: 'Not Found', status: 404, traceId: 'trace' },
+        { status: 404, headers: { 'Content-Type': 'application/problem+json' } },
+      ),
+    )
+    await renderApp('/events', undefined, 'en-US')
+    await user.click(await screen.findByRole('button', { name: 'Cancel registration' }))
+    await user.click(screen.getByRole('button', { name: 'Yes, cancel registration' }))
+
+    expect(await screen.findByText(WITHDRAW_CLOSED_EN)).toHaveAttribute('role', 'status')
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument()
+  })
+
+  it('shows an alert and keeps the registration when the withdrawal fails otherwise', async () => {
+    const user = userEvent.setup()
+    eventsWith('Confirmed', () =>
+      HttpResponse.json(
+        { type: 'urn:duora:problem:internal', title: 'Internal', status: 500, traceId: 'trace' },
+        { status: 500, headers: { 'Content-Type': 'application/problem+json' } },
+      ),
+    )
+    await renderApp('/events')
+    await user.click(await screen.findByRole('button', { name: 'Cancelar inscrição' }))
+    await user.click(screen.getByRole('button', { name: 'Sim, cancelar inscrição' }))
 
     expect(await screen.findByRole('alert')).toBeInTheDocument()
     expect(screen.queryByText('Você saiu deste encontro.')).not.toBeInTheDocument()
+    expect(screen.queryByText(WITHDRAW_CLOSED_PT)).not.toBeInTheDocument()
   })
 
   it('offers no withdrawal once the event has started, as the server would refuse it', async () => {
@@ -306,7 +439,8 @@ describe('withdrawing from an event (API-E04)', () => {
         },
         { timeout: 5000 },
       )
-      expect(screen.getByRole('heading', { name: 'Evento sintético' })).toHaveFocus()
+      expect(screen.getByText(WITHDRAW_CLOSED_PT)).toHaveAttribute('role', 'status')
+      expect(screen.getByText(WITHDRAW_CLOSED_PT)).toHaveFocus()
       expect(screen.queryByRole('button', { name: 'Cancelar inscrição' })).not.toBeInTheDocument()
       expect(deletes).toHaveLength(0)
     } finally {
