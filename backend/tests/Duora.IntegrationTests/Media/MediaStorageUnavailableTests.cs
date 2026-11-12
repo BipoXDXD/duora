@@ -35,7 +35,9 @@ public sealed class MediaStorageUnavailableTests(PostgresFixture postgres) : IAs
     [InlineData(HttpStatusCode.Forbidden, "InvalidAccessKeyId")]
     [InlineData(HttpStatusCode.Forbidden, "SignatureDoesNotMatch")]
     [InlineData(HttpStatusCode.NotFound, "NoSuchBucket")]
-    public async Task ACredentialOrBucketErrorOnReadStaysAServerErrorWithoutRetryAfter(HttpStatusCode status, string code)
+    public async Task ACredentialOrBucketErrorOnReadStaysAServerErrorWithoutRetryAfter(
+        HttpStatusCode status,
+        string code)
     {
         await using var fake = await FakeS3Server.StartAsync(FakeS3Server.Error(status, code));
 

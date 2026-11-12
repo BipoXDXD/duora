@@ -177,7 +177,9 @@ internal sealed partial class S3ObjectStore(S3StorageOptions options, ILogger<S3
     /// <summary>
     /// Falha que repetir mais tarde pode resolver: 5xx, limite de taxa (<c>SlowDown</c>, 429), <c>RequestTimeout</c>,
     /// recusa ou queda de conexão e timeout do SDK. Credencial, política e bucket ausente não entram: são
-    /// configuração e continuam subindo como erro. Se quem chamou cancelou, não é falha do storage.
+    /// configuração e continuam subindo como erro. Se quem chamou cancelou, não é falha do storage; o SDK costuma
+    /// lançar <see cref="OperationCanceledException"/> (que o <c>switch</c> já não classifica), e a guarda cobre o
+    /// cancelamento embrulhado numa exceção de rede.
     /// </summary>
     private static bool IsTransient(Exception exception, CancellationToken cancellationToken) =>
         !cancellationToken.IsCancellationRequested
@@ -206,7 +208,9 @@ internal sealed partial class S3ObjectStore(S3StorageOptions options, ILogger<S3
         Message = "Storage de mídia recusou {Operation} na área {Area} ({ErrorCode}): credencial ou política do bucket")]
     private static partial void LogCredentialError(ILogger logger, string operation, StorageArea area, string errorCode);
 
-    /// <summary>Aviso, não erro: a falha é do fornecedor ou da rede e a API a devolve como 503; sem a chave do objeto.</summary>
+    /// <summary>
+    /// Aviso, não erro: a falha é do fornecedor ou da rede e a API a devolve como 503; sem a chave do objeto.
+    /// </summary>
     [LoggerMessage(
         Level = LogLevel.Warning,
         Message = "Storage de mídia indisponível em {Operation} na área {Area} ({Cause})")]

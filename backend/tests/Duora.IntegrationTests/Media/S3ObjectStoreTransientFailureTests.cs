@@ -38,20 +38,27 @@ public sealed class S3ObjectStoreTransientFailureTests
 
     [Theory]
     [MemberData(nameof(TransientErrors))]
-    public async Task ATransientStorageErrorOnReadIsAStorageUnavailableError(string name, HttpStatusCode status, string code)
+    public async Task ATransientStorageErrorOnReadIsAStorageUnavailableError(
+        string name,
+        HttpStatusCode status,
+        string code)
     {
         _ = name;
         await using var fake = await FakeS3Server.StartAsync(FakeS3Server.Error(status, code));
         using var store = Store(fake.Url);
 
-        var error = await Assert.ThrowsAsync<StorageUnavailableException>(() => store.OpenReadAsync(ObjectKey.NewQuarantine(), Ct));
+        var error = await Assert.ThrowsAsync<StorageUnavailableException>(() =>
+            store.OpenReadAsync(ObjectKey.NewQuarantine(), Ct));
 
         Assert.IsType<AmazonServiceException>(error.InnerException, exactMatch: false);
     }
 
     [Theory]
     [MemberData(nameof(TransientErrors))]
-    public async Task ATransientStorageErrorOnWriteIsAStorageUnavailableError(string name, HttpStatusCode status, string code)
+    public async Task ATransientStorageErrorOnWriteIsAStorageUnavailableError(
+        string name,
+        HttpStatusCode status,
+        string code)
     {
         _ = name;
         await using var fake = await FakeS3Server.StartAsync(FakeS3Server.Error(status, code));
@@ -63,7 +70,10 @@ public sealed class S3ObjectStoreTransientFailureTests
 
     [Theory]
     [MemberData(nameof(TransientErrors))]
-    public async Task ATransientStorageErrorOnDeleteIsAStorageUnavailableError(string name, HttpStatusCode status, string code)
+    public async Task ATransientStorageErrorOnDeleteIsAStorageUnavailableError(
+        string name,
+        HttpStatusCode status,
+        string code)
     {
         _ = name;
         await using var fake = await FakeS3Server.StartAsync(FakeS3Server.Error(status, code));
@@ -74,7 +84,10 @@ public sealed class S3ObjectStoreTransientFailureTests
 
     [Theory]
     [MemberData(nameof(ConfigurationErrors))]
-    public async Task ACredentialOrBucketErrorStaysAnS3ErrorNotAStorageUnavailableError(string name, HttpStatusCode status, string code)
+    public async Task ACredentialOrBucketErrorStaysAnS3ErrorNotAStorageUnavailableError(
+        string name,
+        HttpStatusCode status,
+        string code)
     {
         _ = name;
         await using var fake = await FakeS3Server.StartAsync(FakeS3Server.Error(status, code));
@@ -82,7 +95,8 @@ public sealed class S3ObjectStoreTransientFailureTests
         var key = ObjectKey.NewQuarantine();
 
         var read = await Record.ExceptionAsync(() => store.OpenReadAsync(key, Ct));
-        var write = await Record.ExceptionAsync(() => store.PutAsync(key, new MemoryStream([1, 2, 3]), 3, "image/png", Ct));
+        var write = await Record.ExceptionAsync(() =>
+            store.PutAsync(key, new MemoryStream([1, 2, 3]), 3, "image/png", Ct));
         var delete = await Record.ExceptionAsync(() => store.DeleteAsync(key, Ct));
 
         Assert.All([read, write, delete], error =>
@@ -139,7 +153,8 @@ public sealed class S3ObjectStoreTransientFailureTests
     {
         using var logs = new CapturingLoggerProvider();
         using var loggerFactory = LoggerFactory.Create(builder => builder.AddProvider(logs));
-        await using var fake = await FakeS3Server.StartAsync(FakeS3Server.Error(HttpStatusCode.ServiceUnavailable, "SlowDown"));
+        await using var fake = await FakeS3Server.StartAsync(
+            FakeS3Server.Error(HttpStatusCode.ServiceUnavailable, "SlowDown"));
         using var store = Store(fake.Url, loggerFactory.CreateLogger<S3ObjectStore>());
         var key = ObjectKey.NewQuarantine();
 
@@ -152,7 +167,10 @@ public sealed class S3ObjectStoreTransientFailureTests
         Assert.DoesNotContain(key.Value, warning.Text, StringComparison.Ordinal);
     }
 
-    private static S3ObjectStore Store(string url, ILogger<S3ObjectStore>? logger = null, TimeSpan? requestTimeout = null) =>
+    private static S3ObjectStore Store(
+        string url,
+        ILogger<S3ObjectStore>? logger = null,
+        TimeSpan? requestTimeout = null) =>
         new(
             new S3StorageOptions
             {

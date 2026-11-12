@@ -17,23 +17,17 @@ namespace Duora.IntegrationTests.Media;
 internal sealed class FakeS3Server : IAsyncDisposable
 {
     private readonly WebApplication _app;
-    private int _requests;
 
-    private FakeS3Server(WebApplication app, Func<HttpContext, Task> responder)
+    private FakeS3Server(WebApplication app)
     {
         _app = app;
-        Responder = responder;
-        var address = app.Services.GetRequiredService<IServer>().Features.Get<IServerAddressesFeature>()!.Addresses.First();
+        var addresses = app.Services.GetRequiredService<IServer>().Features.Get<IServerAddressesFeature>()!.Addresses;
+        var address = addresses.First();
         Url = address.TrimEnd('/');
     }
 
     /// <summary>Endereço <c>http://127.0.0.1:porta</c>, para <c>S3StorageOptions.ServiceUrl</c>.</summary>
     public string Url { get; }
-
-    /// <summary>Quantas requisições chegaram, retentativas do SDK incluídas.</summary>
-    public int Requests => Volatile.Read(ref _requests);
-
-    public Func<HttpContext, Task> Responder { get; set; }
 
     public static async Task<FakeS3Server> StartAsync(Func<HttpContext, Task> responder)
     {
@@ -41,15 +35,9 @@ internal sealed class FakeS3Server : IAsyncDisposable
         builder.WebHost.UseUrls("http://127.0.0.1:0");
         builder.Logging.ClearProviders();
         var app = builder.Build();
-        FakeS3Server? server = null;
-        app.Run(context =>
-        {
-            Interlocked.Increment(ref server!._requests);
-            return server.Responder(context);
-        });
+        app.Run(responder.Invoke);
         await app.StartAsync(TestContext.Current.CancellationToken);
-        server = new FakeS3Server(app, responder);
-        return server;
+        return new FakeS3Server(app);
     }
 
     /// <summary>Erro no formato XML do S3: status HTTP, <c>Code</c> e uma mensagem sem dado nenhum.</summary>
