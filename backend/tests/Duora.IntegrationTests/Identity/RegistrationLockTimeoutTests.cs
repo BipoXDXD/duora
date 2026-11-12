@@ -8,13 +8,13 @@ using Npgsql;
 namespace Duora.IntegrationTests.Identity;
 
 /// <summary>
-/// Issue #461: o upsert do cadastro espera a linha da conta com o mesmo teto do login (<c>Identity:AccountLockTimeout</c>).
-/// Quando o teto estoura, a resposta é a mesma de um cadastro comum (TM-06): quem chama não fica sabendo que a conta
+/// Issue #461: o upsert do cadastro espera a linha da conta com teto. Desde a #466 o teto é o do cadastro
+/// (<c>Identity:RegistrationLockTimeout</c>), curto e separado do teto do login. Quando o teto estoura, a resposta é a mesma de um cadastro comum (TM-06): quem chama não fica sabendo que a conta
 /// existe nem que outra operação a segura.
 /// </summary>
 public sealed class RegistrationLockTimeoutTests : IAsyncDisposable
 {
-    private static readonly TimeSpan AccountLockTimeout = TimeSpan.FromMilliseconds(300);
+    private static readonly TimeSpan RegistrationLockTimeout = TimeSpan.FromMilliseconds(20);
 
     /// <summary>Folga larga para máquina carregada; sem o teto, o cadastro só termina quando a trava sai.</summary>
     private static readonly TimeSpan ResponseLimit = TimeSpan.FromSeconds(10);
@@ -36,7 +36,7 @@ public sealed class RegistrationLockTimeoutTests : IAsyncDisposable
             Time = TestClock.StartingNow(),
             Settings = new Dictionary<string, string?>
             {
-                ["Identity:AccountLockTimeout"] = AccountLockTimeout.ToString("c", CultureInfo.InvariantCulture),
+                ["Identity:RegistrationLockTimeout"] = RegistrationLockTimeout.ToString("c", CultureInfo.InvariantCulture),
             },
         };
     }
@@ -64,7 +64,7 @@ public sealed class RegistrationLockTimeoutTests : IAsyncDisposable
             TestContext.Current.TestOutputHelper?.WriteLine(
                 $"#461 cadastro da conta travada: {(int)held.StatusCode} em {waited.TotalMilliseconds:F0} ms; " +
                 $"headers={string.Join("; ", Headers(held).Select(h => $"{h.Key}={h.Value}"))}");
-            Assert.True(waited >= AccountLockTimeout, "O cadastro deveria ter esperado a trava até o teto.");
+            Assert.True(waited >= RegistrationLockTimeout, "O cadastro deveria ter esperado a trava até o teto.");
             Assert.Equal(HttpStatusCode.Accepted, newEmail.StatusCode);
             Assert.Equal(newEmail.StatusCode, held.StatusCode);
             Assert.Equal(
@@ -73,7 +73,7 @@ public sealed class RegistrationLockTimeoutTests : IAsyncDisposable
             Assert.Equal(Headers(newEmail), Headers(held));
         }
 
-        // A resposta igual só vale se veio do caminho do teto, não de uma espera que por acaso passou de 300 ms.
+        // A resposta igual só vale se veio do caminho do teto, não de uma espera que por acaso passou do teto.
         Assert.Single(_logs.Entries, entry => entry.Text.Contains(GaveUpLogMessage, StringComparison.Ordinal));
     }
 
