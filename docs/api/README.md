@@ -90,9 +90,11 @@ resposta, pela mesma fonte do `Retry-After` (`DatabaseUnavailability.Unavailable
 elegibilidade responde `503` sem nenhuma linha de log (#473).
 
 Os endpoints que montam o `503` de banco sem passar pelo handler (revisão de foto, mídia, bloqueio, suspensão de
-conta e a entrega da evidência) também usam `DatabaseUnavailability` (`Unavailable` com a exceção, ou `Contention`
-quando o serviço devolve só `Busy`), e um teste de arquitetura (`RetryAfterSourceTests`) barra o prazo literal e o
-`catch` do Npgsql que grava o header (#493). O `503` de outra causa (fila de mídia, storage, capacidade, revisão sem
+conta, reconciliação de cadastro e a entrega da evidência) também usam `DatabaseUnavailability` (`Unavailable` com a
+exceção, ou `Contention` quando o serviço devolve só `Busy`). Um teste de arquitetura (`RetryAfterSourceTests`) barra
+o prazo literal em `SetRetryAfter` e `Unavailable` e qualquer escrita do header fora de uma allowlist de arquivos, cada
+um com o motivo (#493). Dentro desses arquivos, mandar a exceção do Npgsql para a fonte é regra de revisão: o teste não
+distingue o `catch` de banco do de storage. O `503` de outra causa (fila de mídia, storage, capacidade, revisão sem
 evidência) declara o prazo numa constante nomeada perto dela.
 
 Valores (decisão da coordenação, 10/11):
