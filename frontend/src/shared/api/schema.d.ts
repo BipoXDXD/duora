@@ -3373,6 +3373,17 @@ export interface paths {
                         "application/problem+json": components["schemas"]["ProblemDetails"];
                     };
                 };
+                /** @description Service Unavailable */
+                503: {
+                    headers: {
+                        /** @description Seconds to wait before trying again. Sent with TEMPORARILY_UNAVAILABLE; other 503 problems of a route may omit it. */
+                        "Retry-After"?: number;
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/problem+json": components["schemas"]["ProblemDetails"];
+                    };
+                };
             };
         };
         options?: never;
