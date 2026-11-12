@@ -214,13 +214,14 @@ public sealed partial class SelfieVerificationDispatcher
     }
 
     /// <summary>
-    /// O corte em duas camadas, no relógio injetado, as duas presas a um único timer armado antes da chamada: o prazo fica
-    /// fixo quando a chamada sai, e um salto do relógio enquanto a espera é montada não o adia. O timer cancela o token no
-    /// prazo mesmo que a chamada ainda não tenha devolvido a tarefa (o SDK da AWS lê o corpo da resposta de forma
-    /// síncrona). A espera pelo mesmo token devolve o controle mesmo que o fornecedor ignore o cancelamento. A chamada
-    /// que segue rodando fica abandonada: ninguém lê a resposta dela, e ela leva a vaga até terminar. Um bloqueio
-    /// síncrono que também ignore o token não é interrompido: a espera só age sobre a tarefa devolvida, e a recebe pronta
-    /// mesmo depois do prazo. Por isso a resposta que volta depois do prazo é recusada aqui, com o mesmo efeito do corte.
+    /// O corte em duas camadas, no relógio injetado, as duas presas a um único timer armado antes da chamada: o prazo
+    /// fica fixo quando a chamada sai, e um salto do relógio enquanto a espera é montada não o adia. O timer cancela o
+    /// token no prazo mesmo que a chamada ainda não tenha devolvido a tarefa (o SDK da AWS lê o corpo da resposta de
+    /// forma síncrona). A espera pelo mesmo token devolve o controle mesmo que o fornecedor ignore o cancelamento. A
+    /// chamada que segue rodando fica abandonada: ninguém lê a resposta dela, e ela leva a vaga até terminar. Um
+    /// bloqueio síncrono que também ignore o token não é interrompido: a espera só age sobre a tarefa devolvida, e a
+    /// recebe pronta mesmo depois do prazo. Por isso a resposta que volta depois do prazo é recusada aqui, com o mesmo
+    /// efeito do corte.
     /// </summary>
     private async Task<T> CallProviderAsync<T>(Func<CancellationToken, Task<T>> call, CancellationToken cancellationToken)
     {

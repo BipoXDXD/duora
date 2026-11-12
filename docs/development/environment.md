@@ -9,9 +9,9 @@ Inventário da máquina de desenvolvimento em 2026-11-05, lido com os comandos d
 | Item | Versão encontrada | Fixada em |
 |---|---|---|
 | Sistema | macOS 27.0.1 (build 26A434), `arm64` nativo (sem Rosetta) | — |
-| .NET SDK | 10.0.403 | `global.json` (`rollForward: latestPatch`) |
-| Runtime .NET / ASP.NET Core | 10.0.14 | vem com o SDK |
-| dotnet-ef | 10.0.13 | `.config/dotnet-tools.json` |
+| .NET SDK | 10.0.404 | `global.json` (`rollForward: latestPatch`) |
+| Runtime .NET / ASP.NET Core | 10.0.15 | vem com o SDK |
+| dotnet-ef | 10.0.15 | `.config/dotnet-tools.json` |
 | Docker Engine (Docker Desktop) | 29.8.2, runtime `linux/arm64`, contexto `desktop-linux` | — |
 | Docker Compose | 5.5.1 | — |
 | PostgreSQL (container) | 18.6 | `infra/compose/compose.dev.yml` e `PostgresFixture.cs` |
@@ -20,6 +20,12 @@ Inventário da máquina de desenvolvimento em 2026-11-05, lido com os comandos d
 | pnpm | 12.11.2 via `corepack pnpm` (sem pnpm global) | `frontend/package.json` (`packageManager`) |
 
 O CI roda em Ubuntu 24.04; o inventário do runner fica registrado no workflow quando ele existir.
+
+Python: o tooling que roda só no runner (ansible-core 2.22, ansible-lint, pyright, ilustrações, supply chain, ensaios)
+usa 3.14.10 exato (`actions/setup-python` fixado por SHA), e os lockfiles com hashes (`scripts/deploy/requirements.txt`,
+`tools/visual/requirements.txt`) são compilados para 3.14. Os testes do código que roda no Python do host da VPS
+(`scripts/deploy`, `scripts/backup`, validador da chave do apt) ficam no 3.12 do Ubuntu 24.04, que é o da VPS, até o dono
+atualizá-la. Detalhes em `infra/README.md`.
 
 ## Diagnóstico
 
