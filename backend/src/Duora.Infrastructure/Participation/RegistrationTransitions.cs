@@ -46,6 +46,46 @@ internal static class RegistrationTransitions
         }
     }
 
+    /// <summary>
+    /// API-E04 (ADR-0053), sob as guardas e o lock do evento: grava quando e de qual estado a pessoa saiu, sem suspensão,
+    /// e promove a fila. Linha já retirada, por qualquer origem, é sucesso sem escrita.
+    /// </summary>
+    public static async Task<ParticipationOutcome> WithdrawByParticipantAsync(NpgsqlConnection connection, Guid eventId,
+        Guid user, DateTimeOffset now, CancellationToken ct)
+    {
+        string previous;
+        await using (var query = Command(connection, """
+            select r.state from events.registrations r join events.events e on e.id=r.event_id
+            where r.event_id=$1 and r.user_id=$2 and (r.state='Withdrawn'
+              or (r.state in ('Waitlisted','Confirmed','CheckedIn') and e.state='Published' and $3<e.starts_at))
+            """, eventId, user, now))
+        {
+            if (await query.ExecuteScalarAsync(ct) is not string state)
+            {
+                return ParticipationOutcome.Unavailable;
+            }
+            previous = state;
+        }
+        if (previous == "Withdrawn")
+        {
+            return ParticipationOutcome.Done;
+        }
+        var changed = await Execute(connection, """
+            update events.registrations set withdrawn_from_state=state, withdrawn_waitlist_position=waitlist_position,
+              state='Withdrawn', waitlist_position=null, withdrawn_at=$3, version=version+1
+            where event_id=$1 and user_id=$2 and state in ('Waitlisted','Confirmed','CheckedIn')
+            """, ct, eventId, user, now);
+        if (changed != 1)
+        {
+            throw new InvalidOperationException("Registration changed under its event lock.");
+        }
+        await Execute(connection, """
+            update events.events set confirmed_count=confirmed_count-$2,version=version+1 where id=$1
+            """, ct, eventId, previous is "Confirmed" or "CheckedIn" ? 1 : 0);
+        await PromoteAsync(connection, eventId, now, ct);
+        return ParticipationOutcome.Done;
+    }
+
     public static async Task PromoteAsync(NpgsqlConnection connection, Guid eventId, DateTimeOffset now,
         CancellationToken ct)
     {
