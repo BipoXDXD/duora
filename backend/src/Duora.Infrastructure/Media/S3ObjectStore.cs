@@ -66,6 +66,9 @@ internal sealed partial class S3ObjectStore(S3StorageOptions options, ILogger<S3
     /// <summary>Erros que dizem "credencial ou política do bucket errada", não "objeto ausente".</summary>
     private static readonly string[] CredentialErrors = ["AccessDenied", "InvalidAccessKeyId", "SignatureDoesNotMatch"];
 
+    /// <summary>Erros transitórios que o S3 manda sem status 5xx (o 503 do <c>SlowDown</c> já é 5xx).</summary>
+    private static readonly string[] TransientErrors = ["SlowDown", "RequestTimeout"];
+
     private readonly IAmazonS3 _client = CreateClient(options);
 
     public static IAmazonS3 CreateClient(S3StorageOptions options)
@@ -114,6 +117,10 @@ internal sealed partial class S3ObjectStore(S3StorageOptions options, ILogger<S3
             LogCredentialError(logger, "PutObject", key.Area, exception.ErrorCode);
             throw;
         }
+        catch (Exception exception) when (IsTransient(exception, cancellationToken))
+        {
+            throw Unavailable("PutObject", key, exception);
+        }
     }
 
     public async Task<Stream?> OpenReadAsync(ObjectKey key, CancellationToken cancellationToken)
@@ -132,6 +139,10 @@ internal sealed partial class S3ObjectStore(S3StorageOptions options, ILogger<S3
             LogCredentialError(logger, "GetObject", key.Area, exception.ErrorCode);
             throw;
         }
+        catch (Exception exception) when (IsTransient(exception, cancellationToken))
+        {
+            throw Unavailable("GetObject", key, exception);
+        }
     }
 
     public async Task DeleteAsync(ObjectKey key, CancellationToken cancellationToken)
@@ -149,6 +160,10 @@ internal sealed partial class S3ObjectStore(S3StorageOptions options, ILogger<S3
             LogCredentialError(logger, "DeleteObject", key.Area, exception.ErrorCode);
             throw;
         }
+        catch (Exception exception) when (IsTransient(exception, cancellationToken))
+        {
+            throw Unavailable("DeleteObject", key, exception);
+        }
     }
 
     public void Dispose() => _client.Dispose();
@@ -159,11 +174,47 @@ internal sealed partial class S3ObjectStore(S3StorageOptions options, ILogger<S3
 
     private static bool IsCredentialError(AmazonS3Exception exception) => CredentialErrors.Contains(exception.ErrorCode);
 
+    /// <summary>
+    /// Falha que repetir mais tarde pode resolver: 5xx, limite de taxa (<c>SlowDown</c>, 429), <c>RequestTimeout</c>,
+    /// recusa ou queda de conexão e timeout do SDK. Credencial, política e bucket ausente não entram: são
+    /// configuração e continuam subindo como erro. Se quem chamou cancelou, não é falha do storage; o SDK costuma
+    /// lançar <see cref="OperationCanceledException"/> (que o <c>switch</c> já não classifica), e a guarda cobre o
+    /// cancelamento embrulhado numa exceção de rede.
+    /// </summary>
+    private static bool IsTransient(Exception exception, CancellationToken cancellationToken) =>
+        !cancellationToken.IsCancellationRequested
+        && exception switch
+        {
+            AmazonS3Exception s3 => !IsCredentialError(s3)
+                && (s3.StatusCode >= HttpStatusCode.InternalServerError
+                    || s3.StatusCode == HttpStatusCode.TooManyRequests
+                    || TransientErrors.Contains(s3.ErrorCode)),
+            HttpRequestException or TimeoutException => true,
+            _ => false,
+        };
+
+    private StorageUnavailableException Unavailable(string operation, ObjectKey key, Exception cause)
+    {
+        LogTransientFailure(logger, operation, key.Area, Describe(cause));
+        return new StorageUnavailableException($"Object storage unavailable during {operation}.", cause);
+    }
+
+    private static string Describe(Exception cause) =>
+        cause is AmazonS3Exception s3 ? $"{(int)s3.StatusCode} {s3.ErrorCode}" : cause.GetType().Name;
+
     /// <summary>Sem a chave do objeto (TM-42): a área e o código bastam para achar a política errada.</summary>
     [LoggerMessage(
         Level = LogLevel.Error,
         Message = "Storage de mídia recusou {Operation} na área {Area} ({ErrorCode}): credencial ou política do bucket")]
     private static partial void LogCredentialError(ILogger logger, string operation, StorageArea area, string errorCode);
+
+    /// <summary>
+    /// Aviso, não erro: a falha é do fornecedor ou da rede e a API a devolve como 503; sem a chave do objeto.
+    /// </summary>
+    [LoggerMessage(
+        Level = LogLevel.Warning,
+        Message = "Storage de mídia indisponível em {Operation} na área {Area} ({Cause})")]
+    private static partial void LogTransientFailure(ILogger logger, string operation, StorageArea area, string cause);
 
     /// <summary>Fecha a resposta HTTP junto com o fluxo do corpo.</summary>
     private sealed class ResponseOwningStream(GetObjectResponse response) : Stream
