@@ -4,10 +4,13 @@ using Microsoft.Extensions.DependencyInjection;
 namespace Duora.IntegrationTests.Participation;
 
 /// <summary>
-/// O contrato das rotas de comando da sala e da inscrição lista exatamente os status que o endpoint devolve: 204 de
-/// sucesso (ou replay), 400 VALIDATION_FAILED, 404 de sala ou evento inexistente, alheio, encerrado ou com prazo vencido,
-/// 409 de versão, 503 de contenção de lock e os 401/403 do grupo. Saída, aceite, recusa, inscrição, desistência e check-in não têm
-/// corpo nem versão, então não têm 400 nem 409.
+/// Trava o contrato OpenAPI das rotas de comando da sala e da inscrição: o documento não muda sem que este
+/// teste mude junto. A lista esperada é escrita à mão de propósito. Ela não é derivada do código, então este
+/// teste não descobre sozinho um status novo que o endpoint passe a devolver. Quem fixa o que o endpoint de fato
+/// devolve são os testes de comportamento: 204 em <c>RoutesParticipationTests</c> e <c>GameDeadlineTests</c>;
+/// 400 e 409 em <c>RoutesParticipationTests</c>; 404 em <c>GameDeadlineTests</c> e <c>RoomExitTests</c>; 503 em
+/// <c>ParticipationLockContentionTests</c>. Saída, aceite, recusa, inscrição, desistência e check-in não têm
+/// corpo nem versão, então não declaram 400 nem 409. Os 401/403 vêm do grupo de rotas.
 /// </summary>
 public sealed class RoomCommandOpenApiTests(PostgresFixture postgres) : IAsyncDisposable
 {
@@ -16,8 +19,14 @@ public sealed class RoomCommandOpenApiTests(PostgresFixture postgres) : IAsyncDi
     public ValueTask DisposeAsync() => _factory.DisposeAsync();
 
     [Theory]
-    [InlineData("POST", "/api/v1/rooms/{roomId}/actions", new[] { "204", "400", "401", "403", "404", "409", "503" })]
-    [InlineData("POST", "/api/v1/rooms/{roomId}/routes-actions", new[] { "204", "400", "401", "403", "404", "409", "503" })]
+    [InlineData(
+        "POST",
+        "/api/v1/rooms/{roomId}/actions",
+        new[] { "204", "400", "401", "403", "404", "409", "503" })]
+    [InlineData(
+        "POST",
+        "/api/v1/rooms/{roomId}/routes-actions",
+        new[] { "204", "400", "401", "403", "404", "409", "503" })]
     [InlineData("POST", "/api/v1/rooms/{roomId}/exit", new[] { "204", "401", "403", "404", "503" })]
     [InlineData("POST", "/api/v1/rooms/{roomId}/accept", new[] { "204", "401", "403", "404", "503" })]
     [InlineData("POST", "/api/v1/rooms/{roomId}/reject", new[] { "204", "401", "403", "404", "503" })]
