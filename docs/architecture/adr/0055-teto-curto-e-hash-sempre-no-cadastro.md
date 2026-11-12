@@ -1,7 +1,7 @@
 # ADR-0055: Teto curto de trava e hash sempre no cadastro, contra o canal de tempo (TM-06)
 
 - **Status:** Accepted (2026-11-12), aceito pelo dono em 12/11. Proposto em 2026-11-10 por decisão da coordenação,
-  10/11: (iv-a). Toca anti-enumeração: veio com a revisão de segurança e a revisão humana no merge.
+  10/11: (iv-a). Toca anti-enumeração.
 - **Origem:** issue #466 (risco residual do #464/#461); TM-06; medição no comentário da #466
 - **Relaciona:** [ADR-0009](0009-uma-instancia-web-no-piloto.md) (uma instância web); a seção de concorrência na
   autenticação de [concurrency.md](../../data/concurrency.md#concorrência-na-autenticação-issue-65)
