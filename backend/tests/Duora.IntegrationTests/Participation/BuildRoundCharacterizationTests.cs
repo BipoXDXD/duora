@@ -318,6 +318,70 @@ public sealed class BuildRoundCharacterizationTests(PostgresFixture postgres)
         Assert.Equal(new HashSet<Guid> { scene.Seed.Third, fourth }, pair);
     }
 
+    [Fact]
+    public async Task AV3RoundLeavesOutACandidateWhoHasNotDeclaredARegionalModeYet()
+    {
+        await using var source = NpgsqlDataSource.Create(postgres.ConnectionString);
+        var scene = await CreateSceneAsync(source, [Alice, Bob]);
+        await ExecuteAsync(source, "update events.rounds set algorithm_version=3 where id=$1", scene.Round);
+        await DeclareRegionAsync(source, scene.Seed.Alice, "BR", "unrestricted");
+
+        await scene.Service.BuildRoundPairingsAsync(scene.Round, Ct);
+
+        Assert.Equal(0L, await PairingCountAsync(source, scene.Round));
+        Assert.Equal(("Inviting", 2L), await RoundAsync(source, scene.Round));
+    }
+
+    [Theory]
+    [InlineData("US", "US", true)]
+    [InlineData("BR", "BR", true)]
+    [InlineData("US", "BR", false)]
+    [InlineData("US", null, false)]
+    public async Task AV3RoundPairsACountriesChoiceOnlyWithAnAcceptedDeclaredCountry(string accepted, string? bobCountry, bool pairs)
+    {
+        await using var source = NpgsqlDataSource.Create(postgres.ConnectionString);
+        var scene = await CreateSceneAsync(source, [Alice, Bob]);
+        await ExecuteAsync(source, "update events.rounds set algorithm_version=3 where id=$1", scene.Round);
+        await DeclareRegionAsync(source, scene.Seed.Alice, "BR", "countries", accepted);
+        if (bobCountry is null)
+        {
+            await ExecuteAsync(source, "insert into profiles.regional_preferences(user_id,mode,version,updated_at) values($1,'unrestricted',1,now())", scene.Seed.Bob);
+        }
+        else
+        {
+            await DeclareRegionAsync(source, scene.Seed.Bob, bobCountry, "unrestricted");
+        }
+
+        await scene.Service.BuildRoundPairingsAsync(scene.Round, Ct);
+
+        Assert.Equal(pairs ? 1L : 0L, await PairingCountAsync(source, scene.Round));
+        Assert.Equal(("Inviting", 2L), await RoundAsync(source, scene.Round));
+    }
+
+    [Theory]
+    [InlineData(false, 0L)]
+    [InlineData(true, 1L)]
+    public async Task ACandidateStillReservedInAnotherRoundIsLeftOutUntilItIsReleased(bool released, long pairings)
+    {
+        await using var source = NpgsqlDataSource.Create(postgres.ConnectionString);
+        var scene = await CreateSceneAsync(source, [Alice, Bob]);
+        var otherPairing = Guid.CreateVersion7();
+        await ExecuteAsync(source, """
+            insert into events.pairings(id,round_id,event_id,user_low,user_high,algorithm_version,communication_language,communication_policy_version,created_at)
+            values($1,$2,$3,least($4::uuid,$5::uuid),greatest($4::uuid,$5::uuid),2,'en',1,$6)
+            """, otherPairing, scene.Seed.Rounds[1], scene.Seed.Events[1], scene.Seed.Bob, scene.Seed.Third, scene.Starts);
+        foreach (var user in new[] { scene.Seed.Bob, scene.Seed.Third })
+        {
+            await ExecuteAsync(source, "insert into events.pairing_participants(pairing_id,user_id,round_id,released_at) values($1,$2,$3,$4)",
+                otherPairing, user, scene.Seed.Rounds[1], released ? scene.Starts : (object)DBNull.Value);
+        }
+
+        await scene.Service.BuildRoundPairingsAsync(scene.Round, Ct);
+
+        Assert.Equal(pairings, await PairingCountAsync(source, scene.Round));
+        Assert.Equal(("Inviting", 2L), await RoundAsync(source, scene.Round));
+    }
+
     private sealed record Scene(ParticipationService Service, FakeTimeProvider Clock, ParticipationSeed Seed, DateTimeOffset Starts,
         IReadOnlyList<Guid> Users, long EventVersion)
     {
