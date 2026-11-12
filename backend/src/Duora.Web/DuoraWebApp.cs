@@ -64,6 +64,7 @@ internal static class DuoraWebApp
             RegionalPreferenceEndpoints.ConfigureOpenApi(options);
             RegionDetectionEndpoints.ConfigureOpenApi(options);
             RegistrationReconciliationEndpoints.ConfigureOpenApi(options);
+            ServiceUnavailableOpenApi.Configure(options);
         });
         builder.Services.AddSingleton(TimeProvider.System);
         builder.Services.AddSingleton<System.Diagnostics.DistributedContextPropagator>(new InboundTraceContextDiscarded());
