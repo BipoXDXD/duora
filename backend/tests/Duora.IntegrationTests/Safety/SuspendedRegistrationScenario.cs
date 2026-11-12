@@ -45,6 +45,14 @@ internal sealed class SuspendedRegistrationScenario(ScratchDatabase database, Pa
         return await new ParticipationService(named, clock).RegisterAsync(EventId, user, checkIn, Token);
     }
 
+    public async Task<ParticipationOutcome> WithdrawNamedAsync(Guid user, string application)
+    {
+        var connectionString = new NpgsqlConnectionStringBuilder(database.AppConnectionString)
+        { ApplicationName = application }.ConnectionString;
+        await using var named = NpgsqlDataSource.Create(connectionString);
+        return await new ParticipationService(named, clock).WithdrawAsync(EventId, user, Token);
+    }
+
     public Task WaitForWaiterAsync(string application, string queryPart) => WaitUntilAsync("""
         select exists(select 1 from pg_stat_activity where application_name=$1
           and cardinality(pg_blocking_pids(pid))>0 and query like '%'||$2||'%')
