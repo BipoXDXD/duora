@@ -9,6 +9,7 @@ using Duora.Infrastructure.Email;
 using Duora.Infrastructure.Persistence;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 
 namespace Duora.Infrastructure.Identity;
@@ -44,10 +45,34 @@ internal sealed class AccountLifecycleOptions
 }
 
 /// <summary>
+/// Teto curto do cadastro para esperar a linha da conta (seção <c>Identity</c>), separado do teto do login
+/// (<see cref="AccountLockOptions.AccountLockTimeout"/>). O cadastro que esperasse o teto do login responderia esse
+/// tempo a mais quando a conta existe e está ocupada, e o tempo diria o que o 202 idêntico esconde (#466, ADR-0055).
+/// </summary>
+internal sealed class RegistrationLockOptions
+{
+    public const string Section = "Identity";
+
+    /// <summary>Abaixo de 1 ms o <c>lock_timeout</c> vira <c>0</c>, que no PostgreSQL desliga o teto.</summary>
+    internal static readonly TimeSpan Minimum = TimeSpan.FromMilliseconds(1);
+
+    /// <summary>Acima disso a espera volta a aparecer no tempo de resposta (#466: 100 ms de teto somaram +78 ms).</summary>
+    private static readonly TimeSpan Maximum = TimeSpan.FromMilliseconds(50);
+
+    /// <summary>
+    /// Teto do <c>lock_timeout</c> no upsert do cadastro (5 ms). Passou dele, o cadastro desiste sem gravar e responde
+    /// o 202 de sempre; quem cadastrou tenta de novo.
+    /// </summary>
+    public TimeSpan RegistrationLockTimeout { get; set; } = TimeSpan.FromMilliseconds(5);
+
+    public bool IsValid() => RegistrationLockTimeout >= Minimum && RegistrationLockTimeout <= Maximum;
+}
+
+/// <summary>
 /// Casos de uso da conta sobre o ASP.NET Core Identity (spec 8.2). Toda resposta para quem não é o titular é
 /// neutra, e os e-mails saem pela outbox na mesma transação que os justifica, nunca por chamada direta.
 /// </summary>
-public sealed class AccountService
+public sealed partial class AccountService
 {
     /// <summary>Mesma entropia do security stamp que o Identity gera (160 bits).</summary>
     private const int SecurityStampBytes = 20;
@@ -63,6 +88,8 @@ public sealed class AccountService
     private readonly AccountLifecycleOptions _lifecycle;
     private readonly TimeProvider _time;
     private readonly LegalPublication _legal;
+    private readonly ILogger<AccountService> _logger;
+    private readonly RegistrationLockOptions _registrationLock;
 
     internal AccountService(
         DuoraDbContext db,
@@ -71,7 +98,9 @@ public sealed class AccountService
         DecoyPasswordHash decoy,
         AccountLifecycleOptions lifecycle,
         TimeProvider time,
-        LegalPublication legal)
+        LegalPublication legal,
+        ILogger<AccountService> logger,
+        RegistrationLockOptions registrationLock)
     {
         _db = db;
         _users = users;
@@ -81,6 +110,8 @@ public sealed class AccountService
         _lifecycle = lifecycle;
         _time = time;
         _legal = legal;
+        _logger = logger;
+        _registrationLock = registrationLock;
     }
 
     /// <summary>
@@ -93,6 +124,9 @@ public sealed class AccountService
     /// Os três casos fazem o mesmo trabalho (TM-06): um hash, um upsert que grava uma versão da linha do usuário,
     /// os mesmos comandos de aceite, uma leitura, um hash de código e uma linha de outbox, na mesma transação. O upsert com
     /// <c>ON CONFLICT</c> no e-mail normalizado também serializa cadastros simultâneos do mesmo e-mail.
+    /// Os dois caminhos que desistem (conta ocupada além do teto curto, orçamento de emissão esgotado) também pagam os
+    /// dois hashes, que são quase todo o tempo do cadastro, e esperam a trava só pelo teto curto do cadastro: o tempo de
+    /// resposta não distingue os casos além do SQL que a desistência não roda (#466, ADR-0055).
     /// </remarks>
     public async Task RegisterAsync(
         EmailAddress email,
@@ -114,9 +148,30 @@ public sealed class AccountService
         var now = _time.GetUtcNow();
         // O PasswordHasher padrão não usa o usuário; o hash é calculado antes de saber qual caso é este.
         var passwordHash = _users.PasswordHasher.HashPassword(null!, password);
+        // O código também, antes da transação: quem desiste abaixo pagou o mesmo hash que quem emite (#466).
+        var code = RandomNumberGenerator.GetInt32(100_000_000).ToString("D8", CultureInfo.InvariantCulture);
+        var codeHash = _users.PasswordHasher.HashPassword(null!, code);
 
         await using var transaction = await _db.Database.BeginTransactionAsync(cancellationToken);
-        var registration = await UpsertRegistrationAsync(email, passwordHash, EmailLanguageTag.Format(language), now, cancellationToken);
+        RegistrationRow registration;
+        try
+        {
+            registration = await _security.WithLockCeilingAsync(
+                _registrationLock.RegistrationLockTimeout,
+                () => UpsertRegistrationAsync(email, passwordHash, EmailLanguageTag.Format(language), now, cancellationToken),
+                cancellationToken);
+        }
+        catch (AccountBusyException)
+        {
+            // Outra operação segura a conta além do teto curto do cadastro. Desistir sem gravar nada, como o cadastro
+            // limitado abaixo: quem chama recebe a mesma resposta de qualquer cadastro (TM-06), e só o log distingue.
+            // O teto vale para qualquer lock que o upsert espere, não só a linha de uma conta existente: um cadastro
+            // simultâneo do mesmo e-mail novo (o índice único faz este esperar o outro terminar) ou um DDL na tabela
+            // também caem aqui, e o e-mail inexistente recebe o 202 sem nada gravado. Quem cadastrou tenta de novo.
+            LogRegistrationGaveUpOnAccountLock(_logger);
+            return;
+        }
+
         if (!await ReserveIssuanceAsync(registration.UserId, now, cancellationToken))
         {
             // Roll back the upsert too: a throttled registration must not replace the current proof/password.
@@ -127,8 +182,6 @@ public sealed class AccountService
         await GrantParticipantRoleUnlessAnyAsync(registration.UserId, cancellationToken);
         var user = await _users.FindByIdAsync(registration.UserId.ToString("D"))
             ?? throw new InvalidOperationException("Conta sumiu dentro da transação do cadastro.");
-        var code = RandomNumberGenerator.GetInt32(100_000_000).ToString("D8", CultureInfo.InvariantCulture);
-        var codeHash = _users.PasswordHasher.HashPassword(user, code);
         var codeValue = $"{user.SecurityStamp}|{now.UtcTicks.ToString(CultureInfo.InvariantCulture)}|{codeHash}";
         var storeCode = !registration.EmailConfirmed;
         await _db.Database.ExecuteSqlAsync(
@@ -175,7 +228,8 @@ public sealed class AccountService
             return;
         }
 
-        await using var check = await _security.LockAccountAsync(user, cancellationToken);
+        // Espera curta: a conta ocupada desiste dentro do piso de tempo da rota, como o e-mail inexistente (#470).
+        await using var check = await _security.LockAccountBrieflyAsync(user, cancellationToken);
         var passwordMatches = false;
         if (user.PasswordHash is { } passwordHash)
         {
@@ -733,6 +787,10 @@ public sealed class AccountService
     }
 
     private sealed record RegistrationRow(Guid UserId, bool EmailConfirmed);
+
+    /// <summary>Sem e-mail nem id: a linha só diz que um cadastro desistiu da trava da conta.</summary>
+    [LoggerMessage(Level = LogLevel.Warning, Message = "Registration gave up waiting for the account row lock; nothing was written and the caller got the usual 202.")]
+    private static partial void LogRegistrationGaveUpOnAccountLock(ILogger logger);
 }
 
 /// <summary>

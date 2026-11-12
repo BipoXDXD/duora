@@ -34,7 +34,8 @@ jobs:
   backend:
     name: backend
     runs-on: ubuntu-24.04
-    timeout-minutes: 40
+    # Interino até os shards (#510): a suíte passou de 40 min por tamanho, não por teste preso (#507).
+    timeout-minutes: 60
     steps:
       - name: Registrar arquitetura do runner (spec 2.4)
         run: |
@@ -155,7 +156,9 @@ jobs:
   e2e:
     name: e2e
     runs-on: ubuntu-24.04
-    timeout-minutes: 25
+    # Era 25. Os dois passos do Playwright, no pior caso de retry (3 tentativas com teto e esperas de 15 s e 45 s),
+    # somam ~23 min e consumiriam o job antes dos testes; +15 min deixam a folga que o E2E tinha.
+    timeout-minutes: 40
     defaults:
       run:
         working-directory: frontend
@@ -196,9 +199,28 @@ jobs:
           printf 'https://archive.ubuntu.com/ubuntu/\tpriority:1\nhttps://security.ubuntu.com/ubuntu/\tpriority:2\nhttp://azure.archive.ubuntu.com/ubuntu/\tpriority:3\n' \
             | sudo tee /etc/apt/apt-mirrors.txt >/dev/null
 
-      # Navegadores não vão para o cache: --with-deps instala pacotes do sistema que o cache não restauraria.
+      # Navegadores não vão para o cache: os pacotes do sistema (install-deps) o cache não restauraria.
+      # Dois passos com teto próprio: um mirror que trava (como o azure.archive.ubuntu.com) falha em minutos, não
+      # nos 25 do job. Cada tentativa tem teto; falha transitória repete 3 vezes (15 s, 45 s), a persistente falha.
+      # Antes de repetir, o apt troca os espelhos *.ubuntu.com pelos de fallback e conclui o dpkg (apt_recover_install).
+      - name: Instalar dependências de sistema dos navegadores do Playwright
+        timeout-minutes: 12
+        env:
+          CI_RETRY_ATTEMPT_TIMEOUT: '180'
+          CI_RETRY_RECOVER: apt_recover_install
+        run: |
+          source "$GITHUB_WORKSPACE/scripts/ci/apt-retry.sh"
+          apt_configure_network
+          apt_prefer_reachable_mirror
+          retry_with_backoff pnpm exec playwright install-deps chromium webkit
+
       - name: Instalar navegadores do Playwright
-        run: pnpm exec playwright install --with-deps chromium webkit
+        timeout-minutes: 15
+        env:
+          CI_RETRY_ATTEMPT_TIMEOUT: '240'
+        run: |
+          source "$GITHUB_WORKSPACE/scripts/ci/apt-retry.sh"
+          retry_with_backoff pnpm exec playwright install chromium webkit
 
       # CI=true (definido pelo Actions): o Playwright sobe o próprio servidor e não reaproveita um existente.
       - name: E2E

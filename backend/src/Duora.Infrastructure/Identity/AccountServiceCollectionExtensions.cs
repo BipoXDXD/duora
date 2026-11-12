@@ -2,6 +2,7 @@ using Duora.Core.Identity;
 using Duora.Infrastructure.Persistence;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using Npgsql;
 
@@ -45,17 +46,28 @@ public static class AccountServiceCollectionExtensions
             provider.GetRequiredService<DecoyPasswordHash>(),
             provider.GetRequiredService<IOptions<AccountLifecycleOptions>>().Value,
             provider.GetRequiredService<TimeProvider>(),
-            provider.GetRequiredService<LegalPublication>()));
+            provider.GetRequiredService<LegalPublication>(),
+            provider.GetRequiredService<ILogger<AccountService>>(),
+            provider.GetRequiredService<IOptions<RegistrationLockOptions>>().Value));
+        services.AddOptions<RegistrationLockOptions>()
+            .BindConfiguration(RegistrationLockOptions.Section)
+            .Validate(o => o.IsValid(), "Identity:RegistrationLockTimeout precisa ficar entre 1 ms e 50 ms.")
+            .ValidateOnStart();
         services.AddOptions<AccountLockOptions>()
             .BindConfiguration(AccountLockOptions.Section)
             .Validate(o => o.IsValid(), "Identity:AccountLockTimeout e Identity:AccountQueueTimeout precisam ficar entre 100 ms e 1 min.")
             .ValidateOnStart();
-        services.AddSingleton<AccountCheckGate>();
+        services.AddOptions<IdentityShortWaitOptions>()
+            .BindConfiguration(IdentityShortWaitOptions.Section)
+            .Validate(o => o.IsValid(), "Identity:ShortWait:LockTimeout precisa ficar entre 1 ms e 125 ms.")
+            .ValidateOnStart();
+        services.AddSingleton(provider => new AccountCheckGate(provider.GetRequiredService<IOptions<AccountLockOptions>>().Value));
         services.AddScoped(provider => new AccountSecurityService(
             provider.GetRequiredService<DuoraDbContext>(),
             provider.GetRequiredService<UserManager<DuoraUser>>(),
             provider.GetRequiredService<TimeProvider>(),
             provider.GetRequiredService<IOptions<AccountLockOptions>>().Value,
+            provider.GetRequiredService<IOptions<IdentityShortWaitOptions>>().Value,
             provider.GetRequiredService<AccountCheckGate>()));
         services.AddScoped(provider => new ExternalAuthenticationService(
             provider.GetRequiredService<DuoraDbContext>(),
