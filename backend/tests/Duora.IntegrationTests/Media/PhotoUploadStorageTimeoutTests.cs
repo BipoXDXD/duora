@@ -1,9 +1,12 @@
+using System.Collections.Concurrent;
 using System.Net;
 using System.Net.Http.Headers;
 using Duora.Core.Media;
 using Duora.Infrastructure.Media;
 using Duora.IntegrationTests.Identity;
+using Duora.Web.Media;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using Microsoft.Extensions.Time.Testing;
 
@@ -19,12 +22,13 @@ public sealed class PhotoUploadStorageTimeoutTests : IAsyncDisposable
 {
     private readonly FakeTimeProvider _time = TestClock.StartingNow();
     private readonly StallingObjectStore _store = new();
+    private readonly CapturingLoggerProvider _logs = new();
     private readonly DuoraWebFactory _factory;
     private readonly MediaScenario _media;
 
     public PhotoUploadStorageTimeoutTests(PostgresFixture postgres)
     {
-        _factory = new DuoraWebFactory(postgres.ConnectionString)
+        _factory = new DuoraWebFactory(postgres.ConnectionString, _logs)
         {
             Time = _time,
             TestServices = services => services.AddSingleton<IObjectStore>(_store),
@@ -46,8 +50,10 @@ public sealed class PhotoUploadStorageTimeoutTests : IAsyncDisposable
         using var result = await response;
 
         await ProblemAssert.IsProblemAsync(result, HttpStatusCode.ServiceUnavailable, "STORAGE_UNAVAILABLE");
-        ProblemAssert.RetryAfterSeconds(result);
+        Assert.Equal(PhotoEndpoints.StorageRetryAfter.TotalSeconds, ProblemAssert.RetryAfterSeconds(result));
         Assert.Empty(await _media.UploadsOfAsync(account.UserId));
+        Assert.Single(_store.Deleted);
+        Assert.False(StreamingFailureClientFailed());
     }
 
     [Fact]
@@ -64,6 +70,8 @@ public sealed class PhotoUploadStorageTimeoutTests : IAsyncDisposable
 
         await ProblemAssert.IsProblemAsync(result, HttpStatusCode.BadRequest, "UPLOAD_INCOMPLETE");
         Assert.Empty(await _media.UploadsOfAsync(account.UserId));
+        Assert.Single(_store.Deleted);
+        Assert.True(StreamingFailureClientFailed());
     }
 
     [Fact]
@@ -77,6 +85,8 @@ public sealed class PhotoUploadStorageTimeoutTests : IAsyncDisposable
 
         Assert.IsType<PhotoUploadResult.BodyIncomplete>(result);
         Assert.Empty(await _media.UploadsOfAsync(account.UserId));
+        Assert.Single(_store.Deleted);
+        Assert.True(StreamingFailureClientFailed());
     }
 
     [Fact]
@@ -90,6 +100,8 @@ public sealed class PhotoUploadStorageTimeoutTests : IAsyncDisposable
 
         Assert.IsType<PhotoUploadResult.BodyIncomplete>(result);
         Assert.Empty(await _media.UploadsOfAsync(account.UserId));
+        Assert.Single(_store.Deleted);
+        Assert.True(StreamingFailureClientFailed());
     }
 
     [Fact]
@@ -103,6 +115,17 @@ public sealed class PhotoUploadStorageTimeoutTests : IAsyncDisposable
 
         Assert.IsType<PhotoUploadResult.BodyIncomplete>(result);
         Assert.Empty(await _media.UploadsOfAsync(account.UserId));
+        Assert.Single(_store.Deleted);
+        Assert.True(StreamingFailureClientFailed());
+    }
+
+    /// <summary>O <c>ClientFailed</c> do único log de recepção desfeita: a métrica que a issue 505 escondia.</summary>
+    private bool StreamingFailureClientFailed()
+    {
+        var entry = Assert.Single(
+            _logs.Entries,
+            log => log.Level == LogLevel.Warning && log.Fields.ContainsKey("ClientFailed"));
+        return Assert.IsType<bool>(entry.Fields["ClientFailed"]);
     }
 
     private async Task ElapseUploadTimeoutAsync()
@@ -153,7 +176,12 @@ public sealed class PhotoUploadStorageTimeoutTests : IAsyncDisposable
     /// <summary>Storage que lê o corpo até o ponto combinado e espera o cancelamento, como um storage lento.</summary>
     private sealed class StallingObjectStore : IObjectStore
     {
+        private readonly ConcurrentQueue<ObjectKey> _deleted = new();
+
         public StallMode Mode { get; set; }
+
+        /// <summary>Objetos que a compensação mandou apagar.</summary>
+        public IReadOnlyCollection<ObjectKey> Deleted => _deleted;
 
         public TaskCompletionSource Stalled { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
 
@@ -193,7 +221,11 @@ public sealed class PhotoUploadStorageTimeoutTests : IAsyncDisposable
         public Task<Stream?> OpenReadAsync(ObjectKey key, CancellationToken cancellationToken) =>
             Task.FromResult<Stream?>(null);
 
-        public Task DeleteAsync(ObjectKey key, CancellationToken cancellationToken) => Task.CompletedTask;
+        public Task DeleteAsync(ObjectKey key, CancellationToken cancellationToken)
+        {
+            _deleted.Enqueue(key);
+            return Task.CompletedTask;
+        }
     }
 
     /// <summary>Cliente lento: manda parte do corpo e fica parado, sem fechar nem terminar o envio.</summary>
