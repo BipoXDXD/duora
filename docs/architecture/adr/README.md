@@ -62,6 +62,7 @@ da spec. A partir do 0016, os ADRs resolvem lacunas encontradas na spec.
 | [0051](0051-papel-postgres-na-sonda-da-selfie.md) | Papel `postgres` na sonda do fornecedor da selfie, como exceção à spec 10 | Proposed | Troca da imagem do PostgreSQL ou mudança do `pg_hba` |
 | [0052](0052-saida-da-sala-sem-elegibilidade.md) | Saída da sala (API-R04) sem exigir elegibilidade (INV-01); não muda a API-R10 do ADR-0028 | Proposed | Novo estado de conta com sala aberta, novo efeito da saída ou implementação da voz |
 | [0053](0053-retirada-voluntaria-da-inscricao.md) | Retirada voluntária da inscrição (API-E04) com histórico, ampliando `ck_registrations_withdrawal` | Proposed | Retirada com evento em andamento, nova origem de retirada ou aviso de promoção (#320) |
+| [0055](0055-teto-curto-e-hash-sempre-no-cadastro.md) | Teto curto de trava (`Identity:RegistrationLockTimeout`, 5 ms) e os dois hashes em todo caminho do cadastro, contra o canal de tempo (TM-06, #466) | Proposed; decisão da coordenação, 10/11: (iv-a) | Desistências frequentes no log, segunda réplica web, mudança no cadastro pelo Google ou resíduo acima do ruído em produção |
 
 ## Regras
 
