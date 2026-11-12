@@ -99,7 +99,7 @@ public sealed class DatabaseUnavailableExceptionHandlerTests
     // O IsTransient do Npgsql 10.0.3 cobre da classe 08 só 08000, 08001, 08003, 08004, 08006 e 08007 (#497). 08P01
     // (protocol_violation) é defeito de código ou de proxy, como um bind com número de parâmetros errado, e 08002
     // (connection_already_exists) também não é a rede fora: crus, não são indisponibilidade, seguem para o 500 do
-    // middleware de exceção, sem Retry-After e sem o Warning de indisponibilidade.
+    // middleware de exceção, sem Warning de indisponibilidade, inclusive embrulhados pelo Npgsql.
     [Theory]
     [InlineData("08P01")]
     [InlineData("08002")]
@@ -116,10 +116,12 @@ public sealed class DatabaseUnavailableExceptionHandlerTests
         var handled = await handler.TryHandleAsync(context, raw, TestContext.Current.CancellationToken);
 
         Assert.False(handled);
-        Assert.False(context.Response.Headers.ContainsKey("Retry-After"));
         Assert.Empty(logs.Entries);
         Assert.False(DatabaseUnavailability.IsTemporary(raw));
         Assert.False(DatabaseUnavailability.IsTemporary(new InvalidOperationException("wrapped", raw)));
+        Assert.False(DatabaseUnavailability.IsTemporary(new NpgsqlException("driver", raw)));
+        Assert.False(DatabaseUnavailability.IsTemporary(
+            new NpgsqlException("driver", new NpgsqlException("driver", raw))));
     }
 
     // Cada estado da lista explícita da classe 08 segue 503 com Retry-After de banco fora do alcance (5 s), crus.

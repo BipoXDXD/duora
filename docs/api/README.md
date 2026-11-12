@@ -132,9 +132,10 @@ erro passageiro do servidor embrulhado pelo Npgsql como indisponibilidade. O #46
 dois eventos e unifica cru e embrulhado na contenção (`40001`, `40P01`, `55P03`). O #476 unifica também `53200`,
 `53400`, `55006` e `58030` (sem memória, limite de configuração, objeto em uso e erro de E/S) e o #492 acrescenta
 `53000`, `53100` e `57P05` (recursos insuficientes, disco cheio e sessão ociosa encerrada): antes, embrulhados davam
-`503` com `5` e crus davam `500`. A lista é própria e não acompanha o `IsTransient` do Npgsql: `55000` (defeito
-costuma ser permanente) e `58000` (genérico demais) ficam de fora de propósito e, crus, seguem `500`. Embrulhados pelo Npgsql,
-esses dois seguem `503`, pelo `IsTransient`. Um `57P05` recorrente indica `idle_session_timeout` do servidor ou do proxy
+`503` com `5` e crus davam `500`. A lista é própria e não acompanha o `IsTransient` do Npgsql (a classe 08 é a
+exceção: segue exatamente os seis estados dele, #497): `55000` (defeito costuma ser permanente) e `58000` (genérico
+demais) ficam de fora de propósito e, crus, seguem `500`. Embrulhados pelo Npgsql, esses dois seguem `503`, pelo
+`IsTransient`. Um `57P05` recorrente indica `idle_session_timeout` do servidor ou do proxy
 menor que o idle do pool do Npgsql (`ConnectionIdleLifetime`, padrão 300 s): é configuração, não falha passageira.
 
 Mudança de contrato, sem mudança de schema de corpo (antes do #492 o OpenAPI não listava o `Retry-After` desses 503;
@@ -154,8 +155,8 @@ ver o fim desta seção):
 - Classe 08 (#497): o prefixo `08` vira lista explícita, a do `IsTransient` do Npgsql 10.0.3 (`08000`, `08001`,
   `08003`, `08004`, `08006` e `08007`), que seguem `503`. `08P01` (`protocol_violation`, em geral defeito de código ou
   de proxy, como um bind com número de parâmetros errado) e `08002` (`connection_already_exists`) crus
-  (`PostgresException`) eram `503` com `Retry-After: 5` (`30` sob `/auth`) e Warning `DatabaseUnavailable`; passam a `500` `INTERNAL_ERROR`,
-  sem `Retry-After`, com log `Error` do middleware de exceção.
+  (`PostgresException`) eram `503` com `Retry-After: 5` (`30` sob `/auth`) e Warning `DatabaseUnavailable`; passam a
+  `500` `INTERNAL_ERROR`, sem `Retry-After`, com log `Error` do middleware de exceção.
 - Rotas sob `/auth`: todo `503` passa a `Retry-After: 30`; o `57014` passa de `500` a `503`; o `503` legal do
   cadastro e os `503` do Google passam a levar `Retry-After`.
 
