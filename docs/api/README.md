@@ -100,7 +100,7 @@ Valores (decisão da coordenação, 10/11):
 | Falha | SQLSTATE | `Retry-After` fora de `/auth` | `Retry-After` em `/auth` |
 |---|---|---|---|
 | Contenção: serialização, deadlock, `lock_timeout` (crua ou embrulhada pelo Npgsql ou pelo EF) | `40001`, `40P01`, `55P03` | `2` | `30` |
-| Banco fora do alcance: rede, pool, servidor sem conexões, recursos, disco ou memória, no limite de configuração, com objeto em uso, erro de E/S, sessão ociosa encerrada, ou desligando | `53300`, `53000`, `53100`, `53200`, `53400`, `55006`, `57P05`, `58030`, `57P01`–`57P03`, `08*`, falha do cliente | `5` | `30` |
+| Banco fora do alcance: rede, pool, servidor sem conexões, recursos, disco ou memória, no limite de configuração, com objeto em uso, erro de E/S, sessão ociosa encerrada, ou desligando | `53300`, `53000`, `53100`, `53200`, `53400`, `55006`, `57P05`, `58030`, `57P01`–`57P03`, `08000`, `08001`, `08003`, `08004`, `08006`, `08007`, falha do cliente | `5` | `30` |
 | Timeout de comando (`statement_timeout`) | `57014` | regra da rota (mídia e revisão de foto: `503` com `2`; outras: `500`) | `30` |
 | Conta ocupada (`AccountBusyException`: fila, lock ou prazo) | — | o da exceção (na conta, `30`) | `30`; no cadastro e no reenvio, não é `503` (abaixo) |
 | Documentos legais indisponíveis no cadastro | — | — | `30` |
@@ -149,6 +149,11 @@ ver o fim desta seção):
 - `53200`, `53400`, `55006` e `58030` crus (`PostgresException`): eram `500` `INTERNAL_ERROR`, passam a `503` com
   `Retry-After: 5` (`30` sob `/auth`), igual ao embrulhado pelo Npgsql ou pelo EF (#476). O mesmo vale para `53000`,
   `53100` e `57P05` crus (#492).
+- Classe 08 (#497): o prefixo `08` vira lista explícita, a do `IsTransient` do Npgsql 10.0.3 (`08000`, `08001`,
+  `08003`, `08004`, `08006` e `08007`), que seguem `503`. `08P01` (`protocol_violation`, em geral defeito de código ou
+  de proxy, como um bind com número de parâmetros errado) e `08002` (`connection_already_exists`) crus
+  (`PostgresException`) eram `503` com `Retry-After: 5` (`30` sob `/auth`) e Warning `DatabaseUnavailable`; passam a `500` `INTERNAL_ERROR`,
+  sem `Retry-After`, com log `Error` do middleware de exceção.
 - Rotas sob `/auth`: todo `503` passa a `Retry-After: 30`; o `57014` passa de `500` a `503`; o `503` legal do
   cadastro e os `503` do Google passam a levar `Retry-After`.
 
