@@ -12,7 +12,9 @@ namespace Duora.IntegrationTests.Safety;
 /// <summary>
 /// Caracterização da gravação da suspensão (#299, ADR-0042) nos pontos em que a transação decide depois de esperar por
 /// um lock: a autorização ao vivo vem antes do replay, e uma gravação concorrente da mesma chave ou da mesma conta só
-/// é reconhecida na inserção. Cada espera é determinística, por <c>pg_blocking_pids</c>, sem sleep nem hora real.
+/// é reconhecida na inserção. Cada espera é determinística, por <c>pg_blocking_pids</c>, sem sleep nem hora real. Fixa
+/// também o avanço da versão de segurança da conta e a validação da entrega antes da recusa por conta já suspensa
+/// na recuperação de selfie, que nenhum outro teste observava.
 /// </summary>
 [Trait("Acceptance", "T-10")]
 public sealed class AccountSuspensionRecordingTests : IAsyncDisposable
@@ -115,6 +117,39 @@ public sealed class AccountSuspensionRecordingTests : IAsyncDisposable
         await AssertOnlyTheRecordedMeasureAsync(participant.UserId);
     }
 
+    /// <summary>Numa conta já suspensa, a recuperação confere a entrega antes de responder que a conta já está suspensa.</summary>
+    [Fact]
+    public async Task ARecoveryForAnAlreadySuspendedAccountValidatesTheDeliveryBeforeAnsweringAlreadySuspended()
+    {
+        var participant = await _scenario.CreateEligibleParticipantAsync();
+        var (admin, browser) = await _scenario.PrivilegedBrowserAsync();
+        using var __ = browser;
+        var session = new ModeratorSession(admin.UserId, await MfaScenario.ReadSessionIdAsync(browser));
+        await AccountSuspensionScenario.SuspendAsync(browser, participant.UserId);
+        var order = SuspensionOrder.ByModerator(
+            admin.UserId, participant.UserId, SuspensionReason.SelfieVerificationFailed, InternalReason);
+        var key = ModerationCommandKey.ForModerator(admin.UserId, AccountSuspensionScenario.NewKey());
+
+        var outcome = await SuspendAsync(session, order, key, failedDeliveryId: Guid.NewGuid());
+
+        Assert.IsType<SuspensionOutcome.RecoveryUnavailable>(outcome);
+        await AssertOnlyTheFirstMeasureAsync(participant.UserId, "Suspended");
+    }
+
+    /// <summary>A versão de segurança da conta (<c>safety.user_guards</c>, docs/data/model.md) sobe uma vez por sanção.</summary>
+    [Fact]
+    public async Task SuspendingAdvancesTheSecurityVersionOfTheAccountByOne()
+    {
+        var participant = await _scenario.CreateEligibleParticipantAsync();
+        var (_, moderator) = await _scenario.PrivilegedBrowserAsync();
+        using var __ = moderator;
+        var before = await SecurityVersionAsync(participant.UserId);
+
+        await AccountSuspensionScenario.SuspendAsync(moderator, participant.UserId);
+
+        Assert.Equal(before + 1, await SecurityVersionAsync(participant.UserId));
+    }
+
     private static SuspensionOrder ModeratorOrder(Guid moderator, Guid subject) =>
         SuspensionOrder.ByModerator(moderator, subject, SuspensionReason.TermsViolation, InternalReason);
 
@@ -125,11 +160,18 @@ public sealed class AccountSuspensionRecordingTests : IAsyncDisposable
     private static byte[] IntentOf(Guid subject) => SHA256.HashData(Encoding.UTF8.GetBytes(
         $"{subject:D}\nSuspension\n{SuspensionReason.TermsViolation}\nHuman\n{InternalReason}"));
 
-    private async Task<SuspensionOutcome> SuspendAsync(ModeratorSession session, SuspensionOrder order, ModerationCommandKey key)
+    private Task<long> SecurityVersionAsync(Guid user) => _scenario.CountAsync(
+        "select coalesce(max(security_version), 0) from safety.user_guards where user_id = $1", user);
+
+    private async Task<SuspensionOutcome> SuspendAsync(
+        ModeratorSession session,
+        SuspensionOrder order,
+        ModerationCommandKey key,
+        Guid? failedDeliveryId = null)
     {
         await using var scope = _factory.Services.CreateAsyncScope();
         return await scope.ServiceProvider.GetRequiredService<AccountSuspensions>()
-            .SuspendAsModeratorAsync(session, order, key, Ct);
+            .SuspendAsModeratorAsync(session, order, key, Ct, failedDeliveryId);
     }
 
     private Task InsertMeasureAsync(Guid id, Guid subject, Guid author, ModerationCommandKey key, byte[] intent) =>
