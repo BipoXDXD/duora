@@ -6,10 +6,13 @@ namespace Duora.Web.Http;
 
 /// <summary>
 /// Banco temporariamente fora do alcance: conexão recusada ou caída, pool esgotado (o <c>Timeout</c> do pool venceu)
-/// ou servidor sem conexões livres (53300) ou desligando (57P01 a 57P03, classe 08). Também a contenção, que passa
-/// sozinha: serialização (40001), deadlock (40P01) e <c>lock_timeout</c> (55P03), crua ou embrulhada pelo Npgsql
-/// (#465). O EF costuma embrulhar a causa numa <see cref="InvalidOperationException"/> ("transient failure"), então
-/// a cadeia inteira é examinada.
+/// ou servidor sem conexões livres (53300) ou desligando (57P01 a 57P03, classe 08). Também quatro estados de
+/// recurso do servidor, crus como embrulhados: 53200 (sem memória), 53400 (limite de configuração), 55006 (objeto em
+/// uso) e 58030 (erro de E/S) (#476). A lista é própria, sem paridade com o <c>IsTransient</c> do Npgsql, que cobre
+/// outros estados também.
+/// E a contenção, que passa sozinha: serialização (40001), deadlock (40P01) e <c>lock_timeout</c> (55P03), crua ou
+/// embrulhada pelo Npgsql (#465). O EF costuma embrulhar a causa numa <see cref="InvalidOperationException"/>
+/// ("transient failure"), então a cadeia inteira é examinada.
 /// </summary>
 internal static class DatabaseUnavailability
 {
@@ -62,8 +65,15 @@ internal static class DatabaseUnavailability
                 or PostgresErrorCodes.LockNotAvailable,
         };
 
+    // Estados de recurso do servidor tratados como indisponibilidade, além de 53300, do desligamento e da classe 08:
+    // 53200 (sem memória), 53400 (limite de configuração), 55006 (objeto em uso) e 58030 (erro de E/S). Não é o
+    // conjunto do IsTransient do Npgsql: outros estados passageiros dele continuam 500 quando crus.
     private static bool IsUnavailableState(string sqlState) =>
         sqlState is PostgresErrorCodes.TooManyConnections
+            or PostgresErrorCodes.OutOfMemory
+            or PostgresErrorCodes.ConfigurationLimitExceeded
+            or PostgresErrorCodes.ObjectInUse
+            or PostgresErrorCodes.IoError
             or PostgresErrorCodes.AdminShutdown
             or PostgresErrorCodes.CrashShutdown
             or PostgresErrorCodes.CannotConnectNow
