@@ -17,7 +17,7 @@ internal static class GoogleOidcEndpoints
     public static void MapGoogleOidcEndpoints(this IEndpointRouteBuilder api)
     {
         var publicRoutes = api.MapGroup("/auth/google").AllowAnonymous().WithTags("Auth")
-            .WithMetadata(new PublicAntiforgeryEndpoint());
+            .WithMetadata(new PublicAntiforgeryEndpoint(), new NeutralUnavailabilityEndpoint());
         publicRoutes.MapGet("/options", (IOptions<GoogleOidcSettings> settings) =>
             new GoogleAuthenticationOptions(settings.Value.Enabled, settings.Value.Enabled && settings.Value.RegistrationEnabled,
                 settings.Value.Enabled && settings.Value.LinkingEnabled));
@@ -82,7 +82,7 @@ internal static class GoogleOidcEndpoints
         var cookie = await service.CreateAsync(request.Purpose, null, null, ct);
         if (cookie is null)
         {
-            return ApiProblems.Problem(503, ApiProblems.TemporarilyUnavailable);
+            return ApiProblems.Unavailable(c, standard: null);
         }
 
         SetCookie(c, cookie);
@@ -185,7 +185,7 @@ internal static class GoogleOidcEndpoints
 
         if (!legal.RegistrationAvailable)
         {
-            return ApiProblems.Problem(503, ApiProblems.TemporarilyUnavailable);
+            return ApiProblems.Unavailable(c, standard: null);
         }
 
         if (!legal.Accepts(terms, privacy, request.AcceptedTermsLocale, request.AcceptedPrivacyLocale, request.AcceptedTermsSha256, request.AcceptedPrivacySha256))
