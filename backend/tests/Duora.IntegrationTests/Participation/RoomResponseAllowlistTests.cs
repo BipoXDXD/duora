@@ -114,6 +114,12 @@ public sealed class RoomResponseAllowlistTests(PostgresFixture postgres)
 
     private static readonly string[] Problem = ["type", "title", "status", "code", "traceId"];
 
+    private static readonly string EnglishSecondCardText = LocalizedText(
+        "en-US", "Shared choices", "Explore choices together.", "Last light?", "Cedar Gamma", "Harbor Delta");
+
+    private static readonly string PortugueseSecondCardText = LocalizedText(
+        "pt-BR", "Escolhas em comum", "Explore escolhas em dupla.", "Última luz?", "Cedro Gama", "Porto Delta");
+
     private static CancellationToken Ct => TestContext.Current.CancellationToken;
 
     [Theory]
@@ -175,6 +181,8 @@ public sealed class RoomResponseAllowlistTests(PostgresFixture postgres)
 
         Assert.Equal(PassedCardJson(FirstPrompt), alice[GameKey]![PassedKey]!.ToJsonString());
         Assert.Equal(PassedCardJson(FirstPromptPt), bob[GameKey]![PassedKey]!.ToJsonString());
+        Assert.Equal(EnglishSecondCardText, LocalizedFields(alice));
+        Assert.Equal(PortugueseSecondCardText, LocalizedFields(bob));
         Assert.Equal(WithoutLocalizedFields(alice), WithoutLocalizedFields(bob));
         foreach (var room in new[] { alice, bob })
         {
@@ -269,8 +277,31 @@ public sealed class RoomResponseAllowlistTests(PostgresFixture postgres)
     private static string PassedCardJson(string prompt) => $$"""[{"cardId":"{{FirstCard}}","prompt":"{{prompt}}"}]""";
 
     /// <summary>
+    /// Os campos que <see cref="WithoutLocalizedFields"/> deixa de fora, conferidos contra o texto publicado: sem isso,
+    /// qualquer diferença entre as duas pessoas escondida neles passaria pela comparação.
+    /// </summary>
+    private static string LocalizedFields(JsonObject room)
+    {
+        var game = room[GameKey]!;
+        var card = game[CurrentCardKey]!;
+        return LocalizedText((string)room["displayLocale"]!, (string)game["title"]!, (string)game["objective"]!,
+            (string)card[PromptKey]!, [.. card["options"]!.AsArray().Select(option => (string)option!["label"]!)]);
+    }
+
+    private static string LocalizedText(string locale, string title, string objective, string prompt, params string[] labels) =>
+        new JsonObject
+        {
+            ["displayLocale"] = locale,
+            ["title"] = title,
+            ["objective"] = objective,
+            [PromptKey] = prompt,
+            ["labels"] = new JsonArray([.. labels.Select(label => JsonValue.Create(label))]),
+        }.ToJsonString();
+
+    /// <summary>
     /// A sala inteira, para comparar por valor as duas pessoas. As únicas exceções são os campos que mudam porque cada
-    /// uma lê no próprio idioma: <c>displayLocale</c>, <c>title</c>, <c>objective</c>, os <c>prompt</c> e os <c>label</c>.
+    /// uma lê no próprio idioma: <c>displayLocale</c>, <c>title</c>, <c>objective</c>, os <c>prompt</c> e os <c>label</c>,
+    /// conferidos à parte por <see cref="LocalizedFields"/>.
     /// </summary>
     private static string WithoutLocalizedFields(JsonObject room)
     {

@@ -6,6 +6,7 @@ import io
 import os
 from pathlib import Path
 import signal
+import subprocess
 import sys
 import tarfile
 import tempfile
@@ -22,6 +23,24 @@ def proc_is_live(state_path: Path) -> bool:
         return state_path.read_text().split()[2] != "Z"
     except (FileNotFoundError, ProcessLookupError):
         return False
+
+
+ZOMBIE_WAIT_SECONDS = 10
+
+
+def wait_until_zombie(pid: int) -> None:
+    """Espera o processo sair sem colhê-lo (o os.waitid com WNOWAIT não existe no Python 3.12 do macOS).
+
+    Processo que já não aparece também saiu: a própria limpeza pode tê-lo colhido entre um sinal e o outro.
+    """
+    deadline = time.monotonic() + ZOMBIE_WAIT_SECONDS
+    while time.monotonic() < deadline:
+        state = subprocess.run(["ps", "-o", "stat=", "-p", str(pid)], capture_output=True, text=True,
+                               check=False).stdout.strip()
+        if not state or state.startswith("Z"):
+            return
+        time.sleep(0.01)
+    raise AssertionError(f"o processo {pid} não virou zumbi em {ZOMBIE_WAIT_SECONDS} s")
 
 
 class ProcessStateTests(unittest.TestCase):
@@ -79,6 +98,40 @@ class BinaryCaptureTests(unittest.TestCase):
         with self.assertRaises(payload.PayloadError):
             payload.capture_binary(self.child("import os;os.write(1,b'x'*20);os.write(2,b'y'*20)"),
                                    max_bytes=32)
+
+    def test_a_leader_that_already_exited_is_not_a_capture_error(self) -> None:
+        # Força a ordem que antes dependia do relógio: o líder do grupo já saiu (zumbi, ainda não colhido) quando a
+        # limpeza sinaliza o grupo. No macOS, killpg num grupo só de zumbis dá EPERM; no Linux, sucesso.
+        real_killpg = os.killpg
+
+        def killpg_after_leader_exit(pgid: int, sig: int) -> None:
+            wait_until_zombie(pgid)
+            real_killpg(pgid, sig)
+
+        with mock.patch.object(payload.os, "killpg", side_effect=killpg_after_leader_exit), \
+                self.assertRaises(payload.PayloadError):
+            payload.capture_binary(self.child("import os;os.write(1,b'x'*20);os.write(2,b'y'*20)"),
+                                   max_bytes=32)
+
+    def test_a_refused_signal_to_a_live_leader_fails_closed(self) -> None:
+        # Se o EPERM escondesse um líder vivo, a limpeza não pode devolver como se tivesse encerrado o grupo.
+        leaders: list[int] = []
+
+        def refuse(pgid: int, _sig: int) -> None:
+            leaders.append(pgid)
+            raise PermissionError(1, "Operation not permitted")
+
+        def kill_leftover() -> None:
+            for pgid in set(leaders):
+                try:
+                    os.killpg(pgid, signal.SIGKILL)
+                except ProcessLookupError:
+                    pass
+
+        self.addCleanup(kill_leftover)
+        with mock.patch.object(payload.os, "killpg", side_effect=refuse), \
+                self.assertRaisesRegex(payload.PayloadError, "could not be reaped"):
+            payload.capture_binary(self.child("import os,time;os.write(1,b'x'*33);time.sleep(60)"), max_bytes=32)
 
     def test_stderr_is_drained_without_waiting_for_stdout(self) -> None:
         started = time.monotonic()
@@ -167,7 +220,9 @@ class BinaryCaptureTests(unittest.TestCase):
                 if parent_file.exists():
                     try:
                         os.killpg(int(parent_file.read_text()), signal.SIGKILL)
-                    except ProcessLookupError:
+                    except (ProcessLookupError, PermissionError):
+                        # Limpeza de garantia: as asserções acima já provaram o grupo morto. No macOS o killpg
+                        # num grupo só de zumbis responde EPERM, a mesma causa tratada em capture_binary.
                         pass
                     try:
                         os.waitpid(int(parent_file.read_text()), os.WNOHANG)
