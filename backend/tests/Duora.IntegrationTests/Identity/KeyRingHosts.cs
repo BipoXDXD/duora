@@ -1,4 +1,5 @@
 using System.Net;
+using Microsoft.Extensions.Logging;
 
 namespace Duora.IntegrationTests.Identity;
 
@@ -11,8 +12,11 @@ internal sealed class KeyRingHosts(PostgresFixture postgres)
     public const string SessionCookie = "__Host-duora";
     public const string MePath = "/api/v1/me";
 
-    public DuoraWebFactory HostOn(DirectoryInfo keyRing, IReadOnlyDictionary<string, string?>? settings = null) =>
-        new(postgres.ConnectionString)
+    public DuoraWebFactory HostOn(
+        DirectoryInfo keyRing,
+        IReadOnlyDictionary<string, string?>? settings = null,
+        ILoggerProvider? logs = null) =>
+        new(postgres.ConnectionString, logs)
         {
             SharedKeyRing = keyRing,
             Settings = settings ?? new Dictionary<string, string?>(),

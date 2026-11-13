@@ -78,9 +78,9 @@ internal sealed partial class ParticipationJobService(ParticipationService parti
         LogUnexpectedFailure(logger, exception.GetType().Name, ExceptionFrames.Describe(exception));
     }
 
-    [LoggerMessage(Level = LogLevel.Warning, Message = "Participation job failed; persisted lease and bounded retries preserve recovery.")]
+    [LoggerMessage(Level = LogLevel.Warning, Message = "Participation job failed; the persisted lease returns it to the queue.")]
     private static partial void LogDatabaseFailure(ILogger logger);
 
-    [LoggerMessage(Level = LogLevel.Error, Message = "Participation job failed unexpectedly ({Cause}); persisted lease and bounded retries preserve recovery. Frames: {Frames}")]
+    [LoggerMessage(Level = LogLevel.Error, Message = "Participation job failed unexpectedly ({Cause}); the persisted lease returns it to the queue. Frames: {Frames}")]
     private static partial void LogUnexpectedFailure(ILogger logger, string cause, string frames);
 }

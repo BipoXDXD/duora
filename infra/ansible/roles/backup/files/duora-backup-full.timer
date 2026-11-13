@@ -4,8 +4,7 @@ Description=Duora: backup full semanal do PostgreSQL
 
 [Timer]
 OnCalendar=Sun *-*-* 03:00:00 UTC
-# Jitter para não coincidir com outros jobs agendados; Persistent roda o que um reboot fez perder.
-RandomizedDelaySec=15min
+# Sem jitter: horário fixo na janela noturna. Persistent roda o que um reboot fez perder.
 Persistent=true
 Unit=duora-backup@full.service
 

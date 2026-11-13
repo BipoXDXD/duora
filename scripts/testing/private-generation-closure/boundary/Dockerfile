@@ -1,5 +1,5 @@
 # Standalone synthetic experiment; no production image or service uses this Dockerfile.
-FROM mcr.microsoft.com/dotnet/sdk@sha256:f34803987e201bd321984712d40a4bed1f797d4756b9b21eb5b6ddd2b178d2ef
+FROM mcr.microsoft.com/dotnet/sdk:10.0.404-noble@sha256:35c2411e519ef047d430b7237234ff56d1f6e1dfde49320c7583d2e970942cf6
 RUN apt-get update && apt-get install -y --no-install-recommends python3 && rm -rf /var/lib/apt/lists/*
 WORKDIR /src
 COPY Directory.Build.props Directory.Packages.props .editorconfig global.json ./

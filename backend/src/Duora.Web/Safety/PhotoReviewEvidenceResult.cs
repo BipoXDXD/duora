@@ -1,6 +1,7 @@
 using System.Security.Cryptography;
 using Duora.Infrastructure.Safety;
 using Duora.Web.Http;
+using Microsoft.AspNetCore.Http.HttpResults;
 using Npgsql;
 
 namespace Duora.Web.Safety;
@@ -34,13 +35,28 @@ internal sealed class PhotoReviewEvidenceResult(ReviewEvidenceDelivery delivery)
             else
             {
                 http.Response.ContentType = null;
-                ApiProblems.SetRetryAfter(http, TimeSpan.FromSeconds(2));
-                await ApiProblems.Problem(503, ApiProblems.TemporarilyUnavailable).ExecuteAsync(http);
+                await Unavailable(http, error).ExecuteAsync(http);
             }
         }
         finally
         {
             CryptographicOperations.ZeroMemory(buffer);
         }
+    }
+
+    // I/O ou cancelamento que falhou antes do primeiro byte. A leitura passa pelo storage e pela checagem do lease no
+    // banco, e sem a exceção do Npgsql a causa não se distingue: o prazo é próprio da entrega. Quando a exceção é do
+    // Npgsql, vale a fonte única.
+    private static readonly TimeSpan StorageRetryAfter = TimeSpan.FromSeconds(2);
+
+    private static ProblemHttpResult Unavailable(HttpContext http, Exception error)
+    {
+        if (error is NpgsqlException database)
+        {
+            return DatabaseUnavailability.Unavailable(http, database);
+        }
+
+        ApiProblems.SetRetryAfter(http, StorageRetryAfter);
+        return ApiProblems.Problem(503, ApiProblems.TemporarilyUnavailable);
     }
 }
