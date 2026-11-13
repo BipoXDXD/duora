@@ -105,7 +105,8 @@ describe('useFailureNotices', () => {
     expect(notices.result.current.shows('action', failed)).toBe(true)
   })
 
-  // A releitura pode não trazer estado, ou o `onError` pode sair antes de gravar: a falha nova não herda a fase da antiga.
+  // A releitura pode não trazer estado, ou o `onError` pode sair antes de gravar:
+  // a falha nova não herda a fase da antiga.
   it('treats a new failure without a reread state as current after an older one of the source dropped', () => {
     const notices = renderNotices('Active')
     act(() => {

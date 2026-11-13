@@ -188,7 +188,9 @@ public sealed class RoomNeutralityTests(PostgresFixture postgres)
         using (var unknown = await scene.Alice.PostJsonAsync($"/api/v1/rooms/{Guid.NewGuid()}/accept", null))
         {
             Assert.Equal(HttpStatusCode.NotFound, late.StatusCode);
-            Assert.Equal(await NeutralResponse.DescribeAsync(unknown, ct), await NeutralResponse.DescribeAsync(late, ct));
+            Assert.Equal(
+                await NeutralResponse.DescribeAsync(unknown, ct),
+                await NeutralResponse.DescribeAsync(late, ct));
         }
 
         await AssertRoomStillVisibleAsync(scene, "Expired", "Unavailable", ct);

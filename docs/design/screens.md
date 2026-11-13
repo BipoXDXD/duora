@@ -232,7 +232,8 @@ em [system.md](system.md); critérios de acessibilidade, em [accessibility.md](a
   e devolve o foco ao botão. Se o encontro começa com a confirmação aberta, ou o servidor recusa com 404 (no limite do
   horário, com o evento fora de `Published` ou com a inscrição em outro estado), ela fecha e o foco vai para o aviso
   neutro "Não é mais possível cancelar a inscrição.", que não afirma o motivo. Depois da
-  retirada, o foco vai para "Você saiu deste encontro." e somem inscrição e check-in. A tela não promete aviso à pessoa promovida da espera (#320). Hoje vive na lista de eventos
+  retirada, o foco vai para "Você saiu deste encontro." e somem inscrição e check-in. A tela
+  não promete aviso à pessoa promovida da espera (#320). Hoje vive na lista de eventos
   (`EventsPage`), não num detalhe do evento.
 
 ```text

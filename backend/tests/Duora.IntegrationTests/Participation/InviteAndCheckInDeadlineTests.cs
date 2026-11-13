@@ -35,7 +35,9 @@ public sealed class InviteAndCheckInDeadlineTests(PostgresFixture postgres)
         using (var unknown = await AcceptAsync(scene.Bob, Guid.NewGuid()))
         {
             Assert.Equal(HttpStatusCode.NotFound, late.StatusCode);
-            Assert.Equal(await NeutralResponse.DescribeAsync(unknown, ct), await NeutralResponse.DescribeAsync(late, ct));
+            Assert.Equal(
+                await NeutralResponse.DescribeAsync(unknown, ct),
+                await NeutralResponse.DescribeAsync(late, ct));
         }
         Assert.Equal(new RoomFacts("Expired", AliceAccepted: true, BobAccepted: false, ActiveReservations: 0, HasGame: false, GameDeadlineJobs: 0),
             await ReadRoomFactsAsync(scene, room, ct));
@@ -50,7 +52,10 @@ public sealed class InviteAndCheckInDeadlineTests(PostgresFixture postgres)
         Assert.Equal(HttpStatusCode.NotFound, repeated.StatusCode);
     }
 
-    /// <summary>Recusar um convite vencido não pedia nada que deixou de existir: o pedido cumpriu o efeito e segue <c>204</c>.</summary>
+    /// <summary>
+    /// Recusar um convite vencido não pedia nada que deixou de existir: o pedido cumpriu o efeito e segue
+    /// <c>204</c>.
+    /// </summary>
     [Fact]
     public async Task RejectFromTheExactInviteDeadlineReleasesBothAndStillAnswers204()
     {
@@ -62,7 +67,10 @@ public sealed class InviteAndCheckInDeadlineTests(PostgresFixture postgres)
         using var late = await scene.Bob.PostJsonAsync($"/api/v1/rooms/{room}/reject", null);
 
         Assert.Equal(HttpStatusCode.NoContent, late.StatusCode);
-        Assert.Equal(new RoomFacts("Expired", AliceAccepted: false, BobAccepted: false, ActiveReservations: 0, HasGame: false, GameDeadlineJobs: 0),
+        Assert.Equal(
+            new RoomFacts(
+                "Expired", AliceAccepted: false, BobAccepted: false, ActiveReservations: 0, HasGame: false,
+                GameDeadlineJobs: 0),
             await ReadRoomFactsAsync(scene, room, ct));
     }
 
@@ -100,7 +108,10 @@ public sealed class InviteAndCheckInDeadlineTests(PostgresFixture postgres)
         var job = await ClaimTheExpireInviteJobAsync(scene, ct);
 
         Assert.True(await scene.Service.CompleteJobAsync(job, ct));
-        Assert.Equal(new RoomFacts("Expired", AliceAccepted: false, BobAccepted: false, ActiveReservations: 0, HasGame: false, GameDeadlineJobs: 0),
+        Assert.Equal(
+            new RoomFacts(
+                "Expired", AliceAccepted: false, BobAccepted: false, ActiveReservations: 0, HasGame: false,
+                GameDeadlineJobs: 0),
             await ReadRoomFactsAsync(scene, room, ct));
     }
 

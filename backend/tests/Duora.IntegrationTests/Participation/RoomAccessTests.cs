@@ -39,7 +39,9 @@ public sealed class RoomAccessTests(PostgresFixture postgres)
         using var unknown = await SendAsync(scene.Third, route, Guid.NewGuid(), version);
 
         Assert.Equal(HttpStatusCode.NotFound, foreign.StatusCode);
-        Assert.Equal(await NeutralResponse.DescribeAsync(unknown, ct), await NeutralResponse.DescribeAsync(foreign, ct));
+        Assert.Equal(
+            await NeutralResponse.DescribeAsync(unknown, ct),
+            await NeutralResponse.DescribeAsync(foreign, ct));
         var body = await foreign.Content.ReadAsStringAsync(ct);
         foreach (var secret in ForeignTexts(scene))
         {
