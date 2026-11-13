@@ -1,3 +1,4 @@
+using System.Diagnostics.Metrics;
 using System.Net.Sockets;
 using System.Text.Json.Nodes;
 using Duora.Web.Http;
@@ -85,11 +86,12 @@ public sealed class DatabaseUnavailableExceptionHandlerTests
     [InlineData(PostgresErrorCodes.SystemError)]
     public async Task APermanentLookingServerErrorIsNotUnavailabilityWhenRaw(string sqlState)
     {
-        using var services = new ServiceCollection().AddLogging().BuildServiceProvider();
+        using var services = new ServiceCollection().AddLogging().AddMetrics().BuildServiceProvider();
         var context = new DefaultHttpContext { RequestServices = services };
         var raw = new PostgresException(_canary, "ERROR", "ERROR", sqlState);
         var handler = new DatabaseUnavailableExceptionHandler(
-            services.GetRequiredService<ILogger<DatabaseUnavailableExceptionHandler>>());
+            services.GetRequiredService<ILogger<DatabaseUnavailableExceptionHandler>>(),
+            new DatabaseUnavailableMetrics(services.GetRequiredService<IMeterFactory>()));
 
         var handled = await handler.TryHandleAsync(context, raw, TestContext.Current.CancellationToken);
 
@@ -106,12 +108,13 @@ public sealed class DatabaseUnavailableExceptionHandlerTests
     public async Task AConnectionClassStateOutsideTheListIsNotUnavailabilityWhenRaw(string sqlState)
     {
         using var logs = new CapturingLoggerProvider();
-        using var services = new ServiceCollection().AddLogging().BuildServiceProvider();
+        using var services = new ServiceCollection().AddLogging().AddMetrics().BuildServiceProvider();
         using var loggerFactory = LoggerFactory.Create(builder => builder.AddProvider(logs));
         var context = new DefaultHttpContext { RequestServices = services };
         var raw = new PostgresException(_canary, "ERROR", "ERROR", sqlState);
         var handler = new DatabaseUnavailableExceptionHandler(
-            loggerFactory.CreateLogger<DatabaseUnavailableExceptionHandler>());
+            loggerFactory.CreateLogger<DatabaseUnavailableExceptionHandler>(),
+            new DatabaseUnavailableMetrics(services.GetRequiredService<IMeterFactory>()));
 
         var handled = await handler.TryHandleAsync(context, raw, TestContext.Current.CancellationToken);
 
@@ -165,14 +168,63 @@ public sealed class DatabaseUnavailableExceptionHandlerTests
         Assert.DoesNotContain(_canary, warning.Text, StringComparison.Ordinal);
     }
 
+    // A métrica do alerta por SqlState (#498): uma medição por 503 de banco fora, com o SqlState como único rótulo.
+    // 57P05 passa sozinho e 53100 (disco cheio) persiste; os dois contam do mesmo jeito.
+    [Theory]
+    [InlineData(PostgresErrorCodes.IdleSessionTimeout)]
+    [InlineData(PostgresErrorCodes.DiskFull)]
+    public async Task AnUnavailableDatabaseIsCountedBySqlStateOnly(string sqlState)
+    {
+        var error = new PostgresException(_canary, "FATAL", "FATAL", sqlState);
+
+        var (_, _, measurements) = await HandleAndCountAsync(error, "/api/v1/auth/login");
+
+        var measurement = Assert.Single(measurements);
+        Assert.Equal(1, measurement.Value);
+        var tag = Assert.Single(measurement.Tags);
+        Assert.Equal(DatabaseUnavailableMetrics.SqlStateTag, tag.Key);
+        Assert.Equal(sqlState, tag.Value);
+    }
+
+    [Fact]
+    public async Task AnUnavailableDatabaseWithoutSqlStateIsCountedWithADash()
+    {
+        var error = new NpgsqlException("Failed to connect", new SocketException((int)SocketError.ConnectionRefused));
+
+        var (_, _, measurements) = await HandleAndCountAsync(error, "/api/v1/auth/login");
+
+        var tag = Assert.Single(Assert.Single(measurements).Tags);
+        Assert.Equal("-", tag.Value);
+    }
+
+    // Contenção passa sozinha e tem Warning próprio (DatabaseContention): fica fora da métrica de banco fora.
+    [Fact]
+    public async Task ContentionIsNotCountedAsAnUnavailableDatabase()
+    {
+        var error = new PostgresException(_canary, "ERROR", "ERROR", PostgresErrorCodes.SerializationFailure);
+
+        var (_, _, measurements) = await HandleAndCountAsync(error, "/api/v1/auth/login");
+
+        Assert.Empty(measurements);
+    }
+
     private static async Task<CapturedLog> HandleAsync(Exception exception, string path) =>
         (await HandleWithResponseAsync(exception, path)).Warning;
 
     private static async Task<(WholeProblemResponse Response, CapturedLog Warning)> HandleWithResponseAsync(
         Exception exception, string path)
     {
+        var (response, warning, _) = await HandleAndCountAsync(exception, path);
+        return (response, warning);
+    }
+
+    private static async Task<(WholeProblemResponse Response, CapturedLog Warning,
+        IReadOnlyList<Measurement> Measurements)> HandleAndCountAsync(Exception exception, string path)
+    {
         using var logs = new CapturingLoggerProvider();
-        using var services = new ServiceCollection().AddLogging().BuildServiceProvider();
+        using var services = new ServiceCollection().AddLogging().AddMetrics().BuildServiceProvider();
+        var meters = services.GetRequiredService<IMeterFactory>();
+        using var counter = new UnavailableCounter(meters);
         using var loggerFactory = LoggerFactory.Create(builder => builder.AddProvider(logs));
         var context = new DefaultHttpContext { RequestServices = services };
         using var body = new MemoryStream();
@@ -181,7 +233,7 @@ public sealed class DatabaseUnavailableExceptionHandlerTests
         context.Features.Set<IExceptionHandlerFeature>(
             new ExceptionHandlerFeature { Error = exception, Path = path, Endpoint = null });
         var handler = new DatabaseUnavailableExceptionHandler(
-            loggerFactory.CreateLogger<DatabaseUnavailableExceptionHandler>());
+            loggerFactory.CreateLogger<DatabaseUnavailableExceptionHandler>(), new DatabaseUnavailableMetrics(meters));
 
         var handled = await handler.TryHandleAsync(context, exception, TestContext.Current.CancellationToken);
 
@@ -189,7 +241,7 @@ public sealed class DatabaseUnavailableExceptionHandlerTests
         Assert.Equal(StatusCodes.Status503ServiceUnavailable, context.Response.StatusCode);
         var warning = Assert.Single(logs.Entries);
         Assert.Equal(LogLevel.Warning, warning.Level);
-        return (WholeResponse(context, body), warning);
+        return (WholeResponse(context, body), warning, counter.Measurements);
     }
 
     /// <summary>
@@ -208,4 +260,47 @@ public sealed class DatabaseUnavailableExceptionHandlerTests
     }
 
     private sealed record WholeProblemResponse(int Status, string Headers, string Body);
+
+    private sealed record Measurement(long Value, KeyValuePair<string, object?>[] Tags);
+
+    /// <summary>Medições do contador de banco fora deste provedor, sem as de testes em paralelo.</summary>
+    private sealed class UnavailableCounter : IDisposable
+    {
+        private readonly MeterListener _listener = new();
+        private readonly List<Measurement> _measurements = [];
+
+        public UnavailableCounter(IMeterFactory meters)
+        {
+            _listener.InstrumentPublished = (instrument, listener) =>
+            {
+                if (ReferenceEquals(instrument.Meter.Scope, meters)
+                    && instrument.Meter.Name == DatabaseUnavailableMetrics.MeterName
+                    && instrument.Name == DatabaseUnavailableMetrics.Unavailable)
+                {
+                    listener.EnableMeasurementEvents(instrument);
+                }
+            };
+            _listener.SetMeasurementEventCallback<long>((_, value, tags, _) =>
+            {
+                lock (_measurements)
+                {
+                    _measurements.Add(new Measurement(value, tags.ToArray()));
+                }
+            });
+            _listener.Start();
+        }
+
+        public IReadOnlyList<Measurement> Measurements
+        {
+            get
+            {
+                lock (_measurements)
+                {
+                    return [.. _measurements];
+                }
+            }
+        }
+
+        public void Dispose() => _listener.Dispose();
+    }
 }

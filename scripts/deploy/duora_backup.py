@@ -126,8 +126,12 @@ MEDIA_TAG = "derivatives"
 MEDIA_HOST = "duora"
 # Retenção decidida em 2026-10-16: 14 dias de snapshots (+ 21 de lock e 30 do lifecycle no bucket).
 MEDIA_KEEP_WITHIN = "14d"
-# Backup diário: um dia perdido já alerta no verify da manhã (o timer tem até 15 min de atraso aleatório).
-MAX_MEDIA_SNAPSHOT_AGE_HOURS = 26
+# Backup às 03:10 e verify às 03:55 UTC, horários fixos sem jitter. O restic data o snapshot no início do backup:
+# num dia normal o verify vê ~45 min, por mais que o backup demore a terminar. Um dia perdido deixa o de ontem com
+# 24 h 45 min, que precisa reprovar. 24 h 30 min reprova o dia perdido com até 15 min de folga no início do backup
+# de ontem e aceita um verify manual (gate do deploy) a qualquer hora até 03:40, meia hora depois do backup do dia.
+# Backup ainda rodando às 03:55 não gravou o snapshot: o verify vê o de ontem e alerta, como num dia perdido.
+MAX_MEDIA_SNAPSHOT_AGE_HOURS = 24.5
 # Marcador do último media-verify bom (epoch), no state dir: o duora-deploy o lê para liberar o upload de fotos.
 MEDIA_VERIFY_OK_FILE = ".media-verify-ok"
 # Um timer do restic esperando o lock de outro (backup x check) em vez de falhar na hora.

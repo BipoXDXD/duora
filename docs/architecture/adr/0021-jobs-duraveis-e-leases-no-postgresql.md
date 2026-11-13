@@ -389,3 +389,35 @@ revisada `compose.prod.yml`, e `ShutdownMarginTests` barra divergência com ela.
 `/opt/duora/compose.coolify.json`, fora desse teste; lido na VPS, `StopTimeout` é 30 em `duora-web-1` e
 `duora-worker-1`. O prazo é teto, não tempo de drenagem: em 21 paradas reais o máximo foi 0,9 s, sem SIGKILL.
 Implementar a drenagem do item 12 é mudança de comportamento e fica para decisão própria.
+
+## Adendo (2026-11-10): job de participação entregue antes do `due_at` volta à fila
+
+Em `ops.jobs` passa a existir a transição `InFlight → Pending` sem falha. Se `CompleteJobAsync` recebe um job com
+`due_at` ainda no futuro, ele não conclui o job. Um só `UPDATE`, com o fencing do claim (`id`, `fencing_token`,
+`status='InFlight'`, lease vigente e `due_at>now`), devolve o job a `Pending` com `available_at=due_at`,
+`attempts=attempts-1` (a tentativa do claim é devolvida) e `lease_expires_at` nulo. Um log `Information` registra o
+id e o tipo. Vale para os quatro tipos de participação: `build-round`, `close-round`, `expire-invite` e
+`game-deadline`.
+
+Antes, o job terminava `Done` sem efeito, porque a conclusão via o prazo ainda aberto, e nada o reagendava. Como o
+claim e a conclusão usam o mesmo relógio, isso só acontece com `available_at` mexido à mão ou com o relógio do
+processo recuando entre o claim e a conclusão. Só o dono do token devolve o job, uma vez: uma conclusão atrasada,
+cercada por um claim novo, não muda a linha (`GameDeadlineTests.AStaleCompletionOfAnEarlyGameDeadlineJobDoesNotRequeueTheNewClaim`).
+
+A decisão de reagendar e o `UPDATE` de devolução usam um único `now`. A conclusão normal usa o mesmo `now`: no
+`UPDATE` para `Done`, no fechamento da rodada, na expiração do convite, em `BuildRoundAsync` e no motor do jogo
+(`HandleDeadline`) do `game-deadline`. Assim, se o relógio do processo recuar para antes do `due_at` depois da decisão,
+o job ainda tem efeito e não vira `Done` vazio. A primeira versão deste adendo registrava essa releitura como lacuna
+conhecida; ela fechou no PR seguinte (#448), com testes que fazem o relógio recuar logo depois da leitura que decide
+(`RewindingClock`): um para cada tipo de job e, no `game-deadline`, um para cada motor de jogo (Constelação e Rotas
+Improváveis), porque cada motor lê o próprio relógio. Esses testes também exigem `completed_at` igual ao instante da
+decisão. Só os carimbos de `released_at` da liberação de reservas ainda releem o relógio, e eles não decidem efeito.
+
+Custo aceito: o `now` único é lido antes da transação e dos seus locks, e a conclusão pode levar até o prazo do item
+(3 s). Os instantes derivados dele, como `invite_expires_at = now + 60 s` em `BuildRoundAsync` e o próprio
+`completed_at`, podem nascer até cerca de 3 s antes do commit, e a janela do convite pode encurtar nessa medida. Reler
+o relógio dentro da transação evitaria isso, mas reabriria a lacuna do `Done` sem efeito.
+
+Consequência: `attempts` não tem `CHECK (attempts >= 0)`. O fencing garante que cada claim é devolvido no máximo uma
+vez, então o valor não fica negativo, mas a garantia está no código, não no esquema. A constraint exige migração e
+fica para mudança própria.
