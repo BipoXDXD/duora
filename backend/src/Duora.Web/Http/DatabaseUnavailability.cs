@@ -129,8 +129,9 @@ internal static class DatabaseUnavailability
 /// outras falhas inesperadas continuam 500. O Warning leva só o que identifica a falha e a requisição: a mensagem do
 /// Npgsql pode trazer host, porta e usuário, então nem ela nem a exceção vão para o log.
 /// </summary>
-internal sealed partial class DatabaseUnavailableExceptionHandler(ILogger<DatabaseUnavailableExceptionHandler> logger)
-    : IExceptionHandler
+internal sealed partial class DatabaseUnavailableExceptionHandler(
+    ILogger<DatabaseUnavailableExceptionHandler> logger,
+    DatabaseUnavailableMetrics metrics) : IExceptionHandler
 {
     private const string NoSqlState = "-";
 
@@ -146,7 +147,7 @@ internal sealed partial class DatabaseUnavailableExceptionHandler(ILogger<Databa
         }
 
         var contention = DatabaseUnavailability.IsContention(cause);
-        Log(contention, cause, httpContext);
+        Report(contention, cause, httpContext);
         await DatabaseUnavailability.Unavailable(httpContext, cause).ExecuteAsync(httpContext);
         return true;
     }
@@ -171,8 +172,11 @@ internal sealed partial class DatabaseUnavailableExceptionHandler(ILogger<Databa
         return null;
     }
 
-    /// <summary>O Warning separa contenção de banco fora pelo mesmo critério do <c>Retry-After</c>.</summary>
-    private void Log(bool contention, NpgsqlException cause, HttpContext httpContext)
+    /// <summary>
+    /// O Warning separa contenção de banco fora pelo mesmo critério do <c>Retry-After</c>; só banco fora entra na
+    /// métrica do alerta por SqlState (#498).
+    /// </summary>
+    private void Report(bool contention, NpgsqlException cause, HttpContext httpContext)
     {
         var sqlState = (cause as PostgresException)?.SqlState ?? NoSqlState;
         var errorType = cause.GetType().Name;
@@ -185,6 +189,7 @@ internal sealed partial class DatabaseUnavailableExceptionHandler(ILogger<Databa
         else
         {
             LogDatabaseUnavailable(logger, sqlState, errorType, route, traceId);
+            metrics.Record(sqlState);
         }
     }
 

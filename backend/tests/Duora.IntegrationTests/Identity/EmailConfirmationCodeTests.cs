@@ -28,6 +28,75 @@ public sealed class EmailConfirmationCodeTests(PostgresFixture postgres)
     }
 
     [Theory]
+    [InlineData(59, 3, 3)]
+    [InlineData(60, 4, 1)]
+    public async Task IssuanceBudgetOfThreeEmailsReopensExactlyOneHourAfterItsFirstEmail(
+        int minutes, long expectedEmails, long expectedBudgetUse)
+    {
+        var time = TestClock.StartingNow();
+        await using var factory = new DuoraWebFactory(postgres.ConnectionString)
+        {
+            Time = time,
+            // Isola o orçamento do banco: a cota de cadastros por conta (3 / hora) fica no relógio do sistema.
+            Settings = new Dictionary<string, string?> { ["RateLimiting:RegisterPerAccount:PermitLimit"] = "1000" },
+        };
+        var scenario = new IdentityScenario(postgres, factory);
+        using var browser = new Browser(factory);
+        var email = IdentityScenario.NewEmail();
+        for (var i = 0; i < 3; i++)
+        {
+            using var within = await IdentityScenario.RegisterAsync(browser, email);
+            Assert.Equal(HttpStatusCode.Accepted, within.StatusCode);
+        }
+
+        time.Advance(TimeSpan.FromMinutes(minutes));
+        using var fourth = await IdentityScenario.RegisterAsync(browser, email);
+
+        Assert.Equal(HttpStatusCode.Accepted, fourth.StatusCode);
+        Assert.Equal(expectedEmails, await scenario.CountOutboxEventsAsync(email));
+        Assert.Equal(expectedBudgetUse, await scenario.ScalarAsync(
+            """
+            select split_part(t.value, '|', 2)::bigint
+            from identity.user_tokens t join identity.users u on u.id = t.user_id
+            where u.normalized_email = upper($1) and t.login_provider = 'Duora.RegistrationBudget'
+            """,
+            email));
+    }
+
+    [Theory]
+    [InlineData("lixo")]
+    [InlineData("638000000000000000|1|extra")]
+    [InlineData("-638000000000000000|1")]
+    [InlineData("638000000000000000|um")]
+    public async Task CorruptedIssuanceBudgetRefusesTheEmailInsteadOfGrantingANewWindow(string corrupted)
+    {
+        await using var factory = new DuoraWebFactory(postgres.ConnectionString);
+        var scenario = new IdentityScenario(postgres, factory);
+        using var browser = new Browser(factory);
+        var email = IdentityScenario.NewEmail();
+        using var first = await IdentityScenario.RegisterAsync(browser, email);
+        Assert.Equal(1, await scenario.ScalarAsync(
+            """
+            update identity.user_tokens set value = $2
+            where login_provider = 'Duora.RegistrationBudget'
+              and user_id = (select id from identity.users where normalized_email = upper($1))
+            returning 1
+            """,
+            email, corrupted));
+
+        using var second = await IdentityScenario.RegisterAsync(browser, email);
+
+        Assert.Equal(HttpStatusCode.Accepted, second.StatusCode);
+        Assert.Equal(1, await scenario.CountOutboxEventsAsync(email));
+        Assert.Equal(corrupted, await scenario.ScalarTextAsync(
+            """
+            select t.value from identity.user_tokens t join identity.users u on u.id = t.user_id
+            where u.normalized_email = upper($1) and t.login_provider = 'Duora.RegistrationBudget'
+            """,
+            email));
+    }
+
+    [Theory]
     [InlineData(14, true)]
     [InlineData(15, false)]
     public async Task CodeExpiresAtFifteenMinutesEvenWhenRegistrationIsStillPending(int minutes, bool accepted)

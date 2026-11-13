@@ -1,6 +1,7 @@
 # Gerenciado pelo Ansible (infra/ansible/roles/backup). pgbackrest verify de TODO o repositório: baixa, decifra e
 # confere cada arquivo (custo de leitura do repositório inteiro no provedor; ADR-0023). Quarta 04:05 UTC: longe do
-# full de domingo e depois do diferencial das 03:00; espera um deploy em curso.
+# full de domingo e depois do diferencial das 03:00; espera um deploy em curso. Leva ~31 min: termina antes do
+# reinício automático das 05:40 (duora_unattended_reboot_time, test_automatic_reboot_* no test_duora_backup.py).
 [Unit]
 Description=Duora: verificação semanal completa do repositório de backup
 

@@ -3,6 +3,7 @@ using Microsoft.Extensions.Options;
 using Microsoft.Extensions.Time.Testing;
 using Npgsql;
 using static Duora.Infrastructure.Participation.ParticipationSql;
+using static Duora.IntegrationTests.TestTime;
 
 namespace Duora.IntegrationTests.Participation;
 
@@ -67,7 +68,7 @@ public sealed class RoundCloseStateTests(PostgresFixture postgres)
         var inProgress = await scene.RoundRowAsync();
         Assert.Equal("Inviting", inProgress.State);
 
-        scene.Clock.SetUtcNow(scene.Deadline.AddTicks(-1));
+        scene.Clock.SetUtcNow(scene.Deadline - OneTick);
         await RunDueJobsAsync(service);
         Assert.Equal(inProgress, await scene.RoundRowAsync());
 

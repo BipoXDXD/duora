@@ -39,7 +39,8 @@ Não se interpreta `Retry-After`; o backoff existente continua valendo. Quotas/r
 ser acompanhados na ativação. Cancelamento do worker deixa o lease recuperável por outra instância.
 
 **`Delivered` significa aceito pelo provedor, não entregue à caixa postal.** Bounces, spam e eventos de
-entrega não são acompanhados por webhook neste PR. Nenhuma mensagem real foi enviada nesta homologação.
+entrega não são acompanhados por webhook (ver "Bounces e supressão"). Nenhuma mensagem real foi enviada nesta
+homologação.
 
 O Resend retém chaves por **24 horas**. Avisos de segurança podem permanecer na outbox por 72 horas;
 um aceite seguido de perda da resposta/queda e retomada depois de 24 horas pode duplicar um aviso.
@@ -47,6 +48,25 @@ Não há garantia exactly-once global. Manter remetente e conteúdo estáveis en
 pendentes: alterar o corpo com a mesma chave pode gerar 409. Não apagar pendências, IDs ou registros para
 forçar reenvio. Referências: [API](https://resend.com/docs/api-reference/emails/send-email),
 [idempotência](https://resend.com/docs/dashboard/emails/idempotency-keys).
+
+## Bounces e supressão
+
+**Decisão de 13/11/2026 (#68), conservadora e reversível:** o app fica só com a supressão automática do Resend e
+não consome evento de bounce. O provedor para sozinho de enviar a endereços que deram bounce permanente ou
+reclamação de spam. A homologação de 29/10/2026 confirmou do lado do provedor a entrega (`delivered@resend.dev`) e a
+sinalização de bounce (`bounced@resend.dev`), sem destinatário real.
+
+- Não há rota para webhook do Resend. A única rota de webhook, `POST /webhooks/{provider}`, é a da verificação
+  etária retirada e responde 410 `AGE_VERIFICATION_RETIRED`
+  ([WebhookEndpoints.cs](../../backend/src/Duora.Web/Webhooks/WebhookEndpoints.cs)).
+- Consequência aceita: o app não fica sabendo do bounce. A entrega continua `Delivered` (aceite do provedor), e a
+  pessoa que digitou o e-mail errado só percebe que o código não chegou. O reenvio de código segue as regras e
+  cotas de sempre; o bounce e a supressão aparecem no painel do Resend, que o operador consulta quando preciso.
+- Por que não o webhook agora: seria rota pública nova, com assinatura, segredo, idempotência e testes próprios
+  (STRIDE), para um volume que ainda não existe. Reverter a decisão é acrescentar essa rota num PR próprio, sem
+  mudar a outbox.
+- **Falta, com o dono:** o teste de cadastro com um endereço Gmail real do próprio dono, que fecha a entrega num
+  provedor diferente. A homologação de 29/10 usou só destinos de teste do Resend.
 
 ## Homologação reproduzível
 

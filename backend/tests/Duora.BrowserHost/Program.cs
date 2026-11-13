@@ -63,9 +63,11 @@ internal static class BrowserHostProgram
                 {
                     return;
                 }
+                // false is a lost lease or a job delivered before its due_at (requeued). Here the claim only hands out due
+                // jobs and the clock only moves forward, so either one is a fixture bug; fail loudly with both causes named.
                 if (!await participation.CompleteJobAsync(job, shutdown.Token))
                 {
-                    throw new InvalidOperationException("Browser fixture lost its job lease.");
+                    throw new InvalidOperationException($"Browser fixture could not complete job {job.Id} ({job.Kind}): its lease was lost or it was requeued before its due time.");
                 }
             }
             throw new InvalidOperationException("Browser fixture exceeded its job processing bound.");
