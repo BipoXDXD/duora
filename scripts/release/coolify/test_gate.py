@@ -149,6 +149,17 @@ class ConsistentJobViewTests(unittest.TestCase):
                 self.assertEqual(1, sum('/jobs?' in path for path in calls))
                 self.assertEqual(0, waits)
 
+    def test_main_commit_with_red_ci_never_becomes_eligible(self):
+        # Issue #548: com ou sem strict no ruleset, a CI de push da main é a última barreira da release.
+        red_job = [{**self.jobs[0], 'conclusion': 'failure'}, *self.jobs[1:]]
+        for conclusion, jobs in [('failure', red_job), ('timed_out', red_job), ('failure', self.jobs)]:
+            with self.subTest(conclusion=conclusion, red_job=jobs is red_job):
+                self.ci_run = {**self.ci_run, 'conclusion': conclusion}
+                output, _, waits, error = self.execute([jobs])
+                self.assertIsInstance(error, ValueError)
+                self.assertFalse(output.exists(), 'Red main CI must never write eligible=true')
+                self.assertEqual(0, waits)
+
     def test_failed_job_after_a_pending_job_still_fails_without_waiting(self):
         jobs = [self.pending[0], {**self.jobs[1], 'conclusion': 'failure'}, *self.jobs[2:]]
         output, _, waits, error = self.execute([jobs, self.jobs])
