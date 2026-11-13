@@ -12,14 +12,15 @@ internal static class StorageOperationBoundary
 
     /// <summary>
     /// A failed operation ends here: the accept loop discards finished tasks, so nothing it raises may escape. The
-    /// client is denied before the log is written, because a broken log must not cost it the reply.
+    /// client is denied before the log is written, because a broken log must not cost it the reply. The budget runs on
+    /// <paramref name="time"/>, as does the 1 s denial budget, so both expiries can be proved without waiting.
     /// </summary>
     internal static async Task RunAsync(Stream stream, TextWriter errors,
-        Func<CancellationToken, Task<(PrivateGenerationReply Reply, byte[] Body)>> operation,
+        Func<CancellationToken, Task<(PrivateGenerationReply Reply, byte[] Body)>> operation, TimeProvider time,
         CancellationToken cancellationToken)
     {
-        using var budget = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
-        budget.CancelAfter(OperationBudget);
+        using var deadline = new CancellationTokenSource(OperationBudget, time);
+        using var budget = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, deadline.Token);
         (PrivateGenerationReply Reply, byte[] Body) outcome;
         try
         {
@@ -27,7 +28,7 @@ internal static class StorageOperationBoundary
         }
         catch (Exception error)
         {
-            var replyError = await SendDenialAsync(stream);
+            var replyError = await SendDenialAsync(stream, time);
             Record(errors, log =>
             {
                 log.WriteLine(Describe(error));
@@ -67,11 +68,11 @@ internal static class StorageOperationBoundary
         or JsonException or OperationCanceledException or UnauthorizedAccessException or ArgumentException
         or SocketException or FormatException or NpgsqlException or InvalidOperationException;
 
-    private static async Task<Exception?> SendDenialAsync(Stream stream)
+    private static async Task<Exception?> SendDenialAsync(Stream stream, TimeProvider time)
     {
         try
         {
-            using var replyBudget = new CancellationTokenSource(ReplyBudget);
+            using var replyBudget = new CancellationTokenSource(ReplyBudget, time);
             await PrivateGenerationWire.WriteAsync(stream, new PrivateGenerationReply("denied"), replyBudget.Token);
             return null;
         }

@@ -637,6 +637,10 @@ def root_cases() -> type[unittest.TestCase]:
 
 
 class CoordinatedTransitionActionsTests(unittest.TestCase):
+    # O filho root depende de prctl(PR_SET_CHILD_SUBREAPER) e de /proc, que só existem no Linux, o sistema do host
+    # de produção e do CI. No Linux o teste continua exigindo root ou sudo sem senha: pular por falta de sudo
+    # esconderia uma regressão no CI.
+    @unittest.skipUnless(sys.platform.startswith("linux"), "o supervisor root usa prctl e /proc, só do Linux")
     def test_root_filesystem_lock_and_process_death_boundaries(self) -> None:
         command = [sys.executable, str(Path(__file__).resolve()), "--root-child"]
         if os.geteuid() != 0: command = ["sudo", "-n", *command]
