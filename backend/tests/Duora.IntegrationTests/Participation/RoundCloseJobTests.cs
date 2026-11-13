@@ -2,6 +2,7 @@ using Duora.Infrastructure.Participation;
 using Microsoft.Extensions.Time.Testing;
 using Npgsql;
 using static Duora.Infrastructure.Participation.ParticipationSql;
+using static Duora.IntegrationTests.TestTime;
 
 namespace Duora.IntegrationTests.Participation;
 
@@ -123,7 +124,7 @@ public sealed class RoundCloseJobTests(PostgresFixture postgres)
         var active = await round.RoomAsync(round.ActiveRoom);
         var inviting = await round.RoundRowAsync();
 
-        round.Clock.SetUtcNow(round.Deadline.AddTicks(-1));
+        round.Clock.SetUtcNow(round.Deadline - OneTick);
         var early = await RunDueJobsAsync(round.Service);
 
         Assert.DoesNotContain(early, job => job.AggregateId == round.Round && job.Kind == "close-round");
@@ -154,7 +155,7 @@ public sealed class RoundCloseJobTests(PostgresFixture postgres)
         var inviting = await round.RoundRowAsync();
         var running = await round.EventRowAsync();
         await round.ExecuteAsync("update ops.jobs set available_at=$2 where kind='close-round' and aggregate_id=$1", round.Round, round.Deadline.AddMinutes(-1));
-        round.Clock.SetUtcNow(round.Deadline.AddTicks(-1));
+        round.Clock.SetUtcNow(round.Deadline - OneTick);
 
         var early = await ClaimCloseJobAsync(round);
 
@@ -173,6 +174,33 @@ public sealed class RoundCloseJobTests(PostgresFixture postgres)
         Assert.Equal(("Closed", inviting.Version + 1), await round.RoundRowAsync());
         Assert.Equal(0L, await round.ActiveReservationsAsync());
         Assert.Equal(("Done", 1), await round.CloseJobRowAsync());
+    }
+
+    /// <summary>
+    /// O relógio do processo recua para antes do prazo logo depois da leitura que decide concluir o job. A conclusão usa o
+    /// instante dessa decisão do começo ao fim: fecha a rodada em vez de virar <c>Done</c> sem efeito.
+    /// </summary>
+    [Fact]
+    public async Task ACloseRoundJobDecidedAtTheDeadlineClosesTheRoundEvenIfTheClockRewindsBeforeItDuringCompletion()
+    {
+        await using var round = await OpenRoundAsync();
+        var invited = await round.RoomAsync(round.InvitedRoom);
+        var active = await round.RoomAsync(round.ActiveRoom);
+        var inviting = await round.RoundRowAsync();
+        var running = await round.EventRowAsync();
+        round.Clock.SetUtcNow(round.Deadline);
+        var job = await ClaimCloseJobAsync(round);
+        var rewinding = new ParticipationService(round.Source, new RewindingClock(round.Clock, round.Deadline - OneTick));
+
+        Assert.True(await rewinding.CompleteJobAsync(job, Ct));
+
+        Assert.Equal(("Expired", invited.Version + 1), await round.RoomAsync(round.InvitedRoom));
+        Assert.Equal(("Expired", active.Version + 1), await round.RoomAsync(round.ActiveRoom));
+        Assert.Equal(0L, await round.ActiveReservationsAsync());
+        Assert.Equal(("Closed", inviting.Version + 1), await round.RoundRowAsync());
+        Assert.Equal(("Completed", running.Version + 1), await round.EventRowAsync());
+        Assert.Equal(("Done", 1), await round.CloseJobRowAsync());
+        Assert.Equal(round.Deadline, await JobRows.CompletedAtAsync(round.Source, "close-round", round.Round, Ct));
     }
 
     [Fact]
@@ -268,6 +296,8 @@ public sealed class RoundCloseJobTests(PostgresFixture postgres)
         private Guid _activeHigh;
 
         public FakeTimeProvider Clock => clock;
+
+        public NpgsqlDataSource Source => source;
 
         public ParticipationService Service => service;
 
