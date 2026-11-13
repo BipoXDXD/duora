@@ -19,7 +19,7 @@ from typing import Iterable
 
 STAMP = re.compile(r"^(\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d\.\d+)\d*([+-]\d\d:\d\d) ")
 UPDATE = re.compile(
-    r"^TestNodeUpdateMessage \{.*?TestNodeUid \{ Value = (?P<uid>[^ ]+) \}"
+    r"^TestNodeUpdateMessage \{.*?TestNodeUid \{ Value = (?P<uid>[^ ]+) \}, DisplayName = (?P<display>.*?), Properties = \["
     r".*?Namespace = (?P<namespace>[^,]+), TypeName = (?P<type>[^,]+), MethodName = (?P<method>[^,]+),"
     r".*\b(?P<state>[A-Za-z]+)TestNodeStateProperty \{",
     re.DOTALL,
@@ -34,6 +34,7 @@ class TestRun:
     uid: str
     class_name: str
     method: str
+    arguments: str
     start: datetime
     end: datetime
     outcome: str | None
@@ -53,48 +54,56 @@ class ClassSummary:
 
 
 def parse_lines(lines: Iterable[str]) -> list[TestRun]:
-    """Uma entrada por teste; teste sem estado final fica aberto até o último carimbo do arquivo.
+    """Uma entrada por execução; execução sem estado final fica aberta até o último carimbo do arquivo.
+
+    As linhas de um [Theory] têm o mesmo TestNodeUid e só se distinguem pelo DisplayName, que traz os argumentos.
+    Por isso a execução é chaveada por (uid, DisplayName), e cada InProgress abre uma entrada nova.
 
     A mensagem de teste pode ocupar várias linhas: a saída do ITestOutputHelper vem dentro dela, antes do estado.
     Por isso a mensagem é juntada até a próxima linha com carimbo.
     """
-    runs: dict[str, TestRun] = {}
+    runs: list[TestRun] = []
+    running: dict[tuple[str, str], TestRun] = {}
     now: datetime | None = None
     message: list[str] = []
     message_time: datetime | None = None
     for line in lines:
         stamp = STAMP.match(line)
         if stamp:
-            _apply(runs, message, message_time)
+            _apply(runs, running, message, message_time)
             message = []
             now = _parse_stamp(stamp)
         elif line.startswith("TestNodeUpdateMessage {"):
-            _apply(runs, message, message_time)
+            _apply(runs, running, message, message_time)
             message, message_time = [line], now
         elif message:
             message.append(line)
-    _apply(runs, message, message_time)
+    _apply(runs, running, message, message_time)
     if now is not None:
-        for run in runs.values():
-            if run.outcome is None:
-                run.end = now
-    return list(runs.values())
+        for run in running.values():
+            run.end = now
+    return runs
 
 
-def _apply(runs: dict[str, TestRun], message: list[str], time: datetime | None) -> None:
+def _apply(runs: list[TestRun], running: dict[tuple[str, str], TestRun], message: list[str],
+           time: datetime | None) -> None:
     if not message or time is None:
         return
     update = UPDATE.match("".join(message))
     if update is None:
         return
     state = update["state"]
-    uid = update["uid"]
+    key = (update["uid"], update["display"])
     if state == IN_PROGRESS:
-        runs.setdefault(uid, TestRun(uid, _class_name(update["namespace"], update["type"]),
-                                     update["method"], time, time, None))
-    elif uid in runs:
-        runs[uid].end = time
-        runs[uid].outcome = state
+        if key not in running:
+            run = TestRun(update["uid"], _class_name(update["namespace"], update["type"]), update["method"],
+                          _arguments(update["display"], update["method"]), time, time, None)
+            runs.append(run)
+            running[key] = run
+    elif key in running:
+        run = running.pop(key)
+        run.end = time
+        run.outcome = state
 
 
 def summarize_classes(runs: list[TestRun]) -> list[ClassSummary]:
@@ -126,7 +135,7 @@ def render_markdown(module: str, runs: list[TestRun], *, top: int) -> str:
     if open_runs:
         lines += ["**Testes em andamento no fim do .diag:**", "", "| Início | Aberto há | Teste |", "|---|---|---|"]
         lines += [f"| +{_minutes((run.start - origin).total_seconds())} | {_minutes(run.seconds)} "
-                  f"| `{run.class_name}.{run.method}` |" for run in open_runs]
+                  f"| `{run.class_name}.{run.method}{run.arguments}` |" for run in open_runs]
     else:
         lines.append("Nenhum teste em andamento no fim do .diag.")
     lines += ["", "| Classe | Parede | Testes | Falhas | Abertos |", "|---|---|---|---|---|"]
@@ -157,6 +166,12 @@ def _class_name(namespace: str, type_name: str) -> str:
     """Sem o nome do assembly: `Duora.IntegrationTests.Identity` + `X` vira `Identity.X`."""
     parts = namespace.split(".", 2)
     return f"{parts[2]}.{type_name}" if len(parts) == 3 else f"{namespace}.{type_name}"
+
+
+def _arguments(display: str, method: str) -> str:
+    """Os argumentos da linha do [Theory], como `(state: Pending)`; vazio num [Fact]."""
+    _, found, rest = display.partition(f".{method}(")
+    return f"({rest}" if found else ""
 
 
 def _minutes(seconds: float) -> str:

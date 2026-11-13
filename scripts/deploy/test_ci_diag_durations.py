@@ -22,10 +22,12 @@ def stamp(time: str) -> str:
     return f"2026-11-12T{time}+00:00 Microsoft.Testing.Platform.Messages.AsynchronousMessageBus TRACE The producer"
 
 
-def update(uid: str, namespace: str, type_name: str, method: str, state: str) -> str:
+def update(uid: str, namespace: str, type_name: str, method: str, state: str, arguments: str = "") -> str:
+    # Linhas de um [Theory] têm o mesmo uid; só o DisplayName, com os argumentos, as distingue.
     return (
         "TestNodeUpdateMessage { DisplayName = TestNode update, Properties = [], ParentTestNodeUid = <null>, "
-        f"TestNode = TestNode {{ Uid = TestNodeUid {{ Value = {uid} }}, DisplayName = {namespace}.{type_name}.{method}, "
+        f"TestNode = TestNode {{ Uid = TestNodeUid {{ Value = {uid} }}, "
+        f"DisplayName = {namespace}.{type_name}.{method}{arguments}, "
         f"Properties = [ TestMethodIdentifierProperty {{ AssemblyFullName = Duora.IntegrationTests, "
         f"Namespace = {namespace}, TypeName = {type_name}, MethodName = {method}, MethodArity = 0 }}, "
         f"{state}TestNodeStateProperty {{ Explanation =  }} ] }} }}"
@@ -91,6 +93,53 @@ class ParseTests(unittest.TestCase):
         self.assertEqual(1, len(runs))
         self.assertEqual("Passed", runs[0].outcome)
         self.assertEqual(3.0, runs[0].seconds)
+
+    def test_theory_rows_sharing_a_uid_are_separate_runs(self):
+        runs = diag.parse_lines([
+            stamp("00:00:00.0000000"),
+            update("t", IDENTITY, "LockTests", "Gives", "InProgress", "(state: Pending)"),
+            stamp("00:00:01.0000000"),
+            update("t", IDENTITY, "LockTests", "Gives", "Failed", "(state: Pending)"),
+            stamp("00:00:02.0000000"),
+            update("t", IDENTITY, "LockTests", "Gives", "InProgress", "(state: Confirmed)"),
+            stamp("00:00:04.0000000"),
+            update("t", IDENTITY, "LockTests", "Gives", "Passed", "(state: Confirmed)"),
+        ])
+
+        [summary] = diag.summarize_classes(runs)
+        self.assertEqual((2, 1, 0), (summary.tests, summary.failed, summary.open))
+        self.assertEqual([("Failed", 1.0), ("Passed", 2.0)], sorted((r.outcome, r.seconds) for r in runs))
+
+    def test_a_stuck_second_theory_row_stays_open(self):
+        runs = diag.parse_lines([
+            stamp("00:00:00.0000000"),
+            update("t", IDENTITY, "LockTests", "Gives", "InProgress", "(state: Pending)"),
+            stamp("00:00:01.0000000"),
+            update("t", IDENTITY, "LockTests", "Gives", "Passed", "(state: Pending)"),
+            stamp("00:00:02.0000000"),
+            update("t", IDENTITY, "LockTests", "Gives", "InProgress", "(state: Confirmed)"),
+            stamp("00:10:02.0000000"),
+            "fim",
+        ])
+
+        [summary] = diag.summarize_classes(runs)
+        self.assertEqual((2, 0, 1), (summary.tests, summary.failed, summary.open))
+        [stuck] = [r for r in runs if r.outcome is None]
+        self.assertEqual(600.0, stuck.seconds)
+        self.assertIn("LockTests.Gives(state: Confirmed)", diag.render_markdown("m", runs, top=5))
+
+    def test_a_diag_cut_in_the_middle_of_a_message_keeps_the_test_open(self):
+        finished = update("a", DATABASE, "PostgresMemoryProfileTests", "Fits", "Passed")
+        runs = diag.parse_lines([
+            stamp("00:00:00.0000000"),
+            update("a", DATABASE, "PostgresMemoryProfileTests", "Fits", "InProgress"),
+            stamp("00:05:00.0000000"),
+            finished[: finished.index("PassedTestNodeStateProperty")],
+        ])
+
+        self.assertEqual(1, len(runs))
+        self.assertIsNone(runs[0].outcome)
+        self.assertEqual(300.0, runs[0].seconds)
 
     def test_an_update_before_any_stamp_is_ignored(self):
         self.assertEqual([], diag.parse_lines([update("a", IDENTITY, "X", "Y", "InProgress")]))
