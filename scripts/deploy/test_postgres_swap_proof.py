@@ -37,10 +37,10 @@ spec.loader.exec_module(drill)
 class FixtureTests(unittest.TestCase):
     def test_target_is_the_qualified_digest_of_each_architecture(self) -> None:
         fixture = json.loads(bench.FIXTURE.read_text())
-        self.assertEqual(fixture["runUrl"], "https://github.com/BipoXDXD/duora/actions/runs/42073873377")
+        self.assertEqual(fixture["runUrl"], "https://github.com/BipoXDXD/duora/actions/runs/43372869832")
         self.assertEqual(fixture["images"], {
-            "amd64": "ghcr.io/bipoxdxd/duora-postgres@sha256:b5103bfd8ac7832915eed8170ffd0bcb94d9bca834cbd659114fa25606f0434e",
-            "arm64": "ghcr.io/bipoxdxd/duora-postgres@sha256:fa94a32e8c70257f67505bad12a9da878a4df7f33cd52ba9e6319a4c91025d4f"})
+            "amd64": "ghcr.io/bipoxdxd/duora-postgres@sha256:cd9e980845df574a23e9d92accc18c88cbcdabd8110537336f848fa9d4554cb6",
+            "arm64": "ghcr.io/bipoxdxd/duora-postgres@sha256:40c9c2e3ab84854d00de9f1c9f90630b3c42fe416bbeef8b8b31400f8ee23a01"})
 
     def test_v1_phase_keeps_the_legacy_digest(self) -> None:
         for architecture, reference in guard.LEGACY_DIGESTS.items():

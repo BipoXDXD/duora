@@ -694,7 +694,7 @@ class SwapRehearsalGuardTests(SwapRehearsalFixture):
                 self.refused(target=target)
 
     def test_digests_are_the_reviewed_ones(self) -> None:
-        self.assertEqual(TARGET, "ghcr.io/bipoxdxd/duora-postgres@sha256:b5103bfd8ac7832915eed8170ffd0bcb94d9bca834cbd659114fa25606f0434e")
+        self.assertEqual(TARGET, "ghcr.io/bipoxdxd/duora-postgres@sha256:cd9e980845df574a23e9d92accc18c88cbcdabd8110537336f848fa9d4554cb6")
         self.assertEqual(SOURCE, "ghcr.io/bipoxdxd/duora-postgres@sha256:d32f8c4408e804bf8b57583c6fdfb8935380e6326bcc7ccb7397b1f386ada06c")
 
     def test_shadow_on_another_digest_is_refused(self) -> None:

@@ -482,8 +482,8 @@ def down(layout: Layout, run: Runner = default_runner) -> None:
 # pull a partir da VPS. Não usa o executor: ele fixa o projeto `duora`, e aqui nada pode alcançar a produção.
 
 SWAP_SOURCE_IMAGE = "ghcr.io/bipoxdxd/duora-postgres@sha256:d32f8c4408e804bf8b57583c6fdfb8935380e6326bcc7ccb7397b1f386ada06c"
-# Digest amd64 da imagem construída na run 42073873377 do GitHub Actions.
-SWAP_TARGET_IMAGE = "ghcr.io/bipoxdxd/duora-postgres@sha256:b5103bfd8ac7832915eed8170ffd0bcb94d9bca834cbd659114fa25606f0434e"
+# Digest amd64 da imagem construída na run 43372869832 do GitHub Actions.
+SWAP_TARGET_IMAGE = "ghcr.io/bipoxdxd/duora-postgres@sha256:cd9e980845df574a23e9d92accc18c88cbcdabd8110537336f848fa9d4554cb6"
 # A produção tinha 117 MB em 06/11: o recomendado é 256 MiB, e o teto dá uma folga grande sem pressionar a VPS.
 SWAP_MAX_FILL_MIB = 2048
 SWAP_FILL_BATCH_MIB = 64

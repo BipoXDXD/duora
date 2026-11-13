@@ -173,7 +173,7 @@ cd /opt/duora-c2/src
 sudo systemd-run --unit=duora-c2-swap --collect --service-type=exec --working-directory="$PWD" \
   --property=KillMode=mixed --property=TimeoutStopSec=900 \
   python3 scripts/deploy/c2_shadow.py swap-rehearsal \
-  --target ghcr.io/bipoxdxd/duora-postgres@sha256:b5103bfd8ac7832915eed8170ffd0bcb94d9bca834cbd659114fa25606f0434e \
+  --target ghcr.io/bipoxdxd/duora-postgres@sha256:cd9e980845df574a23e9d92accc18c88cbcdabd8110537336f848fa9d4554cb6 \
   --fill-mib 256
 sudo journalctl --unit=duora-c2-swap --follow
 sudo systemctl stop duora-c2-swap                       # interrompe e volta sozinho à origem
@@ -189,7 +189,7 @@ sudo python3 scripts/deploy/c2_shadow.py down           # ao fim da janela, depo
 
 O `systemd-run` desliga o ensaio e o abort da sessão SSH: uma queda do túnel não interrompe a troca nem a volta, e por isso o
 abort também vai por ele. Sem ele, um terminal morto só perde o log, e o resultado segue nos JSON de `state/`. O digest alvo é o amd64 da
-imagem construída na run 42073873377 do GitHub Actions. O `TimeoutStopSec` dá 15 min para a volta depois de um `stop`.
+imagem construída na run 43372869832 do GitHub Actions. O `TimeoutStopSec` dá 15 min para a volta depois de um `stop`.
 
 Em ordem: pull do alvo, dados sintéticos em `c2.swap_ballast`, espera do arquivamento, parada de worker e web, foto e
 `pgbackrest check`. Depois recria com o alvo, confere digest, foto, volume e `check`, repete de volta para o digest de origem
