@@ -37,6 +37,7 @@ export function EventsPage(): React.JSX.Element {
     </Page>
   )
 }
+
 /** O aviso de rodada cancelada ocupa o lugar do "aguardando" na mesma região `status`: anuncia sem tirar o foco. */
 function statusMessage(
   state: string | undefined,
