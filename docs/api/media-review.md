@@ -214,6 +214,12 @@ Atrás do mesmo gate do upload: sem `Media:Review`, as duas rotas respondem 503 
 Production admite HumanReview desde 28/10/2026, mas o inventário mantém `duora_media_review` vazio, então nada muda lá até a #69. Com o upload ligado, a Web exige `Media:Deletion`
 (escopo e material da chave de operação V1) no boot.
 
+Falha do storage (#504): erro transitório do adaptador S3 (5xx, `SlowDown`, 429, `RequestTimeout`, conexão recusada
+ou caída, timeout do SDK) sobe como `StorageUnavailableException`, um `IOException`, e a rota responde 503
+`TEMPORARILY_UNAVAILABLE` com Retry-After, como na falha de I/O local. Credencial, política ou bucket errados
+(`AccessDenied`, `InvalidAccessKeyId`, `SignatureDoesNotMatch`, `NoSuchBucket`) são defeito de configuração: 500
+INTERNAL_ERROR, sem Retry-After. Evidência: `S3ObjectStoreTransientFailureTests` e `MediaStorageUnavailableTests`.
+
 **API-M03.** API-M02 passa a devolver o ETag forte `"photo-<id>-<versão>"`, o mesmo da linha do tempo de revisão.
 DELETE sem corpo, com If-Match exato (428 ausente, 412 qualquer outra forma ou versão vencida) e Idempotency-Key
 (400 inválida). A chave de operação e a intenção vêm de `PhotoDeletionIntentBinding`: o recibo é procurado pela

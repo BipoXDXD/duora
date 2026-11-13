@@ -12,7 +12,11 @@ const eventSchema = z.object({
   checkInOpensAt: z.string(),
   state: z.string(),
 }) satisfies z.ZodType<components['schemas']['EventResponse']>
-const participationSchema = z.object({ state: z.string(), roomId: z.string().nullable() })
+const participationSchema = z.object({
+  state: z.string(),
+  roomId: z.string().nullable(),
+  roundCancelled: z.boolean().default(false),
+}) satisfies z.ZodType<components['schemas']['ParticipationResponse']>
 const cardSchema = z.object({
   cardId: z.string(),
   position: z.number(),
@@ -178,6 +182,14 @@ export async function register(operation: OperationHandle, id: string): Promise<
     method: 'PUT',
     path: `/api/v1/events/${encodeURIComponent(id)}/registration`,
     headers: { 'Idempotency-Key': crypto.randomUUID() },
+  })
+}
+/** API-E04: sem corpo; o servidor retira só a inscrição de quem chama e repetir não repete efeito. */
+export async function withdraw(operation: OperationHandle, id: string): Promise<void> {
+  return sendMutation({
+    operation,
+    method: 'DELETE',
+    path: `/api/v1/events/${encodeURIComponent(id)}/registration`,
   })
 }
 export async function checkIn(operation: OperationHandle, id: string): Promise<void> {

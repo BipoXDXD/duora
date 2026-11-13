@@ -27,6 +27,17 @@ export interface paths {
                     };
                     content?: never;
                 };
+                /** @description Service Unavailable */
+                503: {
+                    headers: {
+                        /** @description Seconds to wait before trying again. Sent with TEMPORARILY_UNAVAILABLE; other 503 problems of a route may omit it. */
+                        "Retry-After"?: number;
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/problem+json": components["schemas"]["ProblemDetails"];
+                    };
+                };
             };
         };
         put?: never;
@@ -96,6 +107,8 @@ export interface paths {
                 /** @description Service Unavailable */
                 503: {
                     headers: {
+                        /** @description Seconds to wait before trying again. Sent with TEMPORARILY_UNAVAILABLE; other 503 problems of a route may omit it. */
+                        "Retry-After"?: number;
                         [name: string]: unknown;
                     };
                     content: {
@@ -169,6 +182,8 @@ export interface paths {
                 /** @description Service Unavailable */
                 503: {
                     headers: {
+                        /** @description Seconds to wait before trying again. Sent with TEMPORARILY_UNAVAILABLE; other 503 problems of a route may omit it. */
+                        "Retry-After"?: number;
                         [name: string]: unknown;
                     };
                     content: {
@@ -192,7 +207,7 @@ export interface paths {
         };
         get?: never;
         put?: never;
-        /** @description Reenvia o código de confirmação. Responde 202 sem corpo, igual para conta pendente, conta confirmada, e-mail inexistente e conta ocupada (fila, lock ou prazo; até o #470 era 503). 429 com Retry-After depois do limite do cadastro; 503 só com o banco indisponível. */
+        /** @description Reenvia o código de confirmação. Responde 202 sem corpo, igual para conta pendente, conta confirmada, e-mail inexistente e conta ocupada (fila, lock ou prazo). 429 com Retry-After depois do limite do cadastro; 503 com o banco indisponível, com contenção no banco ou com o timeout de comando (statement_timeout). */
         post: {
             parameters: {
                 query?: never;
@@ -243,6 +258,8 @@ export interface paths {
                 /** @description Service Unavailable */
                 503: {
                     headers: {
+                        /** @description Seconds to wait before trying again. Sent with TEMPORARILY_UNAVAILABLE; other 503 problems of a route may omit it. */
+                        "Retry-After"?: number;
                         [name: string]: unknown;
                     };
                     content: {
@@ -325,6 +342,8 @@ export interface paths {
                 /** @description Service Unavailable */
                 503: {
                     headers: {
+                        /** @description Seconds to wait before trying again. Sent with TEMPORARILY_UNAVAILABLE; other 503 problems of a route may omit it. */
+                        "Retry-After"?: number;
                         [name: string]: unknown;
                     };
                     content: {
@@ -367,6 +386,17 @@ export interface paths {
                 /** @description Forbidden */
                 403: {
                     headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/problem+json": components["schemas"]["ProblemDetails"];
+                    };
+                };
+                /** @description Service Unavailable */
+                503: {
+                    headers: {
+                        /** @description Seconds to wait before trying again. Sent with TEMPORARILY_UNAVAILABLE; other 503 problems of a route may omit it. */
+                        "Retry-After"?: number;
                         [name: string]: unknown;
                     };
                     content: {
@@ -437,6 +467,17 @@ export interface paths {
                         "application/problem+json": components["schemas"]["ProblemDetails"];
                     };
                 };
+                /** @description Service Unavailable */
+                503: {
+                    headers: {
+                        /** @description Seconds to wait before trying again. Sent with TEMPORARILY_UNAVAILABLE; other 503 problems of a route may omit it. */
+                        "Retry-After"?: number;
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/problem+json": components["schemas"]["ProblemDetails"];
+                    };
+                };
             };
         };
         delete?: never;
@@ -501,6 +542,17 @@ export interface paths {
                         "application/problem+json": components["schemas"]["ProblemDetails"];
                     };
                 };
+                /** @description Service Unavailable */
+                503: {
+                    headers: {
+                        /** @description Seconds to wait before trying again. Sent with TEMPORARILY_UNAVAILABLE; other 503 problems of a route may omit it. */
+                        "Retry-After"?: number;
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/problem+json": components["schemas"]["ProblemDetails"];
+                    };
+                };
             };
         };
         delete?: never;
@@ -532,6 +584,17 @@ export interface paths {
                     };
                     content: {
                         "application/json": components["schemas"]["GoogleAuthenticationOptions"];
+                    };
+                };
+                /** @description Service Unavailable */
+                503: {
+                    headers: {
+                        /** @description Seconds to wait before trying again. Sent with TEMPORARILY_UNAVAILABLE; other 503 problems of a route may omit it. */
+                        "Retry-After"?: number;
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/problem+json": components["schemas"]["ProblemDetails"];
                     };
                 };
             };
@@ -567,6 +630,17 @@ export interface paths {
                     };
                     content: {
                         "application/json": components["schemas"]["GoogleFlowResponse"];
+                    };
+                };
+                /** @description Service Unavailable */
+                503: {
+                    headers: {
+                        /** @description Seconds to wait before trying again. Sent with TEMPORARILY_UNAVAILABLE; other 503 problems of a route may omit it. */
+                        "Retry-After"?: number;
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/problem+json": components["schemas"]["ProblemDetails"];
                     };
                 };
             };
@@ -649,6 +723,8 @@ export interface paths {
                 /** @description Service Unavailable */
                 503: {
                     headers: {
+                        /** @description Seconds to wait before trying again. Sent with TEMPORARILY_UNAVAILABLE; other 503 problems of a route may omit it. */
+                        "Retry-After"?: number;
                         [name: string]: unknown;
                     };
                     content: {
@@ -698,6 +774,17 @@ export interface paths {
                 /** @description Not Found */
                 404: {
                     headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/problem+json": components["schemas"]["ProblemDetails"];
+                    };
+                };
+                /** @description Service Unavailable */
+                503: {
+                    headers: {
+                        /** @description Seconds to wait before trying again. Sent with TEMPORARILY_UNAVAILABLE; other 503 problems of a route may omit it. */
+                        "Retry-After"?: number;
                         [name: string]: unknown;
                     };
                     content: {
@@ -791,6 +878,8 @@ export interface paths {
                 /** @description Service Unavailable */
                 503: {
                     headers: {
+                        /** @description Seconds to wait before trying again. Sent with TEMPORARILY_UNAVAILABLE; other 503 problems of a route may omit it. */
+                        "Retry-After"?: number;
                         [name: string]: unknown;
                     };
                     content: {
@@ -882,6 +971,8 @@ export interface paths {
                 /** @description Service Unavailable */
                 503: {
                     headers: {
+                        /** @description Seconds to wait before trying again. Sent with TEMPORARILY_UNAVAILABLE; other 503 problems of a route may omit it. */
+                        "Retry-After"?: number;
                         [name: string]: unknown;
                     };
                     content: {
@@ -964,6 +1055,8 @@ export interface paths {
                 /** @description Service Unavailable */
                 503: {
                     headers: {
+                        /** @description Seconds to wait before trying again. Sent with TEMPORARILY_UNAVAILABLE; other 503 problems of a route may omit it. */
+                        "Retry-After"?: number;
                         [name: string]: unknown;
                     };
                     content: {
@@ -1024,6 +1117,8 @@ export interface paths {
                 /** @description Service Unavailable */
                 503: {
                     headers: {
+                        /** @description Seconds to wait before trying again. Sent with TEMPORARILY_UNAVAILABLE; other 503 problems of a route may omit it. */
+                        "Retry-After"?: number;
                         [name: string]: unknown;
                     };
                     content: {
@@ -1110,6 +1205,8 @@ export interface paths {
                 /** @description Service Unavailable */
                 503: {
                     headers: {
+                        /** @description Seconds to wait before trying again. Sent with TEMPORARILY_UNAVAILABLE; other 503 problems of a route may omit it. */
+                        "Retry-After"?: number;
                         [name: string]: unknown;
                     };
                     content: {
@@ -1192,6 +1289,8 @@ export interface paths {
                 /** @description Service Unavailable */
                 503: {
                     headers: {
+                        /** @description Seconds to wait before trying again. Sent with TEMPORARILY_UNAVAILABLE; other 503 problems of a route may omit it. */
+                        "Retry-After"?: number;
                         [name: string]: unknown;
                     };
                     content: {
@@ -1262,6 +1361,8 @@ export interface paths {
                 /** @description Service Unavailable */
                 503: {
                     headers: {
+                        /** @description Seconds to wait before trying again. Sent with TEMPORARILY_UNAVAILABLE; other 503 problems of a route may omit it. */
+                        "Retry-After"?: number;
                         [name: string]: unknown;
                     };
                     content: {
@@ -1298,6 +1399,17 @@ export interface paths {
                     };
                     content: {
                         "application/json": components["schemas"]["LegalDocumentCatalogResponse"];
+                    };
+                };
+                /** @description Service Unavailable */
+                503: {
+                    headers: {
+                        /** @description Seconds to wait before trying again. Sent with TEMPORARILY_UNAVAILABLE; other 503 problems of a route may omit it. */
+                        "Retry-After"?: number;
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/problem+json": components["schemas"]["ProblemDetails"];
                     };
                 };
             };
@@ -1347,6 +1459,17 @@ export interface paths {
                 /** @description Forbidden */
                 403: {
                     headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/problem+json": components["schemas"]["ProblemDetails"];
+                    };
+                };
+                /** @description Service Unavailable */
+                503: {
+                    headers: {
+                        /** @description Seconds to wait before trying again. Sent with TEMPORARILY_UNAVAILABLE; other 503 problems of a route may omit it. */
+                        "Retry-After"?: number;
                         [name: string]: unknown;
                     };
                     content: {
@@ -1427,6 +1550,17 @@ export interface paths {
                         "application/problem+json": components["schemas"]["ProblemDetails"];
                     };
                 };
+                /** @description Service Unavailable */
+                503: {
+                    headers: {
+                        /** @description Seconds to wait before trying again. Sent with TEMPORARILY_UNAVAILABLE; other 503 problems of a route may omit it. */
+                        "Retry-After"?: number;
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/problem+json": components["schemas"]["ProblemDetails"];
+                    };
+                };
             };
         };
         options?: never;
@@ -1480,6 +1614,8 @@ export interface paths {
                 /** @description Service Unavailable */
                 503: {
                     headers: {
+                        /** @description Seconds to wait before trying again. Sent with TEMPORARILY_UNAVAILABLE; other 503 problems of a route may omit it. */
+                        "Retry-After"?: number;
                         [name: string]: unknown;
                     };
                     content: {
@@ -1555,6 +1691,8 @@ export interface paths {
                 /** @description Service Unavailable */
                 503: {
                     headers: {
+                        /** @description Seconds to wait before trying again. Sent with TEMPORARILY_UNAVAILABLE; other 503 problems of a route may omit it. */
+                        "Retry-After"?: number;
                         [name: string]: unknown;
                     };
                     content: {
@@ -1609,6 +1747,17 @@ export interface paths {
                 /** @description Forbidden */
                 403: {
                     headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/problem+json": components["schemas"]["ProblemDetails"];
+                    };
+                };
+                /** @description Service Unavailable */
+                503: {
+                    headers: {
+                        /** @description Seconds to wait before trying again. Sent with TEMPORARILY_UNAVAILABLE; other 503 problems of a route may omit it. */
+                        "Retry-After"?: number;
                         [name: string]: unknown;
                     };
                     content: {
@@ -1698,6 +1847,8 @@ export interface paths {
                 /** @description Service Unavailable */
                 503: {
                     headers: {
+                        /** @description Seconds to wait before trying again. Sent with TEMPORARILY_UNAVAILABLE; other 503 problems of a route may omit it. */
+                        "Retry-After"?: number;
                         [name: string]: unknown;
                     };
                     content: {
@@ -1747,6 +1898,17 @@ export interface paths {
                 /** @description Forbidden */
                 403: {
                     headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/problem+json": components["schemas"]["ProblemDetails"];
+                    };
+                };
+                /** @description Service Unavailable */
+                503: {
+                    headers: {
+                        /** @description Seconds to wait before trying again. Sent with TEMPORARILY_UNAVAILABLE; other 503 problems of a route may omit it. */
+                        "Retry-After"?: number;
                         [name: string]: unknown;
                     };
                     content: {
@@ -1826,6 +1988,17 @@ export interface paths {
                         "application/problem+json": components["schemas"]["ProblemDetails"];
                     };
                 };
+                /** @description Service Unavailable */
+                503: {
+                    headers: {
+                        /** @description Seconds to wait before trying again. Sent with TEMPORARILY_UNAVAILABLE; other 503 problems of a route may omit it. */
+                        "Retry-After"?: number;
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/problem+json": components["schemas"]["ProblemDetails"];
+                    };
+                };
             };
         };
         post?: never;
@@ -1874,6 +2047,17 @@ export interface paths {
                 /** @description Forbidden */
                 403: {
                     headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/problem+json": components["schemas"]["ProblemDetails"];
+                    };
+                };
+                /** @description Service Unavailable */
+                503: {
+                    headers: {
+                        /** @description Seconds to wait before trying again. Sent with TEMPORARILY_UNAVAILABLE; other 503 problems of a route may omit it. */
+                        "Retry-After"?: number;
                         [name: string]: unknown;
                     };
                     content: {
@@ -1953,6 +2137,17 @@ export interface paths {
                         "application/problem+json": components["schemas"]["ProblemDetails"];
                     };
                 };
+                /** @description Service Unavailable */
+                503: {
+                    headers: {
+                        /** @description Seconds to wait before trying again. Sent with TEMPORARILY_UNAVAILABLE; other 503 problems of a route may omit it. */
+                        "Retry-After"?: number;
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/problem+json": components["schemas"]["ProblemDetails"];
+                    };
+                };
             };
         };
         post?: never;
@@ -2001,6 +2196,17 @@ export interface paths {
                 /** @description Forbidden */
                 403: {
                     headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/problem+json": components["schemas"]["ProblemDetails"];
+                    };
+                };
+                /** @description Service Unavailable */
+                503: {
+                    headers: {
+                        /** @description Seconds to wait before trying again. Sent with TEMPORARILY_UNAVAILABLE; other 503 problems of a route may omit it. */
+                        "Retry-After"?: number;
                         [name: string]: unknown;
                     };
                     content: {
@@ -2080,6 +2286,17 @@ export interface paths {
                         "application/problem+json": components["schemas"]["ProblemDetails"];
                     };
                 };
+                /** @description Service Unavailable */
+                503: {
+                    headers: {
+                        /** @description Seconds to wait before trying again. Sent with TEMPORARILY_UNAVAILABLE; other 503 problems of a route may omit it. */
+                        "Retry-After"?: number;
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/problem+json": components["schemas"]["ProblemDetails"];
+                    };
+                };
             };
         };
         post?: never;
@@ -2126,6 +2343,17 @@ export interface paths {
                 /** @description Forbidden */
                 403: {
                     headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/problem+json": components["schemas"]["ProblemDetails"];
+                    };
+                };
+                /** @description Service Unavailable */
+                503: {
+                    headers: {
+                        /** @description Seconds to wait before trying again. Sent with TEMPORARILY_UNAVAILABLE; other 503 problems of a route may omit it. */
+                        "Retry-After"?: number;
                         [name: string]: unknown;
                     };
                     content: {
@@ -2199,6 +2427,17 @@ export interface paths {
                 /** @description Too Many Requests */
                 429: {
                     headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/problem+json": components["schemas"]["ProblemDetails"];
+                    };
+                };
+                /** @description Service Unavailable */
+                503: {
+                    headers: {
+                        /** @description Seconds to wait before trying again. Sent with TEMPORARILY_UNAVAILABLE; other 503 problems of a route may omit it. */
+                        "Retry-After"?: number;
                         [name: string]: unknown;
                     };
                     content: {
@@ -2283,6 +2522,8 @@ export interface paths {
                 /** @description Service Unavailable */
                 503: {
                     headers: {
+                        /** @description Seconds to wait before trying again. Sent with TEMPORARILY_UNAVAILABLE; other 503 problems of a route may omit it. */
+                        "Retry-After"?: number;
                         [name: string]: unknown;
                     };
                     content: {
@@ -2346,6 +2587,8 @@ export interface paths {
                 /** @description Service Unavailable */
                 503: {
                     headers: {
+                        /** @description Seconds to wait before trying again. Sent with TEMPORARILY_UNAVAILABLE; other 503 problems of a route may omit it. */
+                        "Retry-After"?: number;
                         [name: string]: unknown;
                     };
                     content: {
@@ -2432,6 +2675,8 @@ export interface paths {
                 /** @description Service Unavailable */
                 503: {
                     headers: {
+                        /** @description Seconds to wait before trying again. Sent with TEMPORARILY_UNAVAILABLE; other 503 problems of a route may omit it. */
+                        "Retry-After"?: number;
                         [name: string]: unknown;
                     };
                     content: {
@@ -2480,6 +2725,17 @@ export interface paths {
                 /** @description Forbidden */
                 403: {
                     headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/problem+json": components["schemas"]["ProblemDetails"];
+                    };
+                };
+                /** @description Service Unavailable */
+                503: {
+                    headers: {
+                        /** @description Seconds to wait before trying again. Sent with TEMPORARILY_UNAVAILABLE; other 503 problems of a route may omit it. */
+                        "Retry-After"?: number;
                         [name: string]: unknown;
                     };
                     content: {
@@ -2559,6 +2815,8 @@ export interface paths {
                 /** @description Service Unavailable */
                 503: {
                     headers: {
+                        /** @description Seconds to wait before trying again. Sent with TEMPORARILY_UNAVAILABLE; other 503 problems of a route may omit it. */
+                        "Retry-After"?: number;
                         [name: string]: unknown;
                     };
                     content: {
@@ -2642,6 +2900,8 @@ export interface paths {
                 /** @description Service Unavailable */
                 503: {
                     headers: {
+                        /** @description Seconds to wait before trying again. Sent with TEMPORARILY_UNAVAILABLE; other 503 problems of a route may omit it. */
+                        "Retry-After"?: number;
                         [name: string]: unknown;
                     };
                     content: {
@@ -2724,6 +2984,8 @@ export interface paths {
                 /** @description Service Unavailable */
                 503: {
                     headers: {
+                        /** @description Seconds to wait before trying again. Sent with TEMPORARILY_UNAVAILABLE; other 503 problems of a route may omit it. */
+                        "Retry-After"?: number;
                         [name: string]: unknown;
                     };
                     content: {
@@ -2777,6 +3039,17 @@ export interface paths {
                 /** @description Forbidden */
                 403: {
                     headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/problem+json": components["schemas"]["ProblemDetails"];
+                    };
+                };
+                /** @description Service Unavailable */
+                503: {
+                    headers: {
+                        /** @description Seconds to wait before trying again. Sent with TEMPORARILY_UNAVAILABLE; other 503 problems of a route may omit it. */
+                        "Retry-After"?: number;
                         [name: string]: unknown;
                     };
                     content: {
@@ -2859,6 +3132,8 @@ export interface paths {
                 /** @description Service Unavailable */
                 503: {
                     headers: {
+                        /** @description Seconds to wait before trying again. Sent with TEMPORARILY_UNAVAILABLE; other 503 problems of a route may omit it. */
+                        "Retry-After"?: number;
                         [name: string]: unknown;
                     };
                     content: {
@@ -2911,6 +3186,17 @@ export interface paths {
                 /** @description Forbidden */
                 403: {
                     headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/problem+json": components["schemas"]["ProblemDetails"];
+                    };
+                };
+                /** @description Service Unavailable */
+                503: {
+                    headers: {
+                        /** @description Seconds to wait before trying again. Sent with TEMPORARILY_UNAVAILABLE; other 503 problems of a route may omit it. */
+                        "Retry-After"?: number;
                         [name: string]: unknown;
                     };
                     content: {
@@ -2970,6 +3256,17 @@ export interface paths {
                         "application/problem+json": components["schemas"]["ProblemDetails"];
                     };
                 };
+                /** @description Service Unavailable */
+                503: {
+                    headers: {
+                        /** @description Seconds to wait before trying again. Sent with TEMPORARILY_UNAVAILABLE; other 503 problems of a route may omit it. */
+                        "Retry-After"?: number;
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/problem+json": components["schemas"]["ProblemDetails"];
+                    };
+                };
             };
         };
         put?: never;
@@ -2999,6 +3296,13 @@ export interface paths {
             };
             requestBody?: never;
             responses: {
+                /** @description No Content */
+                204: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
                 /** @description Unauthorized */
                 401: {
                     headers: {
@@ -3017,10 +3321,87 @@ export interface paths {
                         "application/problem+json": components["schemas"]["ProblemDetails"];
                     };
                 };
+                /** @description Not Found */
+                404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/problem+json": components["schemas"]["ProblemDetails"];
+                    };
+                };
+                /** @description Service Unavailable */
+                503: {
+                    headers: {
+                        /** @description Seconds to wait before trying again. Sent with TEMPORARILY_UNAVAILABLE; other 503 problems of a route may omit it. */
+                        "Retry-After"?: number;
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/problem+json": components["schemas"]["ProblemDetails"];
+                    };
+                };
             };
         };
         post?: never;
-        delete?: never;
+        delete: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    eventId: string;
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description No Content */
+                204: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+                /** @description Unauthorized */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/problem+json": components["schemas"]["ProblemDetails"];
+                    };
+                };
+                /** @description Forbidden */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/problem+json": components["schemas"]["ProblemDetails"];
+                    };
+                };
+                /** @description Not Found */
+                404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/problem+json": components["schemas"]["ProblemDetails"];
+                    };
+                };
+                /** @description Service Unavailable */
+                503: {
+                    headers: {
+                        /** @description Seconds to wait before trying again. Sent with TEMPORARILY_UNAVAILABLE; other 503 problems of a route may omit it. */
+                        "Retry-After"?: number;
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/problem+json": components["schemas"]["ProblemDetails"];
+                    };
+                };
+            };
+        };
         options?: never;
         head?: never;
         patch?: never;
@@ -3046,6 +3427,13 @@ export interface paths {
             };
             requestBody?: never;
             responses: {
+                /** @description No Content */
+                204: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
                 /** @description Unauthorized */
                 401: {
                     headers: {
@@ -3058,6 +3446,26 @@ export interface paths {
                 /** @description Forbidden */
                 403: {
                     headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/problem+json": components["schemas"]["ProblemDetails"];
+                    };
+                };
+                /** @description Not Found */
+                404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/problem+json": components["schemas"]["ProblemDetails"];
+                    };
+                };
+                /** @description Service Unavailable */
+                503: {
+                    headers: {
+                        /** @description Seconds to wait before trying again. Sent with TEMPORARILY_UNAVAILABLE; other 503 problems of a route may omit it. */
+                        "Retry-After"?: number;
                         [name: string]: unknown;
                     };
                     content: {
@@ -3111,6 +3519,17 @@ export interface paths {
                 /** @description Forbidden */
                 403: {
                     headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/problem+json": components["schemas"]["ProblemDetails"];
+                    };
+                };
+                /** @description Service Unavailable */
+                503: {
+                    headers: {
+                        /** @description Seconds to wait before trying again. Sent with TEMPORARILY_UNAVAILABLE; other 503 problems of a route may omit it. */
+                        "Retry-After"?: number;
                         [name: string]: unknown;
                     };
                     content: {
@@ -3181,6 +3600,17 @@ export interface paths {
                         "application/problem+json": components["schemas"]["ProblemDetails"];
                     };
                 };
+                /** @description Service Unavailable */
+                503: {
+                    headers: {
+                        /** @description Seconds to wait before trying again. Sent with TEMPORARILY_UNAVAILABLE; other 503 problems of a route may omit it. */
+                        "Retry-After"?: number;
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/problem+json": components["schemas"]["ProblemDetails"];
+                    };
+                };
             };
         };
         put?: never;
@@ -3211,6 +3641,13 @@ export interface paths {
             };
             requestBody?: never;
             responses: {
+                /** @description No Content */
+                204: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
                 /** @description Unauthorized */
                 401: {
                     headers: {
@@ -3223,6 +3660,26 @@ export interface paths {
                 /** @description Forbidden */
                 403: {
                     headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/problem+json": components["schemas"]["ProblemDetails"];
+                    };
+                };
+                /** @description Not Found */
+                404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/problem+json": components["schemas"]["ProblemDetails"];
+                    };
+                };
+                /** @description Service Unavailable */
+                503: {
+                    headers: {
+                        /** @description Seconds to wait before trying again. Sent with TEMPORARILY_UNAVAILABLE; other 503 problems of a route may omit it. */
+                        "Retry-After"?: number;
                         [name: string]: unknown;
                     };
                     content: {
@@ -3257,6 +3714,13 @@ export interface paths {
             };
             requestBody?: never;
             responses: {
+                /** @description No Content */
+                204: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
                 /** @description Unauthorized */
                 401: {
                     headers: {
@@ -3269,6 +3733,26 @@ export interface paths {
                 /** @description Forbidden */
                 403: {
                     headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/problem+json": components["schemas"]["ProblemDetails"];
+                    };
+                };
+                /** @description Not Found */
+                404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/problem+json": components["schemas"]["ProblemDetails"];
+                    };
+                };
+                /** @description Service Unavailable */
+                503: {
+                    headers: {
+                        /** @description Seconds to wait before trying again. Sent with TEMPORARILY_UNAVAILABLE; other 503 problems of a route may omit it. */
+                        "Retry-After"?: number;
                         [name: string]: unknown;
                     };
                     content: {
@@ -3307,6 +3791,22 @@ export interface paths {
                 };
             };
             responses: {
+                /** @description No Content */
+                204: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+                /** @description Bad Request */
+                400: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/problem+json": components["schemas"]["ProblemDetails"];
+                    };
+                };
                 /** @description Unauthorized */
                 401: {
                     headers: {
@@ -3319,6 +3819,35 @@ export interface paths {
                 /** @description Forbidden */
                 403: {
                     headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/problem+json": components["schemas"]["ProblemDetails"];
+                    };
+                };
+                /** @description Not Found */
+                404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/problem+json": components["schemas"]["ProblemDetails"];
+                    };
+                };
+                /** @description Conflict */
+                409: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/problem+json": components["schemas"]["ProblemDetails"];
+                    };
+                };
+                /** @description Service Unavailable */
+                503: {
+                    headers: {
+                        /** @description Seconds to wait before trying again. Sent with TEMPORARILY_UNAVAILABLE; other 503 problems of a route may omit it. */
+                        "Retry-After"?: number;
                         [name: string]: unknown;
                     };
                     content: {
@@ -3357,6 +3886,22 @@ export interface paths {
                 };
             };
             responses: {
+                /** @description No Content */
+                204: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+                /** @description Bad Request */
+                400: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/problem+json": components["schemas"]["ProblemDetails"];
+                    };
+                };
                 /** @description Unauthorized */
                 401: {
                     headers: {
@@ -3369,6 +3914,35 @@ export interface paths {
                 /** @description Forbidden */
                 403: {
                     headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/problem+json": components["schemas"]["ProblemDetails"];
+                    };
+                };
+                /** @description Not Found */
+                404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/problem+json": components["schemas"]["ProblemDetails"];
+                    };
+                };
+                /** @description Conflict */
+                409: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/problem+json": components["schemas"]["ProblemDetails"];
+                    };
+                };
+                /** @description Service Unavailable */
+                503: {
+                    headers: {
+                        /** @description Seconds to wait before trying again. Sent with TEMPORARILY_UNAVAILABLE; other 503 problems of a route may omit it. */
+                        "Retry-After"?: number;
                         [name: string]: unknown;
                     };
                     content: {
@@ -3403,6 +3977,13 @@ export interface paths {
             };
             requestBody?: never;
             responses: {
+                /** @description No Content */
+                204: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
                 /** @description Unauthorized */
                 401: {
                     headers: {
@@ -3415,6 +3996,26 @@ export interface paths {
                 /** @description Forbidden */
                 403: {
                     headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/problem+json": components["schemas"]["ProblemDetails"];
+                    };
+                };
+                /** @description Not Found */
+                404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/problem+json": components["schemas"]["ProblemDetails"];
+                    };
+                };
+                /** @description Service Unavailable */
+                503: {
+                    headers: {
+                        /** @description Seconds to wait before trying again. Sent with TEMPORARILY_UNAVAILABLE; other 503 problems of a route may omit it. */
+                        "Retry-After"?: number;
                         [name: string]: unknown;
                     };
                     content: {
@@ -3495,6 +4096,8 @@ export interface paths {
                 /** @description Service Unavailable */
                 503: {
                     headers: {
+                        /** @description Seconds to wait before trying again. Sent with TEMPORARILY_UNAVAILABLE; other 503 problems of a route may omit it. */
+                        "Retry-After"?: number;
                         [name: string]: unknown;
                     };
                     content: {
@@ -3588,6 +4191,8 @@ export interface paths {
                 /** @description Service Unavailable */
                 503: {
                     headers: {
+                        /** @description Seconds to wait before trying again. Sent with TEMPORARILY_UNAVAILABLE; other 503 problems of a route may omit it. */
+                        "Retry-After"?: number;
                         [name: string]: unknown;
                     };
                     content: {
@@ -3668,6 +4273,8 @@ export interface paths {
                 /** @description Service Unavailable */
                 503: {
                     headers: {
+                        /** @description Seconds to wait before trying again. Sent with TEMPORARILY_UNAVAILABLE; other 503 problems of a route may omit it. */
+                        "Retry-After"?: number;
                         [name: string]: unknown;
                     };
                     content: {
@@ -3738,6 +4345,8 @@ export interface paths {
                 /** @description Service Unavailable */
                 503: {
                     headers: {
+                        /** @description Seconds to wait before trying again. Sent with TEMPORARILY_UNAVAILABLE; other 503 problems of a route may omit it. */
+                        "Retry-After"?: number;
                         [name: string]: unknown;
                     };
                     content: {
@@ -3815,6 +4424,8 @@ export interface paths {
                 /** @description Service Unavailable */
                 503: {
                     headers: {
+                        /** @description Seconds to wait before trying again. Sent with TEMPORARILY_UNAVAILABLE; other 503 problems of a route may omit it. */
+                        "Retry-After"?: number;
                         [name: string]: unknown;
                     };
                     content: {
@@ -3898,6 +4509,8 @@ export interface paths {
                 /** @description Service Unavailable */
                 503: {
                     headers: {
+                        /** @description Seconds to wait before trying again. Sent with TEMPORARILY_UNAVAILABLE; other 503 problems of a route may omit it. */
+                        "Retry-After"?: number;
                         [name: string]: unknown;
                     };
                     content: {
@@ -3980,6 +4593,8 @@ export interface paths {
                 /** @description Service Unavailable */
                 503: {
                     headers: {
+                        /** @description Seconds to wait before trying again. Sent with TEMPORARILY_UNAVAILABLE; other 503 problems of a route may omit it. */
+                        "Retry-After"?: number;
                         [name: string]: unknown;
                     };
                     content: {
@@ -4100,6 +4715,8 @@ export interface paths {
                 /** @description Service Unavailable */
                 503: {
                     headers: {
+                        /** @description Seconds to wait before trying again. Sent with TEMPORARILY_UNAVAILABLE; other 503 problems of a route may omit it. */
+                        "Retry-After"?: number;
                         [name: string]: unknown;
                     };
                     content: {
@@ -4179,6 +4796,8 @@ export interface paths {
                 /** @description Service Unavailable */
                 503: {
                     headers: {
+                        /** @description Seconds to wait before trying again. Sent with TEMPORARILY_UNAVAILABLE; other 503 problems of a route may omit it. */
+                        "Retry-After"?: number;
                         [name: string]: unknown;
                     };
                     content: {
@@ -4299,6 +4918,8 @@ export interface paths {
                 /** @description Service Unavailable */
                 503: {
                     headers: {
+                        /** @description Seconds to wait before trying again. Sent with TEMPORARILY_UNAVAILABLE; other 503 problems of a route may omit it. */
+                        "Retry-After"?: number;
                         [name: string]: unknown;
                     };
                     content: {
@@ -4379,6 +5000,8 @@ export interface paths {
                 /** @description Service Unavailable */
                 503: {
                     headers: {
+                        /** @description Seconds to wait before trying again. Sent with TEMPORARILY_UNAVAILABLE; other 503 problems of a route may omit it. */
+                        "Retry-After"?: number;
                         [name: string]: unknown;
                     };
                     content: {
@@ -4479,6 +5102,8 @@ export interface paths {
                 /** @description Service Unavailable */
                 503: {
                     headers: {
+                        /** @description Seconds to wait before trying again. Sent with TEMPORARILY_UNAVAILABLE; other 503 problems of a route may omit it. */
+                        "Retry-After"?: number;
                         [name: string]: unknown;
                     };
                     content: {
@@ -4587,6 +5212,8 @@ export interface paths {
                 /** @description Service Unavailable */
                 503: {
                     headers: {
+                        /** @description Seconds to wait before trying again. Sent with TEMPORARILY_UNAVAILABLE; other 503 problems of a route may omit it. */
+                        "Retry-After"?: number;
                         [name: string]: unknown;
                     };
                     content: {
@@ -4686,6 +5313,8 @@ export interface paths {
                 /** @description Service Unavailable */
                 503: {
                     headers: {
+                        /** @description Seconds to wait before trying again. Sent with TEMPORARILY_UNAVAILABLE; other 503 problems of a route may omit it. */
+                        "Retry-After"?: number;
                         [name: string]: unknown;
                     };
                     content: {
@@ -4767,6 +5396,8 @@ export interface paths {
                 /** @description Service Unavailable */
                 503: {
                     headers: {
+                        /** @description Seconds to wait before trying again. Sent with TEMPORARILY_UNAVAILABLE; other 503 problems of a route may omit it. */
+                        "Retry-After"?: number;
                         [name: string]: unknown;
                     };
                     content: {
@@ -4874,6 +5505,8 @@ export interface paths {
                 /** @description Service Unavailable */
                 503: {
                     headers: {
+                        /** @description Seconds to wait before trying again. Sent with TEMPORARILY_UNAVAILABLE; other 503 problems of a route may omit it. */
+                        "Retry-After"?: number;
                         [name: string]: unknown;
                     };
                     content: {
@@ -4945,6 +5578,8 @@ export interface paths {
                 /** @description Service Unavailable */
                 503: {
                     headers: {
+                        /** @description Seconds to wait before trying again. Sent with TEMPORARILY_UNAVAILABLE; other 503 problems of a route may omit it. */
+                        "Retry-After"?: number;
                         [name: string]: unknown;
                     };
                     content: {
@@ -5042,6 +5677,8 @@ export interface paths {
                 /** @description Service Unavailable */
                 503: {
                     headers: {
+                        /** @description Seconds to wait before trying again. Sent with TEMPORARILY_UNAVAILABLE; other 503 problems of a route may omit it. */
+                        "Retry-After"?: number;
                         [name: string]: unknown;
                     };
                     content: {
@@ -5145,6 +5782,8 @@ export interface paths {
                 /** @description Service Unavailable */
                 503: {
                     headers: {
+                        /** @description Seconds to wait before trying again. Sent with TEMPORARILY_UNAVAILABLE; other 503 problems of a route may omit it. */
+                        "Retry-After"?: number;
                         [name: string]: unknown;
                     };
                     content: {
@@ -5227,6 +5866,8 @@ export interface paths {
                 /** @description Service Unavailable */
                 503: {
                     headers: {
+                        /** @description Seconds to wait before trying again. Sent with TEMPORARILY_UNAVAILABLE; other 503 problems of a route may omit it. */
+                        "Retry-After"?: number;
                         [name: string]: unknown;
                     };
                     content: {
@@ -5345,6 +5986,8 @@ export interface paths {
                 /** @description Service Unavailable */
                 503: {
                     headers: {
+                        /** @description Seconds to wait before trying again. Sent with TEMPORARILY_UNAVAILABLE; other 503 problems of a route may omit it. */
+                        "Retry-After"?: number;
                         [name: string]: unknown;
                     };
                     content: {
@@ -5410,6 +6053,17 @@ export interface paths {
                 /** @description Not Found */
                 404: {
                     headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/problem+json": components["schemas"]["ProblemDetails"];
+                    };
+                };
+                /** @description Service Unavailable */
+                503: {
+                    headers: {
+                        /** @description Seconds to wait before trying again. Sent with TEMPORARILY_UNAVAILABLE; other 503 problems of a route may omit it. */
+                        "Retry-After"?: number;
                         [name: string]: unknown;
                     };
                     content: {
@@ -5528,6 +6182,8 @@ export interface paths {
                 /** @description Service Unavailable */
                 503: {
                     headers: {
+                        /** @description Seconds to wait before trying again. Sent with TEMPORARILY_UNAVAILABLE; other 503 problems of a route may omit it. */
+                        "Retry-After"?: number;
                         [name: string]: unknown;
                     };
                     content: {
@@ -5607,6 +6263,8 @@ export interface paths {
                 /** @description Service Unavailable */
                 503: {
                     headers: {
+                        /** @description Seconds to wait before trying again. Sent with TEMPORARILY_UNAVAILABLE; other 503 problems of a route may omit it. */
+                        "Retry-After"?: number;
                         [name: string]: unknown;
                     };
                     content: {
@@ -5691,6 +6349,8 @@ export interface paths {
                 /** @description Service Unavailable */
                 503: {
                     headers: {
+                        /** @description Seconds to wait before trying again. Sent with TEMPORARILY_UNAVAILABLE; other 503 problems of a route may omit it. */
+                        "Retry-After"?: number;
                         [name: string]: unknown;
                     };
                     content: {
@@ -5752,6 +6412,17 @@ export interface paths {
                         "application/problem+json": components["schemas"]["ProblemDetails"];
                     };
                 };
+                /** @description Service Unavailable */
+                503: {
+                    headers: {
+                        /** @description Seconds to wait before trying again. Sent with TEMPORARILY_UNAVAILABLE; other 503 problems of a route may omit it. */
+                        "Retry-After"?: number;
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/problem+json": components["schemas"]["ProblemDetails"];
+                    };
+                };
             };
         };
         delete?: never;
@@ -5797,6 +6468,17 @@ export interface paths {
                 /** @description Gone */
                 410: {
                     headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/problem+json": components["schemas"]["ProblemDetails"];
+                    };
+                };
+                /** @description Service Unavailable */
+                503: {
+                    headers: {
+                        /** @description Seconds to wait before trying again. Sent with TEMPORARILY_UNAVAILABLE; other 503 problems of a route may omit it. */
+                        "Retry-After"?: number;
                         [name: string]: unknown;
                     };
                     content: {
@@ -5874,6 +6556,8 @@ export interface paths {
                 /** @description Service Unavailable */
                 503: {
                     headers: {
+                        /** @description Seconds to wait before trying again. Sent with TEMPORARILY_UNAVAILABLE; other 503 problems of a route may omit it. */
+                        "Retry-After"?: number;
                         [name: string]: unknown;
                     };
                     content: {
@@ -5925,6 +6609,17 @@ export interface paths {
                 /** @description Forbidden */
                 403: {
                     headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/problem+json": components["schemas"]["ProblemDetails"];
+                    };
+                };
+                /** @description Service Unavailable */
+                503: {
+                    headers: {
+                        /** @description Seconds to wait before trying again. Sent with TEMPORARILY_UNAVAILABLE; other 503 problems of a route may omit it. */
+                        "Retry-After"?: number;
                         [name: string]: unknown;
                     };
                     content: {
@@ -6011,6 +6706,8 @@ export interface paths {
                 /** @description Service Unavailable */
                 503: {
                     headers: {
+                        /** @description Seconds to wait before trying again. Sent with TEMPORARILY_UNAVAILABLE; other 503 problems of a route may omit it. */
+                        "Retry-After"?: number;
                         [name: string]: unknown;
                     };
                     content: {
@@ -6082,6 +6779,17 @@ export interface paths {
                         [name: string]: unknown;
                     };
                     content?: never;
+                };
+                /** @description Service Unavailable */
+                503: {
+                    headers: {
+                        /** @description Seconds to wait before trying again. Sent with TEMPORARILY_UNAVAILABLE; other 503 problems of a route may omit it. */
+                        "Retry-After"?: number;
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/problem+json": components["schemas"]["ProblemDetails"];
+                    };
                 };
             };
         };
@@ -6415,6 +7123,7 @@ export interface components {
             state: string;
             /** Format: uuid */
             roomId: null | string;
+            roundCancelled: boolean;
         };
         PassedResponse: {
             cardId: string;

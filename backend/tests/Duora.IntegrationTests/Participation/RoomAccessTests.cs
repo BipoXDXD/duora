@@ -80,7 +80,7 @@ public sealed partial class RoomAccessTests(PostgresFixture postgres)
             Assert.Equal(HttpStatusCode.OK, status.StatusCode);
             var body = await status.Content.ReadAsStringAsync(ct);
             using var json = JsonDocument.Parse(body);
-            Assert.Equal(["roomId", "state"], json.RootElement.EnumerateObject().Select(p => p.Name).Order(StringComparer.Ordinal));
+            Assert.Equal(["roomId", "roundCancelled", "state"], json.RootElement.EnumerateObject().Select(p => p.Name).Order(StringComparer.Ordinal));
             Assert.Equal("Waiting", json.RootElement.GetProperty("state").GetString());
             Assert.Equal(JsonValueKind.Null, json.RootElement.GetProperty("roomId").ValueKind);
             Assert.DoesNotContain(scene.Room.ToString(), body, StringComparison.Ordinal);

@@ -50,6 +50,17 @@ REQUIRED = {
     },
 }
 LEGACY_SKIPS = {"Deploy na VPS", "Jornadas na VPS (pós-deploy)"}
+# Duora's backend suite runs in shards since #510 and "backend" aggregates them. A run qualifies with its
+# exact gate set from before or after the split, so earlier main commits stay releasable. Never a subset.
+BACKEND_SHARDS = {
+    "duora": {
+        "backend (identity-a-l)",
+        "backend (identity-m-z)",
+        "backend (media)",
+        "backend (participation-profiles)",
+        "backend (resto)",
+    },
+}
 
 
 class PendingJobView(ValueError):
@@ -70,7 +81,8 @@ def validate(run: Any, jobs: Any, project: Any, commit: Any) -> Any:
     ):
         raise ValueError("Only successful CI main push from this repository qualifies")
     names = [job.get("name") for job in jobs]
-    allowed = REQUIRED[project] | (LEGACY_SKIPS if project == "goblinshift" else set())
+    required = required_gates(project, set(names))
+    allowed = required | (LEGACY_SKIPS if project == "goblinshift" else set())
     if len(names) != len(set(names)) or set(names) != allowed:
         raise ValueError("Missing, extra or duplicated CI gate")
     pending = False
@@ -80,13 +92,19 @@ def validate(run: Any, jobs: Any, project: Any, commit: Any) -> Any:
                 raise ValueError("Invalid pending CI gate")
             pending = True
             continue
-        if job["name"] in REQUIRED[project] and job.get("conclusion") != "success":
+        if job["name"] in required and job.get("conclusion") != "success":
             raise ValueError("Required gate did not succeed")
-        if job["name"] not in REQUIRED[project] and job.get("conclusion") != "skipped":
+        if job["name"] not in required and job.get("conclusion") != "skipped":
             raise ValueError("Legacy deploy must remain disabled")
     if pending:
         raise PendingJobView("CI gate still running")
     return commit
+
+
+def required_gates(project: Any, names: Any) -> Any:
+    """Exact gate set this run must satisfy: the sharded set only when the run has exactly it."""
+    sharded = REQUIRED[project] | BACKEND_SHARDS.get(project, set())
+    return sharded if names == sharded else REQUIRED[project]
 
 
 def api(path: Any) -> Any:

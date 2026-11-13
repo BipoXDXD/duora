@@ -8,6 +8,7 @@ using Duora.IntegrationTests.Identity;
 using Microsoft.Extensions.Time.Testing;
 using Npgsql;
 using static Duora.Infrastructure.Participation.ParticipationSql;
+using static Duora.IntegrationTests.TestTime;
 
 namespace Duora.IntegrationTests.Participation;
 
@@ -553,6 +554,46 @@ public sealed class RoutesParticipationTests(PostgresFixture postgres)
             await NeutralResponse.DescribeAsync(unknown, ct),
             await NeutralResponse.DescribeAsync(malformed, ct));
         Assert.Equal(active, await RoomFactsAsync(connection, room, ct));
+    }
+
+    /// <summary>
+    /// O relógio do processo recua para antes do prazo logo depois da leitura que decide concluir o <c>game-deadline</c>.
+    /// O motor de Rotas Improváveis decide no instante dessa decisão: expira a sala em vez de responder "ainda não venceu"
+    /// e deixar o job <c>Done</c> sem efeito.
+    /// </summary>
+    [Fact]
+    public async Task ARoutesGameDeadlineJobDecidedAtTheDeadlineExpiresTheRoomEvenIfTheClockRewindsBeforeItDuringCompletion()
+    {
+        var (source, clock, service, seed, room, _) = await Active();
+        await using var owned = source;
+        var ct = TestContext.Current.CancellationToken;
+        DateTimeOffset deadline;
+        await using (var c = await source.OpenConnectionAsync(ct))
+        {
+            await using (var query = Command(c, "select due_at from ops.jobs where kind='game-deadline' and aggregate_id=$1", room))
+            {
+                deadline = new DateTimeOffset((DateTime)(await query.ExecuteScalarAsync(ct))!);
+            }
+            clock.SetUtcNow(deadline);
+            await Execute(c, "update ops.jobs set available_at=$2+interval '10 years' where status='Pending' and not (kind='game-deadline' and aggregate_id=$1)",
+                ct, room, clock.GetUtcNow());
+        }
+
+        var job = await service.ClaimJobAsync(ct);
+        Assert.NotNull(job);
+        Assert.Equal(("game-deadline", room), (job.Kind, job.AggregateId));
+        var rewinding = new ParticipationService(source, new RewindingClock(clock, deadline - OneTick));
+
+        Assert.True(await rewinding.CompleteJobAsync(job, ct));
+
+        Assert.Equal(0L, await Reservations(source, seed, ct));
+        await using var connection = await source.OpenConnectionAsync(ct);
+        await using var state = Command(connection, """
+            select s.state||'|'||j.status||'|'||j.attempts from experiences.game_sessions s join ops.jobs j on j.aggregate_id=s.id and j.kind='game-deadline'
+            where s.id=$1
+            """, room);
+        Assert.Equal("Expired|Done|1", await state.ExecuteScalarAsync(ct));
+        Assert.Equal(deadline, await JobRows.CompletedAtAsync(source, "game-deadline", room, ct));
     }
 
     [Theory]
