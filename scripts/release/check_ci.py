@@ -9,6 +9,13 @@ REQUIRED_JOBS = {
     "backend", "frontend", "e2e", "images (amd64)", "images (arm64)",
     "ops", "secret-scan", "contract", "supply-chain",
 }
+# The backend suite runs in shards since #510; "backend" aggregates them. A run qualifies with its exact
+# job set from before or after the split, so earlier main commits stay releasable. Never a subset.
+BACKEND_SHARDS = {
+    "backend (identity-a-l)", "backend (identity-m-z)", "backend (media)",
+    "backend (participation-profiles)", "backend (resto)",
+}
+ACCEPTED_JOB_SETS = (frozenset(REQUIRED_JOBS), frozenset(REQUIRED_JOBS | BACKEND_SHARDS))
 
 
 def validate(run, jobs, commit, repository):
@@ -19,8 +26,9 @@ def validate(run, jobs, commit, repository):
             or run.get("head_repository", {}).get("full_name") != repository
             or run.get("status") != "completed" or run.get("conclusion") != "success"):
         raise ValueError("CI must be a successful main push for this exact repository and commit")
-    if {job.get("name") for job in jobs} != REQUIRED_JOBS or len(jobs) != len(REQUIRED_JOBS):
-        raise ValueError("CI must contain exactly the nine required jobs")
+    names = [job.get("name") for job in jobs]
+    if len(names) != len(set(names)) or frozenset(names) not in ACCEPTED_JOB_SETS:
+        raise ValueError("CI must contain exactly one accepted set of required jobs")
     if any(job.get("status") != "completed" or job.get("conclusion") != "success" for job in jobs):
         raise ValueError("Every required job must succeed; skipped jobs do not qualify")
 
@@ -64,7 +72,7 @@ def main():
     validate(current, jobs, commit, repository)
     with open(os.environ["GITHUB_OUTPUT"], "a", encoding="utf-8") as output:
         output.write(f"commit={commit}\nci_run={run['id']}\nci_attempt={run['run_attempt']}\n")
-    print(f"Verified all nine CI gates for {commit}, run {run['id']}, attempt {run['run_attempt']}")
+    print(f"Verified all {len(jobs)} CI gates for {commit}, run {run['id']}, attempt {run['run_attempt']}")
 
 
 if __name__ == "__main__":

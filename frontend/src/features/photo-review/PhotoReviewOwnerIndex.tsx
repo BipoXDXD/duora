@@ -11,7 +11,7 @@ import { Alert } from '@/shared/ui/alert'
 import { Button } from '@/shared/ui/button'
 import { Page } from '@/shared/ui/page'
 import { invalidatesOwnerPhotoList, isUploadsDisabled } from './owner-photo-failure'
-import { canAccountDeletePhotos } from './owner-photo-presentation'
+import { canAccountDeletePhotos, PHOTO_RULES } from './owner-photo-presentation'
 import { OwnerPhotoDeletion } from './OwnerPhotoDeletion'
 import { OwnerPhotoItem, type OwnerPhotoDeletionEntry } from './OwnerPhotoItem'
 import { OwnerPhotoUpload } from './OwnerPhotoUpload'
@@ -164,7 +164,12 @@ function OwnerPhotos({
           <h2 ref={rulesTitle} tabIndex={-1} className="text-xl font-semibold">
             {t('photoOwner.rulesTitle')}
           </h2>
-          <p className="text-text-muted">{t('photoOwner.rulesPending')}</p>
+          <p className="text-text-muted">{t('photoOwner.rulesIntro')}</p>
+          <ul className="list-disc ps-6">
+            {PHOTO_RULES.map((rule) => (
+              <li key={rule}>{t(rule)}</li>
+            ))}
+          </ul>
         </section>
       ) : null}
       {deleting === null ? null : (

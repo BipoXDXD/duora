@@ -35,6 +35,37 @@
     group: root
     mode: "0644"
 
+# Um arquivo local do apt.conf.d lido depois do 52 (ex.: 99local) sobrescreveria o horário em silêncio, e o reinício
+# voltaria a cortar os timers longos do backup. Confere o valor efetivo em vez de confiar no arquivo gravado. Fora do
+# check mode: antes da primeira aplicação o template ainda não está no host, e a leitura não altera nada.
+- name: Ler a política de reinício efetiva do apt
+  ansible.builtin.command:
+    argv:
+      - apt-config
+      - shell
+      - REBOOT
+      - Unattended-Upgrade::Automatic-Reboot
+      - REBOOT_TIME
+      - Unattended-Upgrade::Automatic-Reboot-Time
+  register: base_apt_reboot_policy
+  changed_when: false
+  when: not ansible_check_mode
+
+- name: Recusar override local da política de reinício
+  ansible.builtin.assert:
+    that:
+      - base_apt_reboot_policy.stdout_lines | sort == base_expected_reboot_policy | sort
+    fail_msg: >-
+      Outro arquivo em /etc/apt/apt.conf.d sobrescreve o reinício automático:
+      {{ base_apt_reboot_policy.stdout_lines }}. Esperado: {{ base_expected_reboot_policy }}.
+      Alinhe ou remova o override antes de seguir.
+    quiet: true
+  vars:
+    base_expected_reboot_policy:
+      - "REBOOT='{{ 'true' if duora_unattended_reboot else 'false' }}'"
+      - "REBOOT_TIME='{{ duora_unattended_reboot_time }}'"
+  when: not ansible_check_mode
+
 # Usuários sem root não veem processos alheios em /proc (linha de comando, ambiente). Defesa em profundidade: o
 # segredo do migrador já não passa em argumento. Root, o dockerd e o sudo do deploy continuam vendo tudo; os
 # containers têm o próprio /proc.

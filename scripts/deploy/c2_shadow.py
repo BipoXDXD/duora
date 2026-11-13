@@ -39,6 +39,10 @@ DRILL_FILE = REPO_ROOT / "scripts" / "backup" / "compose.drill.yml"
 OVERLAY_FILE = REPO_ROOT / "scripts" / "deploy" / "c2" / "compose.c2.yml"
 SELFIE_SEED_FILE = REPO_ROOT / "scripts" / "deploy" / "c2" / "selfie-restore-seed.sql"
 SELFIE_CHECK_FILE = REPO_ROOT / "scripts" / "deploy" / "c2" / "selfie-restore-check.sql"
+MEDIA_SEED_FILE = REPO_ROOT / "scripts" / "deploy" / "c2" / "media-restore-seed.sql"
+MEDIA_CHECK_FILE = REPO_ROOT / "scripts" / "deploy" / "c2" / "media-restore-check.sql"
+# Totais comparados antes da perda e depois do restore (#69); a conferência fina fica em MEDIA_CHECK_FILE.
+MEDIA_TABLES = ("media_assets", "photo_tombstones")
 BACKUP_SCRIPT = REPO_ROOT / "scripts" / "deploy" / "duora_backup.py"
 HBA_SOURCE = REPO_ROOT / "infra" / "images" / "postgres" / "pg_hba.duora.conf"
 REPO_CONF_SOURCE = REPO_ROOT / "infra" / "images" / "postgres" / "pgbackrest-repo.conf"
@@ -346,6 +350,7 @@ def seed(layout: Layout, accounts: int, run: Runner = default_runner, *, events:
     run([*compose_command(layout), "exec", "--no-TTY", "postgres", "psql", "--username", "postgres", "--dbname",
          "duora", "--quiet"], stdin=sql)
     _psql_file(run, compose_command(layout), SELFIE_SEED_FILE)
+    _psql_file(run, compose_command(layout), MEDIA_SEED_FILE)
     accounts_file = layout.state / "accounts.json"
     accounts_file.write_text(json.dumps({"schema": "duora.c2-accounts/v1", "domain": ACCOUNT_DOMAIN,
                                          "accounts": [{"email": email, "password": password} for email in emails]},
@@ -394,17 +399,25 @@ def _checked_selfie_rows(run: Runner, compose: list[str]) -> int:
     return int(_sql(run, compose, "select count(*) from identity.selfie_verifications"))
 
 
+def _checked_media_rows(run: Runner, compose: list[str]) -> dict[str, int]:
+    """Confere fotos aprovadas e tombstones sintéticos (#69) e devolve o total de cada tabela."""
+    _psql_file(run, compose, MEDIA_CHECK_FILE)
+    return {table: int(_sql(run, compose, f"select count(*) from media.{table}")) for table in MEDIA_TABLES}
+
+
 def restore_rehearsal(layout: Layout, run: Runner = default_runner, clock: Callable[[], float] = time.time,
                       sleep: Callable[[float], None] = time.sleep, *, final_full: bool = True) -> dict[str, float]:
     """Escreve marcadores por 90 s, mata o postgres (perda do host), apaga o volume, restaura até o fim do WAL do
     repositório e mede: RPO = último marcador confirmado - último restaurado; RTO = perda até web/worker de pé.
     As tentativas de selfie são conferidas antes da perda e depois da promoção, com web e worker ainda parados: a
     conferência vê o que o restore entregou, antes de qualquer limpeza do worker. Com a selfie desligada no sombra,
-    nada escreve na tabela, então o total restaurado é igual ao de antes.
+    nada escreve na tabela, então o total restaurado é igual ao de antes. Fotos aprovadas e tombstones (#69) seguem a
+    mesma regra: sem upload no sombra, os totais de media_assets e photo_tombstones também não mudam.
     `final_full` refaz a cadeia de backup depois do restore; na janela de 3 h o sombra é derrubado em seguida e o
     FULL novo só gastaria tempo, sem entrar no RPO/RTO."""
     compose = compose_command(layout)
     selfie_rows = _checked_selfie_rows(run, compose)
+    media_rows = _checked_media_rows(run, compose)
     last_ack = 0.0
     started = clock()
     while clock() - started < OUTAGE_AFTER_SECONDS:
@@ -429,11 +442,17 @@ def restore_rehearsal(layout: Layout, run: Runner = default_runner, clock: Calla
     if restored_selfie_rows != selfie_rows:
         raise ShadowError(f"selfie_verifications: {selfie_rows} linhas antes da perda, {restored_selfie_rows} "
                           "depois do restore")
+    restored_media_rows = _checked_media_rows(run, compose)
+    for table in MEDIA_TABLES:
+        if restored_media_rows[table] != media_rows[table]:
+            raise ShadowError(f"{table}: {media_rows[table]} linhas antes da perda, {restored_media_rows[table]} "
+                              "depois do restore")
     run([*compose, "up", "--detach", "--wait", "web", "worker", "edge"])
     ready_at = clock()
     result = {"last_ack_at": last_ack, "restored_max_at": restored, "outage_at": outage_at, "ready_at": ready_at,
               "rpo_seconds": round(last_ack - restored, 1), "rto_seconds": round(ready_at - outage_at, 1),
-              "selfie_rows": restored_selfie_rows}
+              "selfie_rows": restored_selfie_rows, "media_asset_rows": restored_media_rows["media_assets"],
+              "photo_tombstone_rows": restored_media_rows["photo_tombstones"]}
     (layout.state / "restore-rehearsal.json").write_text(json.dumps(result, indent=2) + "\n", encoding="utf-8")
     if final_full:
         backup(layout, "full", run)
