@@ -1,8 +1,8 @@
 # Ferramentas do job ops do CI (versões diretas). Regenerar o lockfile com hashes:
-#   uv pip compile scripts/deploy/requirements.in --universal --python-version 3.12 --generate-hashes \
+#   uv pip compile scripts/deploy/requirements.in --universal --python-version 3.14 --generate-hashes \
 #     --no-header -o scripts/deploy/requirements.txt
 pyright==1.1.414
-ansible-core==2.21.5
+ansible-core==2.22.0
 ansible-lint==26.10.1
 # Importado direto pelos testes da suíte (test_media_compose, test_capacity_budget e outros), não só via ansible.
 pyyaml==6.0.3

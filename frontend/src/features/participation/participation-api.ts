@@ -180,6 +180,14 @@ export async function register(operation: OperationHandle, id: string): Promise<
     headers: { 'Idempotency-Key': crypto.randomUUID() },
   })
 }
+/** API-E04: sem corpo; o servidor retira só a inscrição de quem chama e repetir não repete efeito. */
+export async function withdraw(operation: OperationHandle, id: string): Promise<void> {
+  return sendMutation({
+    operation,
+    method: 'DELETE',
+    path: `/api/v1/events/${encodeURIComponent(id)}/registration`,
+  })
+}
 export async function checkIn(operation: OperationHandle, id: string): Promise<void> {
   return sendMutation({
     operation,

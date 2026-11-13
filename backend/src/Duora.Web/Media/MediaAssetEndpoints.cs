@@ -14,6 +14,11 @@ namespace Duora.Web.Media;
 internal static class MediaAssetEndpoints
 {
     private const string VariantParameter = "variant";
+
+    /// <summary>
+    /// Teto de cada escrita do corpo. Um derivado promovido já está inteiro em memória; escrito de uma vez, o Kestrel
+    /// seguraria outra cópia inteira no pipe enquanto o cliente baixa.
+    /// </summary>
     private const int CopyBufferBytes = 64 * 1024;
 
     public static void MapMediaAssetEndpoints(this IEndpointRouteBuilder api)
@@ -88,7 +93,11 @@ internal static class MediaAssetEndpoints
         return Task.CompletedTask;
     }
 
-    private sealed class ApprovedMediaResult(AuthorizedMedia media) : IResult
+    // A leitura do derivado falhou (I/O ou cancelamento, em geral do storage) antes do primeiro byte. Sem a exceção
+    // do Npgsql a causa não se distingue, então o prazo é próprio da entrega.
+    private static readonly TimeSpan StreamFailureRetryAfter = TimeSpan.FromSeconds(2);
+
+    internal sealed class ApprovedMediaResult(AuthorizedMedia media) : IResult
     {
         public async Task ExecuteAsync(HttpContext http)
         {
@@ -98,9 +107,11 @@ internal static class MediaAssetEndpoints
             http.Response.Headers.ContentSecurityPolicy = "default-src 'none'; sandbox";
             http.Response.Headers.ContentDisposition = "inline";
             http.Response.ContentType = "image/webp";
+            // O prazo da reserva corta um cliente lento que seguraria o orçamento de memória dos outros donos.
+            using var copy = CancellationTokenSource.CreateLinkedTokenSource(http.RequestAborted, owned.Expired);
             try
             {
-                await owned.Content.CopyToAsync(http.Response.Body, CopyBufferBytes, http.RequestAborted);
+                await CopyInChunksAsync(owned.Content, http.Response.Body, copy.Token);
             }
             catch (Exception error) when (error is IOException or OperationCanceledException)
             {
@@ -111,8 +122,25 @@ internal static class MediaAssetEndpoints
                 }
 
                 http.Response.ContentType = null;
-                ApiProblems.SetRetryAfter(http, TimeSpan.FromSeconds(2));
+                ApiProblems.SetRetryAfter(http, StreamFailureRetryAfter);
                 await ApiProblems.Problem(StatusCodes.Status503ServiceUnavailable, ApiProblems.TemporarilyUnavailable).ExecuteAsync(http);
+            }
+        }
+
+        /// <summary>
+        /// <see cref="MemoryStream.CopyToAsync(Stream, int, CancellationToken)"/> ignora o tamanho pedido e escreve o
+        /// resto do buffer de uma vez. A cópia aqui lê e escreve no máximo <see cref="CopyBufferBytes"/> por vez, com
+        /// flush por fatia, seja qual for o stream de origem.
+        /// </summary>
+        private static async Task CopyInChunksAsync(Stream content, Stream body, CancellationToken cancellationToken)
+        {
+            var chunk = new byte[CopyBufferBytes];
+            var read = await content.ReadAsync(chunk, cancellationToken);
+            while (read > 0)
+            {
+                await body.WriteAsync(chunk.AsMemory(0, read), cancellationToken);
+                await body.FlushAsync(cancellationToken);
+                read = await content.ReadAsync(chunk, cancellationToken);
             }
         }
     }

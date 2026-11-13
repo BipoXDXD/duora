@@ -58,6 +58,11 @@ internal sealed class ReconciliationApplyScenario : IAsyncDisposable
 
     public IReadOnlyDictionary<Guid, Guid> Measures { get; private set; } = new Dictionary<Guid, Guid>();
 
+    /// <summary>O corpo e a <c>Idempotency-Key</c> com que o run foi criado, para repetir o mesmo pedido.</summary>
+    public object RunBody { get; private set; } = new();
+
+    public string RunKey { get; private set; } = string.Empty;
+
     /// <summary>O que o coordenador logou nas chamadas diretas de <see cref="ApplyAsync"/>.</summary>
     public CapturingLoggerProvider CoordinatorLogs { get; } = new();
 
@@ -134,7 +139,9 @@ internal sealed class ReconciliationApplyScenario : IAsyncDisposable
             justification = "Prévia revisada pelo moderador.",
             authorizationReference = "AUTH-321-1",
         };
-        using var created = await Moderator.PostJsonAsync(Path, body, AccountSuspensionScenario.WithKey(AccountSuspensionScenario.NewKey()));
+        RunBody = body;
+        RunKey = AccountSuspensionScenario.NewKey();
+        using var created = await Moderator.PostJsonAsync(Path, body, AccountSuspensionScenario.WithKey(RunKey));
         Assert.Equal(HttpStatusCode.Created, created.StatusCode);
         var run = await MfaScenario.ReadObjectAsync(created);
         Run = Guid.Parse((string)run["id"]!);
