@@ -174,6 +174,7 @@ function RoomBody({
   const invited = state === 'invited' || state === 'ready'
   const activeState = state === 'active'
   // Depois do prazo a ação recebe 404 (ADR-0054) enquanto a releitura ainda devolve Active, até o job rodar (#462).
+  // Nesse caso o aviso de sala indisponível já diz que a escolha não foi salva: um aviso só, não dois.
   const unavailable = activeState && (isNotFound(actionFailure) || isNotFound(routesFailure))
   const active = activeState && !unavailable
   const gamePanel = useGameFocus(active)
@@ -201,9 +202,17 @@ function RoomBody({
       <p>{t('preferences.voiceOptional')}</p>
       {invitationFailed ? <InvitationFailure error={command.error} /> : null}
       {exitFailed ? <RoomFailure failure={classifyRequestFailure(command.error)} /> : null}
-      {actionFailure !== null ? <ChoiceFailure error={action.error} /> : null}
-      {routesFailure !== null ? <ChoiceFailure error={routesAction.error} /> : null}
-      {unavailable ? <p role="status">{t('participation.unavailable')}</p> : null}
+      {actionFailure !== null && !(unavailable && isNotFound(actionFailure)) ? (
+        <ChoiceFailure error={action.error} />
+      ) : null}
+      {routesFailure !== null && !(unavailable && isNotFound(routesFailure)) ? (
+        <ChoiceFailure error={routesAction.error} />
+      ) : null}
+      {unavailable ? (
+        <FocusWhenLostStatus>
+          {t('participation.unavailable')} {t('participation.choiceNotSaved')}
+        </FocusWhenLostStatus>
+      ) : null}
       {invited ? (
         <section className="flex flex-col gap-4">
           <p>

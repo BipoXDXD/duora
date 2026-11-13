@@ -93,10 +93,21 @@ describe.each(Object.keys(kinds) as (keyof typeof kinds)[])('%s action after the
     useAntiforgeryEndpoint()
     const { user } = await renderApp('/rooms/room-1', undefined, 'en-US')
     await user.click(await screen.findByRole('button', { name: kinds[kind].button }))
-    expect(await screen.findByText('This room is not available.')).toHaveAttribute('role', 'status')
+    expect(await screen.findByText('This room is not available.', { exact: false })).toHaveAttribute('role', 'status')
     expect(screen.queryByRole('alert')).not.toBeInTheDocument()
     expect(screen.queryByRole('button', { name: kinds[kind].button })).not.toBeInTheDocument()
     expect(screen.queryByRole('button', { name: 'Leave room' })).not.toBeInTheDocument()
+  })
+  // A sala indisponível e a escolha perdida são o mesmo fato: um aviso só, que diz as duas coisas.
+  it('404 while the reread is still Active shows one notice that also says the choice was not saved', async () => {
+    setup(kind, 404)
+    useAntiforgeryEndpoint()
+    const { user } = await renderApp('/rooms/room-1', undefined, 'en-US')
+    await user.click(await screen.findByRole('button', { name: kinds[kind].button }))
+    const notices = await screen.findAllByText(/This room is not available\.|Your last choice wasn't saved\./)
+    expect(notices).toHaveLength(1)
+    expect(notices[0]).toHaveTextContent("This room is not available. Your last choice wasn't saved.")
+    expect(notices[0]).toHaveAttribute('role', 'status')
   })
   it('404 followed by an Expired reread shows only the expired progress, not the unavailable notice', async () => {
     setup(kind, 404, true)
