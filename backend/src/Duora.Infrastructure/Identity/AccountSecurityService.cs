@@ -104,7 +104,9 @@ public sealed class AccountBusyException : Exception
         WaitCeiling = RetryAfter;
     }
 
-    /// <summary>Espera de <see cref="AccountBusyReason.Other"/>, cujo teto é o próprio <paramref name="retryAfter"/>.</summary>
+    /// <summary>
+    /// Espera de <see cref="AccountBusyReason.Other"/>, cujo teto é o próprio <paramref name="retryAfter"/>.
+    /// </summary>
     public AccountBusyException(TimeSpan retryAfter, Exception? innerException = null)
         : this(retryAfter, AccountBusyReason.Other, retryAfter, innerException)
     {
@@ -316,9 +318,7 @@ public sealed class AccountSecurityService
     /// <summary>Padrão do PostgreSQL: sem teto para esperar lock; o timeout do comando continua valendo.</summary>
     private const string NoLockTimeout = "0";
 
-    /// <summary>
-    /// Menor teto aceito por <c>WithLockCeilingAsync</c>: abaixo de 1 ms, o valor em ms vira <c>0</c>.
-    /// </summary>
+    /// <summary>Menor teto aplicável: abaixo de 1 ms o <c>lock_timeout</c> vira <c>0</c>, que desliga o teto.</summary>
     private static readonly TimeSpan MinimumLockCeiling = TimeSpan.FromMilliseconds(1);
 
     // Os mesmos motivos que a revogação pela chave (ticket store) e a de A10 já gravavam.
@@ -827,8 +827,9 @@ public sealed class AccountSecurityService
 
     /// <summary>
     /// Atalho de <see cref="WithLockCeilingAsync{T}(TimeSpan, Func{Task{T}}, CancellationToken)"/> com o teto do
-    /// login, <c>Identity:AccountLockTimeout</c>: o das operações que esperam a conta pelo tempo normal (login,
-    /// cadastro, revogação de sessão). As mesmas pré-condições e a mesma <see cref="AccountBusyException"/> valem aqui.
+    /// login, <c>Identity:AccountLockTimeout</c>, para quem espera a conta pelo tempo normal (hoje, a revogação de
+    /// sessão). Quem tem teto próprio chama a sobrecarga com o teto: o cadastro usa o seu, curto (#466). As mesmas
+    /// pré-condições e a mesma <see cref="AccountBusyException"/> valem aqui.
     /// </summary>
     internal Task<T> WithLockCeilingAsync<T>(Func<Task<T>> takeLock, CancellationToken cancellationToken) =>
         WithLockCeilingAsync(_lock.AccountLockTimeout, takeLock, cancellationToken);
@@ -844,7 +845,9 @@ public sealed class AccountSecurityService
     /// o lock fica sem teto; em outro contexto, o teto vale para a conexão errada.
     /// O teto é arredondado para baixo em ms inteiros: o <c>lock_timeout</c> recebe esse valor, e a
     /// <see cref="AccountBusyException.WaitCeiling"/> leva o mesmo. Arredondado, precisa ter ao menos
-    /// <see cref="MinimumLockCeiling"/>, porque <c>0</c> desliga o teto.
+    /// <see cref="MinimumLockCeiling"/> (1 ms), porque <c>0</c> desliga o teto. Quem chama escolhe o
+    /// teto: o cadastro usa o seu, curto (#466), e o reenvio a espera curta (#470), para a espera não aparecer no
+    /// tempo de resposta.
     /// </summary>
     /// <exception cref="ArgumentOutOfRangeException">O teto arredondado ficou abaixo de 1 ms.</exception>
     internal async Task<T> WithLockCeilingAsync<T>(
