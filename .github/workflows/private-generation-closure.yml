@@ -1,0 +1,82 @@
+# Experimental #311 closure probe on native amd64/arm64 hosted runners. Synthetic data only: no production
+# mounts, secrets or deploy. Separate from ci.yml so it neither delays the required checks nor becomes one.
+name: Private generation closure
+on:
+  pull_request:
+    paths:
+      - '.github/workflows/private-generation-closure.yml'
+      - 'scripts/testing/private-generation-closure/**'
+      - '!scripts/testing/private-generation-closure/boundary/**'
+      # Sources compiled by link into the probe image (see its Dockerfile).
+      - 'backend/src/Duora.Core/Media/IObjectStore.cs'
+      - 'backend/src/Duora.Core/Media/ObjectKey.cs'
+      - 'backend/src/Duora.Core/Media/PhotoVariants.cs'
+      - 'backend/src/Duora.Infrastructure/Media/ExactLengthStream.cs'
+      - 'backend/src/Duora.Infrastructure/Media/FileSystemObjectStore.cs'
+      - 'Directory.Build.props'
+      - 'Directory.Packages.props'
+      - '.editorconfig'
+      - 'global.json'
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: private-generation-closure-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  probe:
+    name: closure-probe (${{ matrix.arch }})
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - arch: amd64
+            runner: ubuntu-24.04
+          - arch: arm64
+            runner: ubuntu-24.04-arm
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 30
+    env:
+      ARCH: ${{ matrix.arch }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-dotnet@0f4a354dd5547a28c70b7853dbd95d5b67886e73 # v6.1.0
+        with:
+          global-json-file: global.json
+      - name: Native runner architecture
+        shell: bash
+        run: |
+          set -euo pipefail
+          actual=$(uname -m)
+          case "$ARCH:$actual" in amd64:x86_64|arm64:aarch64) ;; *) exit 1 ;; esac
+          daemon=$(docker version --format '{{.Server.Arch}}')
+          test "$daemon" = "$ARCH"
+      - name: Process, counterexample and container-restart experiments
+        run: scripts/testing/private-generation-closure/run_linux.sh 2>&1 | tee "$RUNNER_TEMP/run_linux.log"
+        shell: bash
+      - name: Native probe image
+        shell: bash
+        run: |
+          set -euo pipefail
+          image_arch=$(docker image inspect duora-closure-probe:local --format '{{.Architecture}}')
+          test "$image_arch" = "$ARCH"
+      - name: Mutation sensitivity
+        run: |
+          python3 scripts/testing/private-generation-closure/check_mutations.py 2>&1 | tee "$RUNNER_TEMP/mutations.log"
+        shell: bash
+      - name: Summary
+        if: ${{ always() }}
+        shell: bash
+        run: |
+          {
+            echo "### Fechamento de gerações privadas ($ARCH, experimental)"
+            grep -hE '^(PASS|DETECTED|SURVIVED|Ran |OK|FAILED)' \
+              "$RUNNER_TEMP/run_linux.log" "$RUNNER_TEMP/mutations.log" || true
+            echo
+            echo 'Processos/containers no kernel do runner. Não qualifica energia/host, restore, launcher nem S3/B2.'
+          } >> "$GITHUB_STEP_SUMMARY"
+      - name: Remove probe image
+        if: ${{ always() }}
+        run: docker image rm duora-closure-probe:local || true

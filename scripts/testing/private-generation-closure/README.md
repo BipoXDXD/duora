@@ -10,7 +10,7 @@ por link o `FileSystemObjectStore`, `ExactLengthStream` e as chaves atuais; não
 
 ## Reprodução
 
-Na raiz do repositório, com Docker local (Linux arm64) e acesso para construir a imagem de teste:
+Na raiz do repositório, com Docker Linux nativo (amd64 ou arm64) e acesso para construir a imagem de teste:
 
 ```sh
 scripts/testing/private-generation-closure/run_linux.sh
@@ -19,9 +19,11 @@ python3 scripts/testing/private-generation-closure/check_mutations.py
 
 O segundo comando também precisa do SDK .NET 10.0.404 no host. O build de teste instala Python 3
 (licença PSF; pacote da distribuição) somente na imagem descartável; nenhuma dependência é adicionada
-à aplicação. A base do SDK está presa ao digest arm64 usado no ensaio. Não atribuir cobertura nativa
-amd64 a esse comando. A função dos valores nativos de `open` é explícita por arquitetura; outros
-valores/arquiteturas são recusados. O build preserva os analisadores e avisos como erros do repositório.
+à aplicação. A base do SDK está presa ao digest do índice multi-arch; a entrada arm64 é o digest usado
+no ensaio. A imagem é construída para a plataforma do daemon, sem emulação. A cobertura nativa só vale para
+a arquitetura em que o comando de fato rodou. A função dos valores nativos de `open` é explícita por
+arquitetura; outros valores/arquiteturas são recusados. O build preserva os analisadores e avisos como
+erros do repositório.
 
 Os testes rodam como UID/GID 1654, sem rede, capacidades Linux ou escrita na raiz da imagem. Dados
 sintéticos ficam em volumes Docker descartáveis, separados de `/tmp` (tmpfs apenas para o runtime).
@@ -77,6 +79,13 @@ que esse ensaio não homologa durabilidade contra perda de energia/crash do host
 de fsync testa propagação de falha, não simula perda de gravações. Reinício entre containers conserva o
 mesmo kernel/volume; não é reinício abrupto da VM. NFS/SMB, disco de produção, launcher e S3/B2 não são
 qualificados por este protótipo.
+
+## CI
+
+O workflow `private-generation-closure.yml` roda os dois comandos acima em runners nativos amd64 e arm64,
+em pull requests que tocam este protótipo ou as fontes compiladas por link. Ele confere a arquitetura do
+runner e da imagem e não entra na lista de checks obrigatórios. Passar nele qualifica só o que este
+README já delimita: processos e containers no kernel do runner, não energia/host, restore, launcher ou S3/B2.
 
 Inventário, resultados, matriz da proposta e próximos gates:
 [relatório](../../../docs/testing/reports/filesystem-generation-closure-poc.md).
