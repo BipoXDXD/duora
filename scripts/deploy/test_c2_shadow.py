@@ -925,6 +925,32 @@ class SwapRehearsalResourceTests(SwapRehearsalFixture):
                 self.assertTrue(written["aborted"])
                 self.assertNotIn("back", written)
 
+    def test_empty_or_malformed_proc_pressure_between_the_directions_returns_to_the_origin(self) -> None:
+        for content in ("", "lixo\n", "full avg10=0.00 avg60=0.00 avg300=0.00 total=1\n"):
+            with self.subTest(content=content), tempfile.TemporaryDirectory() as directory:
+                self.setUp()
+                base = Path(directory)
+                for name in ("cpu", "memory", "io"):
+                    (base / name).write_text(content)
+                resources = dataclasses.replace(
+                    HEALTHY, pressure=self.between_directions(HEALTHY.pressure, lambda: shadow._host_pressure(base)))
+                with self.assertRaisesRegex(shadow.ShadowError, "some"):
+                    self.rehearse(resources=resources)
+                self.assertEqual(self.docker.images_applied, [TARGET, SOURCE])
+                self.assertTrue(json.loads((self.layout.state / "swap-rehearsal.json").read_text())["aborted"])
+
+    def test_unexpected_index_or_type_error_between_the_directions_returns_to_the_origin(self) -> None:
+        for error in (IndexError("list index out of range"), TypeError("'NoneType' object is not subscriptable")):
+            with self.subTest(error=type(error).__name__):
+                self.setUp()
+                def broken(failure: Exception = error) -> Any:
+                    raise failure
+                resources = dataclasses.replace(HEALTHY, pressure=self.between_directions(HEALTHY.pressure, broken))
+                with self.assertRaisesRegex(shadow.ShadowError, "de volta ao digest de origem"):
+                    self.rehearse(resources=resources)
+                self.assertEqual(self.docker.images_applied, [TARGET, SOURCE])
+                self.assertTrue(json.loads((self.layout.state / "swap-rehearsal.json").read_text())["aborted"])
+
     def test_overflow_read_between_the_directions_is_kept_when_a_host_guard_aborts(self) -> None:
         resources = dataclasses.replace(
             HEALTHY, available_mib=self.between_directions(HEALTHY.available_mib, lambda: 400),
@@ -1065,6 +1091,15 @@ class SwapRehearsalResourceTests(SwapRehearsalFixture):
         block = overlay[overlay.index("\n  s3:\n"):overlay.index("\n  postgres:\n") if overlay.index("\n  s3:\n") < overlay.index("\n  postgres:\n") else overlay.index("\nnetworks:")]
         self.assertIn("memory:", block)
         self.assertIn("cpus:", block)
+
+    def test_minio_limits_are_listed_as_a_production_deviation(self) -> None:
+        overlay = shadow.OVERLAY_FILE.read_text(encoding="utf-8")
+        block = overlay[overlay.index("\n  s3:\n"):]
+        self.assertIn("memory: 768M", block)
+        self.assertIn('cpus: "0.5"', block)
+        document = (Path(__file__).resolve().parents[2] / "docs" / "operations" / "capacity-c2.md").read_text(encoding="utf-8")
+        deviations = document[document.index("### Desvios do ambiente de produção"):document.index("## Roteiro da janela")]
+        self.assertIn("MinIO (`s3`) com teto de 768 MiB e 0,5 CPU", deviations)
 
 
 @unittest.skipUnless(shutil.which("docker"), "docker CLI ausente: render real do guarda não conferido")
@@ -1308,6 +1343,17 @@ class DefaultRunnerEnvironmentTests(unittest.TestCase):
         with mock.patch.dict(shadow.os.environ, hostile), mock.patch.object(shadow.subprocess, "run", run), redirect_stdout(io.StringIO()):
             shadow.default_runner(["docker", "ps"])
         self.assertEqual(seen, {"PATH": "/usr/bin:/bin", "LC_ALL": "C"})
+
+    def test_only_docker_gets_the_minimal_environment(self) -> None:
+        seen = {}
+        def run(argv, **arguments):
+            seen[argv[0]] = arguments["env"]
+            return subprocess.CompletedProcess(argv, 0, "", "")
+        with mock.patch.object(shadow.subprocess, "run", run), redirect_stdout(io.StringIO()):
+            for command in (["docker", "ps"], ["restic", "version"], ["openssl", "version"], [shadow.sys.executable, "-V"]):
+                shadow.default_runner(command)
+        self.assertEqual(seen.pop("docker"), {"PATH": "/usr/bin:/bin", "LC_ALL": "C"})
+        self.assertEqual(seen, {"restic": None, "openssl": None, shadow.sys.executable: None})
 
 
 class SwapRehearsalFillTests(SwapRehearsalFixture):

@@ -80,8 +80,9 @@ MARKER_SECONDS = 120
 OUTAGE_AFTER_SECONDS = 90
 WAIT_SECONDS = 600
 COMMAND_TIMEOUT_SECONDS = 3600
-# Mesmo ambiente de postgres_swap.py: variável do root (DUORA_*_DIR, DOCKER_HOST, DOCKER_CONTEXT, COMPOSE_*) venceria o
-# --env-file e poderia apontar o Compose para a produção.
+# Mesmo ambiente e mesmo escopo de postgres_swap.run_in_own_group: só o `docker` o recebe. Variável do root (DUORA_*_DIR,
+# DOCKER_HOST, DOCKER_CONTEXT, COMPOSE_*) venceria o --env-file e poderia apontar o Compose para a produção. Os demais
+# comandos (openssl, restic, duora_backup.py) herdam o ambiente, como nas janelas anteriores.
 RUNNER_ENVIRONMENT = {"PATH": "/usr/bin:/bin", "LC_ALL": "C"}
 
 
@@ -107,8 +108,9 @@ def _say(text: str, *, stream: str = "stdout") -> None:
 def default_runner(argv: Sequence[str], *, stdin: str | None = None, check: bool = True,
                    timeout: int = COMMAND_TIMEOUT_SECONDS) -> str:
     _say("[c2-shadow] " + " ".join(argv[:8]) + (" ..." if len(argv) > 8 else ""))
+    environment = RUNNER_ENVIRONMENT if argv and argv[0] == "docker" else None
     result = subprocess.run(list(argv), input=stdin, capture_output=True, text=True, timeout=timeout, check=False,
-                            env=RUNNER_ENVIRONMENT)
+                            env=environment)
     if check and result.returncode != 0:
         raise ShadowError(f"{' '.join(argv[:4])} terminou com código {result.returncode}: {result.stderr[-2000:]}")
     return result.stdout
@@ -531,7 +533,9 @@ SWAP_READY_CONSECUTIVE = 2
 SWAP_ARCHIVE_GUARD_SECONDS = 10
 SWAP_LOOPBACK = ("127.0.0.1", "::1")
 SWAP_CONTAINERS = (f"{PROJECT}-postgres-1", f"{PROJECT}-backup-1")
-SWAP_FAILURES = (ShadowError, c2_probe.CommandRefused, subprocess.TimeoutExpired, OSError, ValueError, KeyError)
+# IndexError e TypeError: leitura de /proc ou JSON fora do formato esperado também tem de voltar à origem.
+SWAP_FAILURES = (ShadowError, c2_probe.CommandRefused, subprocess.TimeoutExpired, OSError, ValueError, KeyError,
+                 IndexError, TypeError)
 
 
 def _memory_available_mib(meminfo: Path = Path("/proc/meminfo")) -> int:
@@ -542,7 +546,10 @@ def _memory_available_mib(meminfo: Path = Path("/proc/meminfo")) -> int:
 
 
 def _some_averages(path: Path) -> dict[str, float]:
-    fields = path.read_text(encoding="utf-8").splitlines()[0].split()[1:]
+    lines = path.read_text(encoding="utf-8").splitlines()
+    if not lines or not lines[0].startswith("some "):
+        raise ShadowError(f"linha 'some' ausente em {path}")
+    fields = lines[0].split()[1:]
     return {name: float(value) for name, value in (field.split("=") for field in fields) if name != "total"}
 
 

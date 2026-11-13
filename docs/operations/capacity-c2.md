@@ -78,6 +78,9 @@ projeto sombra e do restic) e grava o motivo. CPU > 85% por 5 min e throttling >
 - Repositório do pgBackRest no MinIO local e restic num repositório local: o upload ao B2 (rede) não é medido; CPU,
   memória e I/O de leitura/compressão/cifra são. O restic roda na slice transitória `duora-c2-media.slice`, com os
   mesmos limites da `duora-media.slice`, para não dividir o teto com o restic da produção.
+- MinIO (`s3`) com teto de 768 MiB e 0,5 CPU no overlay (`compose.c2.yml`), ausente nas janelas anteriores. Como ele é
+  o repositório do pgBackRest, pode alongar FULL, DIFF, archive e restore: ao comparar com janelas anteriores, tratar
+  diferença de tempo nessas fases como possível efeito do teto, não como regressão do Postgres.
 - TLS interno do Caddy e carga pelo túnel SSH (o `sshd` da VPS entra na conta). A latência inclui o RTT do túnel;
   o relatório traz `rtt_floor_ms` (menor `GET /auth/csrf`) para separar aproximadamente app de rede.
 - Dataset: 1.000 contas e 48 eventos sintéticos (um a cada 15 min). As 100.000 mensagens do protocolo não existem
