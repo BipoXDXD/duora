@@ -552,7 +552,7 @@ SWAP_READY_CONSECUTIVE = 2
 SWAP_ARCHIVE_GUARD_SECONDS = 10
 SWAP_LOOPBACK = ("127.0.0.1", "::1")
 SWAP_CONTAINERS = (f"{PROJECT}-postgres-1", f"{PROJECT}-backup-1")
-# IndexError e TypeError: leitura de /proc ou JSON fora do formato esperado também tem de voltar à origem.
+# Falhas esperadas fora da ida e volta (preparo, CLI). Entre a ida e a volta, e no abort, vale qualquer Exception.
 SWAP_FAILURES = (ShadowError, c2_probe.CommandRefused, subprocess.TimeoutExpired, OSError, ValueError, KeyError,
                  IndexError, TypeError)
 
@@ -988,8 +988,8 @@ def swap_abort(layout: Layout, run: Runner = default_runner) -> dict:
         _swap_check(run, compose)
         report["check"] = True
         run([*compose, "up", "--detach", "--wait", "--no-deps", "web", "worker", "edge"])
-    except SWAP_FAILURES as error:
-        report["error"] = str(error)
+    except Exception as error:  # noqa: BLE001 - qualquer defeito vira relatório e erro do ensaio, nunca traceback mudo.
+        report.update(error=str(error), errorType=type(error).__name__)
         raise ShadowError(f"abort sem confirmação, aplicação parada: {error}") from error
     finally:
         _swap_write(layout.state / "swap-abort.json", report)
@@ -1057,9 +1057,11 @@ def swap_rehearsal(layout: Layout, target: str, *, fill_mib: int, run: Runner = 
         raise ShadowError(f"ensaio parado antes de parar qualquer serviço: {error}") from error
     try:
         _swap_round_trip(layout, compose, target, result, run, clock, calm, guard.check_between_directions)
-    except SWAP_FAILURES as error:
+    # Qualquer Exception, não só SWAP_FAILURES: com web e worker parados, um defeito fora da lista (AttributeError,
+    # RuntimeError) também tem de voltar à origem. O tipo vai ao relatório para a falha não sumir na volta.
+    except Exception as error:  # noqa: BLE001
         shield()
-        result.update(aborted=True, error=str(error))
+        result.update(aborted=True, error=str(error), errorType=type(error).__name__)
         _swap_write(evidence, result)
         try:
             result["abort"] = swap_abort(layout, run)

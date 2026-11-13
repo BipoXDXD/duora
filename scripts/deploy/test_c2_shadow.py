@@ -1004,6 +1004,23 @@ class SwapRehearsalResourceTests(SwapRehearsalFixture):
                 self.assertEqual(self.docker.images_applied, [TARGET, SOURCE])
                 self.assertTrue(json.loads((self.layout.state / "swap-rehearsal.json").read_text())["aborted"])
 
+    def test_any_unexpected_error_between_the_directions_returns_to_the_origin_and_names_its_type(self) -> None:
+        # A volta não pode depender de uma lista fechada de exceções: um defeito qualquer deixaria web e worker parados.
+        for error in (AttributeError("'NoneType' object has no attribute 'cpu'"), RuntimeError("inesperado"),
+                      ZeroDivisionError("division by zero")):
+            with self.subTest(error=type(error).__name__):
+                self.setUp()
+                def broken(failure: Exception = error) -> Any:
+                    raise failure
+                resources = dataclasses.replace(HEALTHY, pressure=self.between_directions(HEALTHY.pressure, broken))
+                with self.assertRaisesRegex(shadow.ShadowError, "de volta ao digest de origem"):
+                    self.rehearse(resources=resources)
+                self.assertEqual(self.docker.images_applied, [TARGET, SOURCE])
+                report = json.loads((self.layout.state / "swap-rehearsal.json").read_text())
+                self.assertTrue(report["aborted"])
+                self.assertEqual(type(error).__name__, report["errorType"])
+                self.assertEqual(SOURCE, report["abort"]["digest"])
+
     def test_overflow_read_between_the_directions_is_kept_when_a_host_guard_aborts(self) -> None:
         resources = dataclasses.replace(
             HEALTHY, available_mib=self.between_directions(HEALTHY.available_mib, lambda: 400),
@@ -1515,6 +1532,15 @@ class SwapRehearsalAbortTests(SwapRehearsalFixture):
         self.assertFalse(any("--no-deps web worker edge" in c for c in self.docker.commands))
         self.assertIn("error", json.loads((self.layout.state / "swap-abort.json").read_text()))
 
+    def test_abort_with_an_unexpected_error_records_it_and_leaves_the_application_stopped(self) -> None:
+        with mock.patch.object(shadow, "_swap_check", side_effect=AttributeError("'NoneType' object has no attribute 'x'")):
+            with self.assertRaisesRegex(shadow.ShadowError, "aplicação parada"):
+                shadow.swap_abort(self.layout, run=self.docker)
+        self.assertFalse(any("--no-deps web worker edge" in c for c in self.docker.commands))
+        report = json.loads((self.layout.state / "swap-abort.json").read_text())
+        self.assertEqual("AttributeError", report["errorType"])
+        self.assertIn("no attribute", report["error"])
+
     def test_abort_that_does_not_reach_the_origin_leaves_the_application_stopped(self) -> None:
         self.docker.running_images = (TARGET, TARGET)
         with self.assertRaisesRegex(shadow.ShadowError, "aplicação parada"):
@@ -1565,6 +1591,22 @@ class SwapRehearsalAbortTests(SwapRehearsalFixture):
         with self.assertRaises(shadow.ShadowError):
             shadow.swap_abort(shadow.Layout(Path("/var/lib/duora")), run=self.docker)
         self.assertEqual(self.docker.commands, [])
+
+
+class SwapRunbookTests(unittest.TestCase):
+    """O roteiro em capacity-c2.md passa ao ensaio o mesmo alvo revisado no código e na fixture da prova."""
+
+    def test_every_target_in_the_runbook_is_the_reviewed_digest(self) -> None:
+        runbook = (Path(__file__).resolve().parents[2] / "docs/operations/capacity-c2.md").read_text()
+        targets = re.findall(r"--target (\S+)", runbook)
+        self.assertEqual(["ghcr.io/bipoxdxd/duora-postgres@sha256:cd9e980845df574a23e9d92accc18c88cbcdabd8110537336f848fa9d4554cb6"],
+                         sorted(set(targets)))
+        self.assertEqual(shadow.SWAP_TARGET_IMAGE, targets[0])
+
+    def test_the_proof_fixture_targets_the_same_digest_from_the_same_origin(self) -> None:
+        fixture = json.loads((Path(__file__).parent / "fixtures/postgres-swap-target.json").read_text())
+        self.assertEqual(shadow.SWAP_TARGET_IMAGE, fixture["images"]["amd64"])
+        self.assertEqual(shadow.SWAP_SOURCE_IMAGE, fixture["origin"]["amd64"])
 
 
 class SwapRehearsalCliTests(unittest.TestCase):
