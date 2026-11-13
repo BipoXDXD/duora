@@ -23,4 +23,14 @@
     <NuGetAuditMode>all</NuGetAuditMode>
     <NuGetAuditLevel>low</NuGetAuditLevel>
   </PropertyGroup>
+
+  <!-- Data Protection: sem este teto, o DefaultKeyResolver repete com espera a chave que não decifrou, prendendo uma
+       thread (às vezes dentro da trava do KeyRingProvider). As chaves do Duora se decifram com certificados locais:
+       sem o certificado a falha é definitiva, e repetir só atrasa. Fica aqui, e não num csproj, para valer no
+       runtimeconfig do Duora.Web e no dos testes, que hospedam o app no próprio processo. -->
+  <ItemGroup>
+    <RuntimeHostConfigurationOption
+        Include="Microsoft.AspNetCore.DataProtection.KeyManagement.MaximumTotalDefaultKeyResolverRetries"
+        Value="0" />
+  </ItemGroup>
 </Project>
