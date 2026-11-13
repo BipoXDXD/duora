@@ -83,10 +83,15 @@ export function RoomPage(): React.JSX.Element {
     </Page>
   )
 }
+
+function isNotFound(failure: RequestFailure | null): boolean {
+  return failure?.kind === 'problem' && failure.status === NOT_FOUND
+}
+
 /** 404 é o aviso neutro de sala indisponível: não distingue sala inexistente de encerrada, nem o motivo (TM-24). */
 function RoomFailure({ failure }: { readonly failure: RequestFailure }): React.JSX.Element {
   const { t } = useI18n()
-  if (failure.kind === 'problem' && failure.status === NOT_FOUND) {
+  if (isNotFound(failure)) {
     return <p role="status">{t('participation.unavailable')}</p>
   }
   return <RequestFailureAlert failure={failure} />
@@ -163,20 +168,25 @@ function RoomBody({
     onSuccess: reread,
     onError: recordAfterReread('routes'),
   })
+  const actionFailure = notices.shows('action', action) ? classifyRequestFailure(action.error) : null
+  const routesFailure = notices.shows('routes', routesAction) ? classifyRequestFailure(routesAction.error) : null
   const state = room.state.toLowerCase()
   const invited = state === 'invited' || state === 'ready'
-  const active = state === 'active'
+  const activeState = state === 'active'
+  // Depois do prazo a ação recebe 404 (ADR-0054) enquanto a releitura ainda devolve Active, até o job rodar (#462).
+  const unavailable = activeState && (isNotFound(actionFailure) || isNotFound(routesFailure))
+  const active = activeState && !unavailable
   const gamePanel = useGameFocus(active)
   const completed = state === 'completed'
   const expiredGame = state === 'expired' && (room.game !== null || room.routesGame !== null)
   const answeringInvitation = command.variables === 'accept' || command.variables === 'reject'
   // A resposta ao convite só vale enquanto a sala não começou nem terminou com jogo: depois disso a tela já explica.
   const invitationFailed =
-    answeringInvitation && notices.shows('command', command) && !active && !completed && !expiredGame
+    answeringInvitation && notices.shows('command', command) && !activeState && !completed && !expiredGame
   const exitFailed = command.variables === 'exit' && notices.shows('command', command)
   // Uma só mensagem: enquanto a resposta ao convite está em curso ou falhou, ela ocupa o lugar de "encerrada".
   const answerExplainsRoom = answeringInvitation && (command.isPending || invitationFailed)
-  const closed = !invited && !active && !completed && !expiredGame && !answerExplainsRoom
+  const closed = !invited && !activeState && !completed && !expiredGame && !answerExplainsRoom
   const deadline = room.game?.deadline ?? room.routesGame?.deadline
   const busy = command.isPending || action.isPending || routesAction.isPending
   const card = room.game?.currentCard
@@ -191,8 +201,9 @@ function RoomBody({
       <p>{t('preferences.voiceOptional')}</p>
       {invitationFailed ? <InvitationFailure error={command.error} /> : null}
       {exitFailed ? <RoomFailure failure={classifyRequestFailure(command.error)} /> : null}
-      {notices.shows('action', action) ? <ChoiceFailure error={action.error} /> : null}
-      {notices.shows('routes', routesAction) ? <ChoiceFailure error={routesAction.error} /> : null}
+      {actionFailure !== null ? <ChoiceFailure error={action.error} /> : null}
+      {routesFailure !== null ? <ChoiceFailure error={routesAction.error} /> : null}
+      {unavailable ? <p role="status">{t('participation.unavailable')}</p> : null}
       {invited ? (
         <section className="flex flex-col gap-4">
           <p>

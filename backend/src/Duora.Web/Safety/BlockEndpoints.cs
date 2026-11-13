@@ -8,8 +8,6 @@ namespace Duora.Web.Safety;
 /// <summary>Bloqueio de outra pessoa (API-S01, spec 8.4 e 7.3). Exige sessão pela política padrão.</summary>
 internal static class BlockEndpoints
 {
-    private static readonly TimeSpan BusyRetryAfter = TimeSpan.FromSeconds(2);
-
     public static void MapBlockEndpoints(this IEndpointRouteBuilder api)
     {
         api.MapPut("/me/blocks/{targetUserId:guid}", BlockAsync)
@@ -65,13 +63,7 @@ internal static class BlockEndpoints
     }
 
     /// <summary>Guardas disputadas além das tentativas: nada gravado, o cliente tenta de novo (concurrency.md).</summary>
-    private static ProblemHttpResult Unavailable(HttpContext context)
-    {
-        ApiProblems.SetRetryAfter(context, BusyRetryAfter);
-        return ApiProblems.Problem(
-            StatusCodes.Status503ServiceUnavailable,
-            ApiProblems.TemporarilyUnavailable);
-    }
+    private static ProblemHttpResult Unavailable(HttpContext context) => DatabaseUnavailability.Contention(context);
 
     private static bool HasBody(HttpRequest request) =>
         request.ContentLength is > 0 || (request.ContentLength is null && request.Headers.TransferEncoding.Count > 0);
