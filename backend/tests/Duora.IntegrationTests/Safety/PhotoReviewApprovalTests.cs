@@ -1097,14 +1097,21 @@ public sealed partial class PhotoReviewApprovalTests(PostgresFixture postgres) :
         }
     }
 
-    private async Task<(PhotoReviewActor Reviewer, CaseData Item)> PreparedAsync(Guid? reviewerId = null, Guid? ownerId = null,
-        IObjectStore? storage = null)
+    private Task<(PhotoReviewActor Reviewer, CaseData Item)> PreparedAsync(Guid? reviewerId = null, Guid? ownerId = null,
+        IObjectStore? storage = null) => PreparedWithAsync(reviewerId, () => CaseAsync(ownerId, storage));
+
+    /// <summary>Mais um caso pronto para decisão, de um dono que já existe: o mesmo dono com duas fotos.</summary>
+    private Task<(PhotoReviewActor Reviewer, CaseData Item)> PreparedForAsync(Guid ownerId) =>
+        PreparedWithAsync(null, () => CaseForAsync(ownerId));
+
+    private async Task<(PhotoReviewActor Reviewer, CaseData Item)> PreparedWithAsync(Guid? reviewerId,
+        Func<Task<CaseData>> createCase)
     {
         var assigner = await ModeratorAsync(PhotoReviewCapability.Assign);
         var reviewer = await ActorAsync(AccountRoles.Moderator, reviewerId);
         await GrantAsync(reviewer.UserId, PhotoReviewCapability.Evidence, enabled: true);
         await GrantAsync(reviewer.UserId, PhotoReviewCapability.Decide, enabled: true);
-        var item = await CaseAsync(ownerId, storage);
+        var item = await createCase();
         await using var db = Context();
         Assert.IsType<PhotoReviewAssignmentResult.Assigned>(await new PhotoReviewAssignments(db, _time)
             .AssignAsync(assigner, item.CaseId, reviewer.UserId, 1, Key(), Ct));
@@ -1138,29 +1145,42 @@ public sealed partial class PhotoReviewApprovalTests(PostgresFixture postgres) :
     private async Task<PhotoReviewActor> ActorAsync(string role, Guid? userId = null)
     {
         var user = userId ?? Guid.NewGuid();
-        var session = Guid.NewGuid();
-        var now = _time.GetUtcNow();
-        var hash = SHA256.HashData(session.ToByteArray());
-        var ticket = new byte[] { 1 };
         var policy = role == AccountRoles.Participant ? "Normal" : "Administrative";
         await using var db = Context();
         await using var transaction = await db.Database.BeginTransactionAsync(Ct);
         await db.Database.ExecuteSqlAsync($"""
             insert into identity.users(id,status,created_at,email_confirmed,phone_number_confirmed,
               two_factor_enabled,lockout_enabled,access_failed_count,security_stamp)
-            values({user},'Active',{now},true,false,true,true,0,'synthetic-approval-stamp')
+            values({user},'Active',{_time.GetUtcNow()},true,false,true,true,0,'synthetic-approval-stamp')
             """, Ct);
         await db.Database.ExecuteSqlAsync($"""
             insert into identity.user_roles(user_id,role_id) select {user},id from identity.roles where name={role}
             """, Ct);
+        var session = await InsertSessionAsync(db, user, policy);
+        await transaction.CommitAsync(Ct);
+        return new PhotoReviewActor(user, session);
+    }
+
+    /// <summary>Mais uma sessão para um usuário que já existe, como o dono que lê a própria foto.</summary>
+    private async Task<PhotoReviewActor> SessionAsync(Guid user, string policy)
+    {
+        await using var db = Context();
+        return new PhotoReviewActor(user, await InsertSessionAsync(db, user, policy));
+    }
+
+    private async Task<Guid> InsertSessionAsync(DuoraDbContext db, Guid user, string policy)
+    {
+        var session = Guid.NewGuid();
+        var now = _time.GetUtcNow();
+        var hash = SHA256.HashData(session.ToByteArray());
+        var ticket = new byte[] { 1 };
         await db.Database.ExecuteSqlAsync($"""
             insert into identity.login_sessions(id,user_id,key_hash,ticket,security_stamp,description,policy,
               created_at,last_seen_at,idle_expires_at,absolute_expires_at,reauthenticated_at,mfa_verified_at,totp_verified_at)
             values({session},{user},{hash},{ticket},'synthetic-approval-stamp','synthetic',{policy},
               {now.AddMinutes(-1)},{now},{now.AddMinutes(10)},{now.AddHours(1)},{now},{now},{now})
             """, Ct);
-        await transaction.CommitAsync(Ct);
-        return new PhotoReviewActor(user, session);
+        return session;
     }
 
     private async Task GrantAsync(Guid userId, PhotoReviewCapability capability, bool enabled)
@@ -1173,9 +1193,14 @@ public sealed partial class PhotoReviewApprovalTests(PostgresFixture postgres) :
     private async Task<CaseData> CaseAsync(Guid? ownerId = null, IObjectStore? storage = null)
     {
         var owner = await ActorAsync(AccountRoles.Participant, ownerId);
+        return await CaseForAsync(owner.UserId, storage);
+    }
+
+    private async Task<CaseData> CaseForAsync(Guid ownerId, IObjectStore? storage = null)
+    {
         var original = TestImages.Jpeg(64, 32);
         var store = storage ?? new FileSystemObjectStore(_root.FullName);
-        var upload = Upload.Reserve(owner.UserId, Key(), PhotoFormat.Jpeg, original.Length, _time.GetUtcNow());
+        var upload = Upload.Reserve(ownerId, Key(), PhotoFormat.Jpeg, original.Length, _time.GetUtcNow());
         await using (var db = Context())
         {
             db.Add(upload);
