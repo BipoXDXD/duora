@@ -5,9 +5,12 @@
 duora_admin_user: "{{ ansible_user }}"
 duora_deploy_user: duora-deploy
 
-# Janela de reinício automático após atualização de segurança que o exija (horário do host, em UTC).
+# Janela de reinício automático após atualização de segurança que o exija (horário do host, em UTC). Depois dos
+# timers do role backup: o último longo começa às 04:05 (verify-repo-full ~31 min, media-check) e um reinício no meio
+# perde a execução da semana (Persistent não refaz disparo já contado). 05:40 deixa 95 min e cai entre dois verify
+# de 15 min. Teste: test_automatic_reboot_* em scripts/deploy/test_duora_backup.py.
 duora_unattended_reboot: true
-duora_unattended_reboot_time: "04:30"
+duora_unattended_reboot_time: "05:40"
 
 # Origens aceitas no SSH (UFW). "any" = qualquer origem, IPv4 e IPv6.
 duora_ssh_allowed_sources: [any]

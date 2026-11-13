@@ -160,8 +160,12 @@ jobs:
             -o "Dir::Etc::sourceparts=$apt_root/sources"
             -o "Dir::State::lists=$apt_root/lists"
             -o "APT::Update::Error-Mode=any")
-          sudo apt-get "${apt_options[@]}" update -qq
-          sudo apt-get "${apt_options[@]}" install -y uidmap dbus-user-session slirp4netns docker-ce-rootless-extras
+          # Mirror com falha transitória de DNS não derruba o passo: 3 tentativas (15 s, 45 s); a persistente falha.
+          source "$GITHUB_WORKSPACE/scripts/ci/apt-retry.sh"
+          # Teto por tentativa, como no media-isolation.yml: o update já travou sem erro até o timeout do job.
+          export CI_RETRY_ATTEMPT_TIMEOUT=300
+          apt_retry "${apt_options[@]}" update -qq
+          apt_retry "${apt_options[@]}" install -y uidmap dbus-user-session slirp4netns docker-ce-rootless-extras
           sudo useradd --create-home --shell /bin/bash duora-sanitizer-ci
           uid=$(id -u duora-sanitizer-ci)
           # Keep image IDs as config digests in the dedicated rootless daemon.
