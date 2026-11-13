@@ -108,7 +108,8 @@ Para não esconder entregas que impedem o expurgo, o mesmo meter publica três g
 
 `Delivered` e `Expired` continuam no inventário/atraso de retenção, mas não são trabalho de consumidor pendente.
 Os consumidores conhecidos são `transactional-email`, `media-processing`, `age-verification-provider` (histórico),
-`selfie-provider` e `selfie-attempts-suspension`; qualquer outro nome agrega em `other`. Todas as combinações
+`selfie-provider`, `selfie-attempts-suspension` e `waitlist-promotion-notice` (ADR-0056); qualquer outro nome agrega
+em `other`. Todas as combinações
 fixas publicam zero quando vazias para não deixar gauges antigos aparentando backlog. Não há rótulos derivados
 de IDs, destinatários, payloads ou texto de erro. Ao introduzir consumidor novo, atualizar a lista fixa e os testes.
 

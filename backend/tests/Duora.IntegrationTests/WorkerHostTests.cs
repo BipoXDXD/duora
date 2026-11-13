@@ -54,6 +54,31 @@ public sealed class WorkerHostTests
     }
 
     [Fact]
+    public async Task WaitlistPromotionNoticesDoNotStartEnabledWithoutAWatermark()
+    {
+        using var host = BuildHost(new CanaryConnectionString().Value, logs: null,
+            "--Notifications:WaitlistPromotion:Enabled=true");
+
+        var exception = Assert.Throws<OptionsValidationException>(
+            () => host.Services.GetRequiredService<IStartupValidator>().Validate());
+        await Assert.ThrowsAsync<OptionsValidationException>(
+            () => host.StartAsync(TestContext.Current.CancellationToken));
+
+        Assert.Contains("Notifications:WaitlistPromotion", exception.Message, StringComparison.Ordinal);
+    }
+
+    [Theory]
+    [InlineData("--Notifications:WaitlistPromotion:Enabled=false")]
+    [InlineData("--Notifications:WaitlistPromotion:NotBefore=2026-11-13T00:00:00Z")]
+    public void WaitlistPromotionNoticesNeedAWatermarkOnlyWhenEnabled(string setting)
+    {
+        using var host = BuildHost(new CanaryConnectionString().Value, logs: null,
+            "--Notifications:WaitlistPromotion:Enabled=true", setting);
+
+        host.Services.GetRequiredService<IStartupValidator>().Validate();
+    }
+
+    [Fact]
     public void TheWorkerPoolIsTenConnectionsByDefault()
     {
         using var host = BuildHost(new CanaryConnectionString().Value, logs: null);

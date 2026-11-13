@@ -15,6 +15,7 @@ arquivo quando entrar pacote ou ferramenta nova, quando mudar uma versão fixada
 | Licenças | `scripts/supply-chain/check_licenses.py` sobre os SBOMs | licença fora da allowlist, ou componente sem licença, sem exceção escrita |
 | Segredos | job `secret-scan` (Gitleaks, histórico inteiro alcançável do commit testado, `--log-opts=HEAD`; branches de outros PRs ficam fora) | qualquer segredo, inclusive um removido em commit posterior; o Trivy roda com o scanner de segredos desligado para não duplicar |
 | Actions | `.github/workflows/ci.yml` | action de terceiros sem SHA completo (revisão); o Dependabot atualiza SHA e comentário |
+| Liveness da selfie | `frontend/config/liveness-supply-chain.test.ts` e `frontend/src/features/account/SelfieCapture.test.tsx`; inventário em [liveness-supply-chain.md](liveness-supply-chain.md) | muda a versão do pacote, o lockfile, as URLs do WASM e do modelo ou as origens `https://` e `wss://` explícitas da CSP da selfie; o conteúdo servido pelo CDN não é verificado |
 | Atualizações | `.github/dependabot.yml`: NuGet, npm, Actions, Compose e pip (`/scripts/deploy`, `/tools/visual`). Cooldown de 7 dias em `nuget`, `npm` e `pip`; `github-actions` e `docker-compose` não têm cooldown | não bloqueia; abre PRs semanais revisados por humano |
 
 Os achados aparecem no log do job; o inventário de licenças e o changelog do contrato vão para o resumo do job.
@@ -60,21 +61,6 @@ por revisão humana no PR que a cria.
 - `scripts/supply-chain/check_trivyignore.py` reprova o job se alguma entrada não seguir a regra.
 - Prefira corrigir: atualizar o pacote, fixar a transitiva em `Directory.Packages.props` ou usar `overrides` do
   pnpm, nessa ordem.
-
-Exceção ativa, aceita pelo dono em 2026-11-05: `CVE-2026-109518` (HIGH) em `apt`/`libapt-pkg7.0` 3.0.3 da imagem
-`duora-postgres`, válida até 2026-12-05. O ataque exige manipular o tráfego durante um `apt install`, e o `apt` só roda no
-build da imagem. É ponte, não correção: corrigir exige requalificar o componente
-([POSTGRES_COMPONENT.md](../../scripts/release/POSTGRES_COMPONENT.md)), e o PR do lock novo remove a entrada.
-
-Exceção ativa, aceita pelo dono em 2026-11-08: `CVE-2026-76844` e `CVE-2026-85091` (HIGH) em `zlib1g`
-1:1.3.dfsg+really1.3.1-1+b1 da imagem `duora-postgres`, corrigidas em `+deb13u1`, válidas até 2026-11-15 (7 dias).
-As duas são heap overflow na API `gz*` de escrita da zlib (`CVE-2026-76844`: `gz_write()` depois de uma falha de
-`write()`; `CVE-2026-85091`: `gz_vacate()` via `gzprintf` depois de uma escrita não bloqueante travada), que na imagem só
-os clientes `pg_dump`/`pg_basebackup` usam; o servidor `postgres` e o `pgbackrest` não, e o banco não publica porta.
-É ponte, não correção: o #353 ainda não traz o `zlib1g` corrigido e precisa ganhar esse pin e ser requalificado
-(o modo `qualify` roda o Trivy sem exceções) antes do vencimento; o lock novo remove as entradas, ou o dono decide de
-novo. O `.trivyignore` não escopa por imagem: enquanto valerem, as duas CVEs ficam ignoradas em todas as imagens e
-no `trivy fs`.
 
 ### Licenças: `scripts/supply-chain/license-policy.json`
 

@@ -1,6 +1,7 @@
 # Autoridade de gerações privadas — candidato técnico #311
 
-Desenho: ADR-0047. Nenhuma instalação, rollout ou ativação é autorizada por esta entrega.
+Desenho: ADR-0047; máquina de estados: [private-generation-closure.md](../architecture/private-generation-closure.md).
+Nenhuma instalação, rollout ou ativação é autorizada por esta entrega.
 Só Testing admite a configuração nova; Production, Staging, Development e nomes desconhecidos recusam.
 O padrão é desligado. Fechamento terminal operacional de escritores incertos continua desabilitado.
 

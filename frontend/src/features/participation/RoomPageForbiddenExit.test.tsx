@@ -63,7 +63,7 @@ describe('saída da sala quando a leitura é recusada', () => {
     const { user } = await renderApp('/rooms/room-1')
     await user.click(await screen.findByRole('button', { name: 'Sair da sala' }))
 
-    expect(await screen.findByText('Este encontro foi encerrado.')).toBeInTheDocument()
+    expect(await screen.findByText('Esta sala foi encerrada.')).toBeInTheDocument()
     await waitFor(() => {
       expect(exits).toBe(1)
     })
@@ -87,30 +87,31 @@ describe('saída da sala quando a leitura é recusada', () => {
     await advancePolling(ROOM_POLL_INTERVAL_MS)
     expect(roomReadsIn(fetchSpy)).toBe(readsBeforeInterval + 1)
 
-    // Sem leitura bem-sucedida, a consulta volta a "carregando" a cada intervalo e o botão é recriado ao fim dela.
     const exitButton = await screen.findByRole('button', { name: 'Sair da sala' })
     const readsAtExit = roomReadsIn(fetchSpy)
     await user.click(exitButton)
-    expect(await screen.findByText('Este encontro foi encerrado.')).toBeInTheDocument()
+    expect(await screen.findByText('Esta sala foi encerrada.')).toBeInTheDocument()
     await advancePolling(ROOM_POLL_INTERVAL_MS * 3)
 
     expect(roomReadsIn(fetchSpy)).toBe(readsAtExit)
   })
 
-  it('não oferece a saída a conta privilegiada, que a rota recusa', async () => {
-    server.use(
-      http.get(`${API}/me`, () =>
-        HttpResponse.json(withSessionContext({ ...me, mfaEnabled: true, roles: ['moderator'] })),
-      ),
-      forbiddenRead('FORBIDDEN'),
-    )
-    useAntiforgeryEndpoint()
+  // Qualquer papel além de participante torna a conta privilegiada, inclusive quando ela também é participante.
+  it.each([[['moderator']], [['product_admin']], [['operator']], [['participant', 'moderator']]])(
+    'não oferece a saída a conta privilegiada com papéis %j, que a rota recusa',
+    async (roles) => {
+      server.use(
+        http.get(`${API}/me`, () => HttpResponse.json(withSessionContext({ ...me, mfaEnabled: true, roles }))),
+        forbiddenRead('FORBIDDEN'),
+      )
+      useAntiforgeryEndpoint()
 
-    await renderApp('/rooms/room-1')
+      await renderApp('/rooms/room-1')
 
-    expect(await screen.findByRole('alert')).toBeInTheDocument()
-    expect(screen.queryByRole('button', { name: 'Sair da sala' })).not.toBeInTheDocument()
-  })
+      expect(await screen.findByRole('alert')).toBeInTheDocument()
+      expect(screen.queryByRole('button', { name: 'Sair da sala' })).not.toBeInTheDocument()
+    },
+  )
 
   it('não oferece a saída à conta suspensa, que o portão continua recusando', async () => {
     server.use(
@@ -127,7 +128,7 @@ describe('saída da sala quando a leitura é recusada', () => {
 })
 
 const LOADING_TEXT = 'Carregando suas preferências…'
-const UNAVAILABLE_TEXT = 'Este encontro não está disponível.'
+const UNAVAILABLE_TEXT = 'Esta sala não está disponível.'
 const EXIT_BUTTON = { name: 'Sair da sala' }
 const ACCEPT_BUTTON = { name: 'Aceitar convite' }
 
@@ -251,7 +252,7 @@ describe('tela da sala enquanto a próxima leitura não responde', () => {
     await advancePollingAndNotify()
     await user.click(screen.getByRole('button', EXIT_BUTTON))
 
-    expect(await screen.findByText('Este encontro foi encerrado.')).toBeInTheDocument()
+    expect(await screen.findByText('Esta sala foi encerrada.')).toBeInTheDocument()
     expect(exits).toBe(1)
 
     secondRead.release(problemResponse(403, 'FORBIDDEN'))

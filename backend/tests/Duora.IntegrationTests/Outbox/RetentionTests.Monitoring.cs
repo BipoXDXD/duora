@@ -186,7 +186,7 @@ public sealed partial class RetentionTests
         metrics.Equal("processing_lag_seconds", "selfie-attempts-suspension", "ready", 120);
         await h.Sql("delete from ops.outbox_deliveries where id=$1", id);
         await metrics.Observe(h.Service);
-        Assert.Equal(108, metrics.Values.Count); // 6 bounded consumers x 6 states x 3 instruments
+        Assert.Equal(126, metrics.Values.Count); // 7 bounded consumers x 6 states x 3 instruments
         Assert.All(metrics.Values.Values, value => Assert.Equal(0, value));
     }
 

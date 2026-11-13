@@ -39,3 +39,7 @@ media_sanitizer_code_dir: /opt/duora/media
 media_sanitizer_profile_path: /etc/duora-media-launcher.json
 media_sanitizer_authority_dir: /var/lib/duora-media-launcher
 media_sanitizer_control_socket: /run/duora-media/control.sock
+
+# Partida depois de reboot (daemon rootless + launcher). Só vale com imagem fixada e runtime_started; false remove os
+# links e o drop-in. É parte da ativação autorizada, nunca da instalação inerte.
+media_sanitizer_start_on_boot: false

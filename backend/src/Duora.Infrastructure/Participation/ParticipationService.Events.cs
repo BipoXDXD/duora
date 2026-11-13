@@ -10,7 +10,7 @@ using static Duora.Infrastructure.Participation.ParticipationSql;
 namespace Duora.Infrastructure.Participation;
 
 public sealed record ParticipationEvent(Guid Id, string Title, DateTimeOffset StartsAt, string State, string? TimeZone);
-public sealed record ParticipationStatus(string State, Guid? RoomId);
+public sealed record ParticipationStatus(string State, Guid? RoomId, bool RoundCancelled);
 public enum ParticipationOutcome { Done, Unavailable, Conflict, Invalid }
 
 public sealed class ParticipationOptions
@@ -51,6 +51,12 @@ public sealed partial class ParticipationService(NpgsqlDataSource source, TimePr
     {
         public static DateTimeOffset Truncate(DateTimeOffset instant) => new(instant.Ticks - instant.Ticks % 10, TimeSpan.Zero);
         public override DateTimeOffset GetUtcNow() => Truncate(inner.GetUtcNow());
+    }
+
+    /// <summary>Para o motor do jogo decidir no mesmo instante que já decidiu a conclusão do job, sem reler o relógio.</summary>
+    private sealed class FrozenClock(DateTimeOffset instant) : TimeProvider
+    {
+        public override DateTimeOffset GetUtcNow() => instant;
     }
 
     internal Func<string, CancellationToken, Task>? ObserveMatchingStage { get; set; }
@@ -278,34 +284,42 @@ public sealed partial class ParticipationService(NpgsqlDataSource source, TimePr
         }
 
         // Só a sala mais recente conta: filtrar dentro do lateral faria a sala abortada trazer de volta a de uma rodada anterior.
+        // O aviso de cancelamento olha a última rodada que saiu de Scheduled: some quando a seguinte começa (spec 5.2). Só
+        // vale para quem já tinha presença confirmada quando essa rodada começava, e só com o encontro ainda aberto.
         await using var command = Command(connection, """
-            select r.state,case when s.state<>'Aborted' and not s.blocked then s.id end,s.state from events.registrations r
+            select r.state,case when s.state<>'Aborted' and not s.blocked then s.id end,s.state,
+              r.state='CheckedIn' and e.state in ('Published','Running')
+                and coalesce(lr.state='Cancelled' and r.checked_in_at<=lr.starts_at,false)
+            from events.registrations r join events.events e on e.id=r.event_id
             left join lateral(select gs.id,gs.state,
                 exists(select 1 from safety.blocks b where (b.blocker_id=p.user_low and b.blocked_id=p.user_high) or (b.blocker_id=p.user_high and b.blocked_id=p.user_low)) blocked
               from events.pairings p join experiences.game_sessions gs on gs.pairing_id=p.id
               where p.event_id=r.event_id and (p.user_low=r.user_id or p.user_high=r.user_id)
               order by p.created_at desc limit 1) s on true
+            left join lateral(select rd.state,rd.starts_at from events.rounds rd where rd.event_id=r.event_id and rd.state<>'Scheduled'
+              order by rd.number desc limit 1) lr on true
             where r.event_id=$1 and r.user_id=$2
             """, eventId, user);
         await using var reader = await command.ExecuteReaderAsync(ct);
         if (!await reader.ReadAsync(ct))
         {
-            return new("Unregistered", null);
+            return new("Unregistered", null, false);
         }
 
-        return reader.IsDBNull(1) ? new(reader.GetString(0) == "CheckedIn" ? "Waiting" : reader.GetString(0), null)
-            : new(reader.GetString(2) == "Expired" ? "Unavailable" : reader.GetString(2), reader.GetGuid(1));
+        var roundCancelled = reader.GetBoolean(3);
+        return reader.IsDBNull(1) ? new(reader.GetString(0) == "CheckedIn" ? "Waiting" : reader.GetString(0), null, roundCancelled)
+            : new(reader.GetString(2) == "Expired" ? "Unavailable" : reader.GetString(2), reader.GetGuid(1), roundCancelled);
     }
 
     public async Task BuildRoundPairingsAsync(Guid roundId, CancellationToken ct)
     {
         await using var connection = await source.OpenConnectionAsync(ct);
         await using var transaction = await connection.BeginTransactionAsync(ct);
-        await BuildRoundAsync(connection, roundId, ct);
+        await BuildRoundAsync(connection, roundId, Now, ct);
         await transaction.CommitAsync(ct);
     }
 
-    private async Task BuildRoundAsync(NpgsqlConnection connection, Guid roundId, CancellationToken ct)
+    private async Task BuildRoundAsync(NpgsqlConnection connection, Guid roundId, DateTimeOffset now, CancellationToken ct)
     {
         if (!MatchingEnabled)
         {
@@ -323,7 +337,6 @@ public sealed partial class ParticipationService(NpgsqlDataSource source, TimePr
             return;
         }
 
-        var now = Now;
         if (round.State != "Scheduled" || round.Starts > now)
         {
             return;
