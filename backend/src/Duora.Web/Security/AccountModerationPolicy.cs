@@ -47,7 +47,7 @@ internal sealed class AccountModeratorHandler(AccountSuspensions suspensions)
         catch (Exception exception) when (IsDatabaseUnavailable(exception))
         {
             // Sem banco não se sabe: falha fechada como indisponibilidade (503), não como proibição.
-            context.Fail(new EligibilityUnavailableReason(this));
+            context.Fail(new EligibilityUnavailableReason(this, exception));
             return;
         }
 

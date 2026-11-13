@@ -184,7 +184,8 @@ public sealed partial class AccountSuspensions
             throw new ArgumentException("A recuperação exige entrega identificada e motivo de selfie.", nameof(failedDeliveryId));
         }
 
-        return SuspendAsync(moderator, order, key, cancellationToken, failedDeliveryId);
+        SelfieRecovery? recovery = failedDeliveryId is { } failedDelivery ? new SelfieRecovery(moderator, failedDelivery) : null;
+        return SuspendAsync(moderator, order, key, cancellationToken, recovery);
     }
 
     /// <exception cref="ArgumentException">A revogação não foi feita em nome do moderador da sessão.</exception>
@@ -254,13 +255,13 @@ public sealed partial class AccountSuspensions
         SuspensionOrder order,
         ModerationCommandKey key,
         CancellationToken cancellationToken,
-        Guid? failedDeliveryId = null)
+        SelfieRecovery? recovery = null)
     {
         for (var attempt = 0; attempt < 3; attempt++)
         {
             try
             {
-                return await RecordSuspensionAsync(moderator, order, key, failedDeliveryId, cancellationToken);
+                return await RecordSuspensionAsync(moderator, order, key, recovery, cancellationToken);
             }
             catch (RegistrationPlanChangedException)
             {
@@ -270,7 +271,7 @@ public sealed partial class AccountSuspensions
             {
                 return new SuspensionOutcome.Busy();
             }
-            catch (InvalidOperationException error) when (failedDeliveryId is not null
+            catch (InvalidOperationException error) when (recovery is not null
                 && error.InnerException is PostgresException postgres && IsContention(postgres))
             {
                 // Npgsql envolve o timeout de lock das consultas EF como falha transitória. A transação já foi
@@ -285,25 +286,22 @@ public sealed partial class AccountSuspensions
         ModeratorSession? moderator,
         SuspensionOrder order,
         ModerationCommandKey key,
-        Guid? failedDeliveryId,
+        SelfieRecovery? recovery,
         CancellationToken cancellationToken)
     {
         var subject = order.SubjectUserId;
         var commandKey = Convert.ToHexStringLower(SHA256.HashData(Encoding.UTF8.GetBytes(key.Scope)));
-        var intent = failedDeliveryId is { } recovery ? RecoveryIntent(order, recovery) : Intent(order);
+        var intent = CommandIntent(order, recovery);
         await using var transaction = await BeginAsync(cancellationToken);
         // Permissão antes de criar ou travar a guarda do alvo; depois das guardas, de novo, ao vivo.
-        if (moderator is { } early && !await IsModeratorAsync(early, requireRecentTotp: true, cancellationToken))
+        if (!await IsAllowedToSuspendAsync(moderator, cancellationToken))
         {
             return new SuspensionOutcome.Forbidden();
         }
 
         var connection = (NpgsqlConnection)_db.Database.GetDbConnection();
-        var plan = await RegistrationLockPlan.ForSuspensionAsync(connection, subject, moderator?.UserId, cancellationToken);
-        await GuardUsersAsync(plan.Users, cancellationToken);
-        await ParticipationSql.Execute(connection,
-            "select 1 from identity.users where id=any($1) order by id for share", cancellationToken, plan.Users);
-        if (moderator is { } session && !await IsModeratorAsync(session, requireRecentTotp: true, cancellationToken))
+        var plan = await LockSuspensionUsersAsync(connection, subject, moderator, cancellationToken);
+        if (!await IsAllowedToSuspendAsync(moderator, cancellationToken))
         {
             return new SuspensionOutcome.Forbidden();
         }
@@ -313,39 +311,119 @@ public sealed partial class AccountSuspensions
             return replay;
         }
 
+        if (await RefuseSuspensionAsync(subject, recovery, cancellationToken) is { } refusal)
+        {
+            return refusal;
+        }
+
+        await LockEventsAndConfirmPlanAsync(connection, plan, subject, moderator, cancellationToken);
+        var now = _time.GetUtcNow();
+        var id = Guid.CreateVersion7(now);
+        if (!await TryInsertSuspensionAsync(id, now, order, key, commandKey, intent, cancellationToken))
+        {
+            return await ReplayOrAlreadySuspendedAsync(commandKey, intent, cancellationToken);
+        }
+
+        await ApplySuspensionAsync(connection, plan, subject, id, now, cancellationToken);
+        await AuditSuspensionAsync(moderator, id, key, recovery, cancellationToken);
+        await transaction.CommitAsync(cancellationToken);
+        return new SuspensionOutcome.Suspended(
+            new SuspensionView(id, subject, order.Reason, order.Author is ModerationAuthor.Automated, now, 1, null),
+            Replayed: false);
+    }
+
+    /// <summary>O sistema não tem sessão a conferir; o moderador é conferido ao vivo, com TOTP recente.</summary>
+    private async Task<bool> IsAllowedToSuspendAsync(ModeratorSession? moderator, CancellationToken cancellationToken) =>
+        moderator is not { } session || await IsModeratorAsync(session, requireRecentTotp: true, cancellationToken);
+
+    /// <summary>
+    /// Guardas e travas de leitura de todas as contas do plano (a do alvo e a do moderador). O plano pode crescer
+    /// com uma inscrição concorrente; <see cref="LockEventsAndConfirmPlanAsync"/> confere isso mais adiante.
+    /// </summary>
+    private async Task<RegistrationLockPlan> LockSuspensionUsersAsync(
+        NpgsqlConnection connection,
+        Guid subject,
+        ModeratorSession? moderator,
+        CancellationToken cancellationToken)
+    {
+        var plan = await RegistrationLockPlan.ForSuspensionAsync(connection, subject, moderator?.UserId, cancellationToken);
+        await GuardUsersAsync(plan.Users, cancellationToken);
+        await ParticipationSql.Execute(connection,
+            "select 1 from identity.users where id=any($1) order by id for share", cancellationToken, plan.Users);
+        return plan;
+    }
+
+    /// <summary>Trava a conta e devolve por que ela não é suspensa agora; nulo se a medida pode ser gravada.</summary>
+    private async Task<SuspensionOutcome?> RefuseSuspensionAsync(
+        Guid subject,
+        SelfieRecovery? recovery,
+        CancellationToken cancellationToken)
+    {
         var standing = await AccountSuspensionStatus.LockAsync(_db, subject, cancellationToken);
+        if (RefuseByStanding(standing, isRecovery: recovery is not null) is { } refusal)
+        {
+            return refusal;
+        }
+
+        return recovery is { } selfieRecovery
+            ? await RefuseRecoveryAsync(subject, selfieRecovery.DeliveryId, standing, cancellationToken)
+            : null;
+    }
+
+    private static SuspensionOutcome? RefuseByStanding(SuspensionStanding standing, bool isRecovery)
+    {
         switch (standing)
         {
             case SuspensionStanding.NotFound:
                 return new SuspensionOutcome.NotFound();
             case SuspensionStanding.NotSuspendable:
                 return new SuspensionOutcome.NotSuspendable();
-            case SuspensionStanding.Suspended when failedDeliveryId is null:
+            case SuspensionStanding.Suspended when !isRecovery:
                 return new SuspensionOutcome.AlreadySuspended();
             case SuspensionStanding.Suspended:
             case SuspensionStanding.Suspendable:
-                break;
+                return null;
             default:
                 throw new InvalidOperationException("Situação da conta desconhecida.");
         }
+    }
 
-        if (failedDeliveryId is { } failed)
+    /// <summary>Na recuperação de selfie, uma conta já suspensa só é recusada depois de validar a entrega morta.</summary>
+    private async Task<SuspensionOutcome?> RefuseRecoveryAsync(
+        Guid subject,
+        Guid failedDeliveryId,
+        SuspensionStanding standing,
+        CancellationToken cancellationToken)
+    {
+        if (await ValidateSelfieRecoveryAsync(subject, failedDeliveryId, cancellationToken) is { } refused)
         {
-            if (await ValidateSelfieRecoveryAsync(subject, failed, cancellationToken) is { } refused)
-            {
-                return refused;
-            }
-
-            if (standing == SuspensionStanding.Suspended)
-            {
-                return new SuspensionOutcome.AlreadySuspended();
-            }
+            return refused;
         }
 
+        return standing == SuspensionStanding.Suspended ? new SuspensionOutcome.AlreadySuspended() : null;
+    }
+
+    private static async Task LockEventsAndConfirmPlanAsync(
+        NpgsqlConnection connection,
+        RegistrationLockPlan plan,
+        Guid subject,
+        ModeratorSession? moderator,
+        CancellationToken cancellationToken)
+    {
         await plan.LockEventsAsync(connection, cancellationToken);
         plan.RequireCovered(await RegistrationLockPlan.ForSuspensionAsync(connection, subject, moderator?.UserId, cancellationToken));
-        var now = _time.GetUtcNow();
-        var id = Guid.CreateVersion7(now);
+    }
+
+    /// <returns>Se a medida foi gravada; falso se a chave ou a suspensão ativa da conta já existiam.</returns>
+    private async Task<bool> TryInsertSuspensionAsync(
+        Guid id,
+        DateTimeOffset now,
+        SuspensionOrder order,
+        ModerationCommandKey key,
+        string commandKey,
+        byte[] intent,
+        CancellationToken cancellationToken)
+    {
         var reason = order.Reason.ToString();
         var authorKind = AuthorKind(order.Author);
         Guid? authorId = order.Author is ModerationAuthor.Human human ? human.UserId : null;
@@ -354,25 +432,46 @@ public sealed partial class AccountSuspensions
             insert into safety.moderation_actions
               (id, subject_user_id, measure, reason_code, internal_reason, author_kind, author_user_id, decided_at,
                command_key, command_intent, source_code, source_id, version)
-            values ({id}, {subject}, {Suspension}, {reason}, {order.InternalReason}, {authorKind}, {authorId}, {now},
+            values ({id}, {order.SubjectUserId}, {Suspension}, {reason}, {order.InternalReason}, {authorKind}, {authorId}, {now},
                     {commandKey}, {intent}, {key.Source?.Code}, {key.Source?.Id}, 1)
             on conflict do nothing
             """, cancellationToken);
-        if (inserted != 1)
-        {
-            return await ReplayAsync(commandKey, intent, cancellationToken) ?? new SuspensionOutcome.AlreadySuspended();
-        }
+        return inserted == 1;
+    }
 
+    private async Task<SuspensionOutcome> ReplayOrAlreadySuspendedAsync(
+        string commandKey,
+        byte[] intent,
+        CancellationToken cancellationToken) =>
+        await ReplayAsync(commandKey, intent, cancellationToken) ?? new SuspensionOutcome.AlreadySuspended();
+
+    private async Task ApplySuspensionAsync(
+        NpgsqlConnection connection,
+        RegistrationLockPlan plan,
+        Guid subject,
+        Guid id,
+        DateTimeOffset now,
+        CancellationToken cancellationToken)
+    {
         await AccountSuspensionStatus.SuspendAsync(_db, subject, cancellationToken);
         await RegistrationTransitions.WithdrawForSuspensionAsync(connection, plan, subject, id, now, cancellationToken);
         await ReleaseRoomsAsync(subject, now, cancellationToken);
         await BumpSecurityVersionAsync(subject, cancellationToken);
+    }
+
+    private async Task AuditSuspensionAsync(
+        ModeratorSession? moderator,
+        Guid id,
+        ModerationCommandKey key,
+        SelfieRecovery? recovery,
+        CancellationToken cancellationToken)
+    {
         await AuditAsync(moderator, AuditAction.AccountSuspended, id, version: 1, cancellationToken);
-        if (failedDeliveryId is { } recoveredDelivery && moderator is { } recoveringModerator)
+        if (recovery is { } selfieRecovery)
         {
             await new AuditTrail(_db, _time).AppendAsync(
-                new AuditRecord(AuditActorKind.Moderator, recoveringModerator.UserId,
-                    AuditAction.AccountSuspensionSourceRecorded, "outbox_delivery", recoveredDelivery), cancellationToken);
+                new AuditRecord(AuditActorKind.Moderator, selfieRecovery.Moderator.UserId,
+                    AuditAction.AccountSuspensionSourceRecorded, "outbox_delivery", selfieRecovery.DeliveryId), cancellationToken);
         }
 
         if (key.Source is { } source)
@@ -382,11 +481,6 @@ public sealed partial class AccountSuspensions
                     source.Code.Replace('-', '_'), source.Id),
                 cancellationToken);
         }
-
-        await transaction.CommitAsync(cancellationToken);
-        return new SuspensionOutcome.Suspended(
-            new SuspensionView(id, subject, order.Reason, order.Author is ModerationAuthor.Automated, now, 1, null),
-            Replayed: false);
     }
 
     private async Task<LiftOutcome> LiftAsync(
@@ -594,6 +688,10 @@ public sealed partial class AccountSuspensions
     private static byte[] Intent(SuspensionOrder order) =>
         SHA256.HashData(Encoding.UTF8.GetBytes(
             $"{order.SubjectUserId:D}\n{Suspension}\n{order.Reason}\n{AuthorKind(order.Author)}\n{order.InternalReason}"));
+
+    /// <summary>O hash do comando: o da recuperação de selfie, ligado à entrega, ou o do pedido comum.</summary>
+    private static byte[] CommandIntent(SuspensionOrder order, SelfieRecovery? recovery) =>
+        recovery is { } selfieRecovery ? RecoveryIntent(order, selfieRecovery.DeliveryId) : Intent(order);
 
     private static string AuthorKind(ModerationAuthor author) =>
         author is ModerationAuthor.Human ? "Human" : "Automated";
