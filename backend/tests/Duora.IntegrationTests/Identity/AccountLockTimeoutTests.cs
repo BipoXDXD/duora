@@ -1,4 +1,5 @@
 using System.Net;
+using Duora.Infrastructure.Identity;
 using Microsoft.Extensions.Time.Testing;
 using Npgsql;
 
@@ -175,13 +176,15 @@ public sealed class AccountLockTimeoutTests : IAsyncDisposable
         var mostWaiting = 0L;
         while (!logins.All(login => login.IsCompleted))
         {
-            mostWaiting = Math.Max(mostWaiting, await CountConnectionsWaitingForTheAccountLockAsync());
+            mostWaiting = Math.Max(mostWaiting, await CountConnectionsBlockedByAsync(holder.ProcessId));
             await Task.Delay(TimeSpan.FromMilliseconds(50), TestContext.Current.CancellationToken);
         }
 
         var responses = await Task.WhenAll(logins);
         Assert.All(responses, response => Assert.Equal(HttpStatusCode.ServiceUnavailable, response.StatusCode));
-        Assert.InRange(mostWaiting, 0, 1);
+        // Exatamente 1: o primeiro da fila em memória espera o lock; os outros esperam na fila, sem conexão. 0 seria a
+        // consulta quebrada (ou ninguém chegou ao banco), e o teste não provaria nada.
+        Assert.Equal(1, mostWaiting);
         foreach (var response in responses)
         {
             response.Dispose();
@@ -190,17 +193,27 @@ public sealed class AccountLockTimeoutTests : IAsyncDisposable
         browsers.ForEach(browser => browser.Dispose());
     }
 
-    private async Task<long> CountConnectionsWaitingForTheAccountLockAsync()
+    /// <summary>
+    /// Conexões na fila de bloqueio que começa no <paramref name="holderPid"/>: as que ele bloqueia e as que esperam
+    /// atrás delas (a segunda espera pela mesma linha é bloqueada pela primeira, não pelo holder). Só essa fila: outras
+    /// classes de teste rodam em paralelo no mesmo banco e travam suas próprias contas.
+    /// </summary>
+    private async Task<long> CountConnectionsBlockedByAsync(int holderPid)
     {
         await using var connection = new NpgsqlConnection(_postgres.ConnectionString);
         await connection.OpenAsync(TestContext.Current.CancellationToken);
         await using var command = new NpgsqlCommand(
             """
-            select count(*) from pg_stat_activity
-            where datname = current_database() and wait_event_type = 'Lock'
-              and query like '%from identity.users where id =%for no key update%'
+            with recursive blocked(pid) as (
+                select pid from pg_stat_activity where pg_blocking_pids(pid) @> array[$1]
+                union
+                select waiting.pid from pg_stat_activity waiting
+                join blocked on pg_blocking_pids(waiting.pid) @> array[blocked.pid]
+            )
+            select count(*) from blocked
             """,
             connection);
+        command.Parameters.AddWithValue(holderPid);
         return Convert.ToInt64(await command.ExecuteScalarAsync(TestContext.Current.CancellationToken), System.Globalization.CultureInfo.InvariantCulture);
     }
 
@@ -250,10 +263,50 @@ public sealed class AccountLockTimeoutTests : IAsyncDisposable
         return new AccountHolder(connection, transaction);
     }
 
+    /// <summary>
+    /// O 55P03 pode chegar cru, embrulhado pelo EF ou com a <see cref="NpgsqlException"/> no meio. Em qualquer
+    /// profundidade é a espera que passou do teto; não reconhecido, cairia no handler global com outro
+    /// <c>Retry-After</c> e reabriria o oráculo da issue #468.
+    /// </summary>
+    [Theory]
+    [InlineData(0)]
+    [InlineData(1)]
+    [InlineData(2)]
+    [InlineData(3)]
+    public void ALockTimeoutIsRecognizedAtAnyDepth(int wrappers)
+    {
+        var timeout = new PostgresException("lock", "ERROR", "ERROR", PostgresErrorCodes.LockNotAvailable);
+
+        Assert.Same(timeout, AccountSecurityService.LockTimeoutIn(Wrap(timeout, wrappers)));
+    }
+
+    [Fact]
+    public void AnotherDatabaseErrorIsNotALockTimeout()
+    {
+        var other = new PostgresException("outro", "ERROR", "ERROR", PostgresErrorCodes.UniqueViolation);
+
+        Assert.Null(AccountSecurityService.LockTimeoutIn(Wrap(other, 2)));
+        Assert.Null(AccountSecurityService.LockTimeoutIn(new InvalidOperationException("sem banco")));
+    }
+
+    /// <summary>Embrulha como o EF e o Npgsql: a mais externa é a do EF, as do meio são do Npgsql.</summary>
+    private static Exception Wrap(PostgresException error, int wrappers)
+    {
+        Exception wrapped = error;
+        for (var level = 1; level <= wrappers; level++)
+        {
+            wrapped = level == wrappers
+                ? new InvalidOperationException("transient", wrapped)
+                : new NpgsqlException("npgsql", wrapped);
+        }
+
+        return wrapped;
+    }
+
     private static async Task AssertTemporarilyUnavailableAsync(HttpResponseMessage response)
     {
         await ProblemAssert.IsProblemAsync(response, HttpStatusCode.ServiceUnavailable, "TEMPORARILY_UNAVAILABLE");
-        Assert.InRange(ProblemAssert.RetryAfterSeconds(response), 1, 60);
+        Assert.Equal(30, ProblemAssert.RetryAfterSeconds(response));
     }
 
     /// <summary>Outra transação com a linha da conta travada, como uma verificação longa em andamento.</summary>
@@ -274,6 +327,9 @@ public sealed class AccountLockTimeoutTests : IAsyncDisposable
     private sealed class AccountHolder(NpgsqlConnection connection, NpgsqlTransaction transaction) : IAsyncDisposable
     {
         private bool _released;
+
+        /// <summary>Pid do backend que segura o lock, para achar quem ele bloqueia.</summary>
+        public int ProcessId { get; } = connection.ProcessID;
 
         public async ValueTask DisposeAsync()
         {

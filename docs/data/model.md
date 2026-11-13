@@ -437,7 +437,9 @@ erDiagram
   `NoShow`, `Completed`); `waitlist_position bigint`; `registered_at`, `confirmed_at`, `checked_in_at`,
   `withdrawn_at timestamptz`; `version bigint`.
 - **Constraints:** `UNIQUE (event_id, user_id)` (spec 10.3); `CHECK ((state = 'Waitlisted') = (waitlist_position
-  IS NOT NULL))`; índice único parcial `(event_id, waitlist_position)` onde `state = 'Waitlisted'`; FK
+  IS NOT NULL))`; `ck_registrations_withdrawal`: as colunas de retirada (`withdrawn_at`, `withdrawn_from_state`,
+  `withdrawn_waitlist_position`) ficam todas nulas (linha legada, histórico desconhecido) ou todas coerentes com
+  `state = 'Withdrawn'`, com ou sem `withdrawn_by_suspension_id` (sem ela, retirada voluntária; ADR-0044, ADR-0053); índice único parcial `(event_id, waitlist_position)` onde `state = 'Waitlisted'`; FK
   `event_id` `RESTRICT`; FK `user_id` `RESTRICT`.
 - **Índices:** `ix_registrations_user_id`; o `UNIQUE` cobre `event_id`; `ix_registrations_event_state` para
   check-in e promoção.

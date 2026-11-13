@@ -121,6 +121,7 @@ public sealed class CsrfEveryRouteTests : IAsyncDisposable
                 confirmedAdult = true,
             },
             ["PUT /api/v1/events/{eventId:guid}/registration"] = null,
+            ["DELETE /api/v1/events/{eventId:guid}/registration"] = null,
             ["POST /api/v1/events/{eventId:guid}/check-in"] = null,
             ["POST /api/v1/rooms/{roomId:guid}/accept"] = null,
             ["POST /api/v1/rooms/{roomId:guid}/reject"] = null,

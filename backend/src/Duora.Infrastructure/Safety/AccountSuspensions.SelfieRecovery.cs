@@ -10,6 +10,12 @@ namespace Duora.Infrastructure.Safety;
 public sealed partial class AccountSuspensions
 {
     /// <summary>
+    /// Recuperação humana de selfie (#319): a entrega morta e o moderador que a recupera, juntos. O moderador não é
+    /// anulável porque só a porta administrativa recupera; a porta interna do sistema nunca recebe entrega.
+    /// </summary>
+    private readonly record struct SelfieRecovery(ModeratorSession Moderator, Guid DeliveryId);
+
+    /// <summary>
     /// Executada na transação da medida, depois da trava da conta: aprovação, exclusão e revogação da selfie usam
     /// essa mesma trava. A entrega fica travada até o commit, serializando também sua revisão e retenção. Só lê
     /// identidade estável do evento e ledger atual, nunca o payload ou a tentativa já expurgada (#319).
