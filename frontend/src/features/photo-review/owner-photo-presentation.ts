@@ -40,7 +40,7 @@ export function rejectionMessage(code: string | null): PlainMessageKey {
 
 /** Critérios aceitos em P173-1 (ADR-0035), na ordem em que a seção de regras os lista. */
 export const PHOTO_RULES: readonly PlainMessageKey[] = [
-  'photoOwner.ruleShowsYou',
+  'photoOwner.ruleIsYours',
   'photoOwner.ruleNoOtherPeople',
   'photoOwner.ruleNoSexualContent',
   'photoOwner.ruleNoGraphicViolence',

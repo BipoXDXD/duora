@@ -657,7 +657,7 @@ export const ptBR = {
   'photoOwner.rulesTitle': 'Regras de fotos',
   // Critérios de P173-1 (ADR-0035). A redação precisa de aprovação do dono antes de ligar o upload (#69, screens.md).
   'photoOwner.rulesIntro': 'A foto só é aprovada se seguir estas regras:',
-  'photoOwner.ruleShowsYou': 'A foto precisa mostrar você.',
+  'photoOwner.ruleIsYours': 'A foto deve ser sua.',
   'photoOwner.ruleNoOtherPeople': 'Sem outras pessoas identificáveis.',
   'photoOwner.ruleNoSexualContent': 'Sem nudez nem conteúdo sexual explícito.',
   'photoOwner.ruleNoGraphicViolence': 'Sem violência gráfica.',

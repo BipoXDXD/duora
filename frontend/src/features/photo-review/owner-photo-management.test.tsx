@@ -1644,7 +1644,7 @@ describe('desistir do envio incerto', () => {
 describe('regras de fotos', () => {
   const INTRO = 'A foto só é aprovada se seguir estas regras:'
   const RULES = [
-    'A foto precisa mostrar você.',
+    'A foto deve ser sua.',
     'Sem outras pessoas identificáveis.',
     'Sem nudez nem conteúdo sexual explícito.',
     'Sem violência gráfica.',
@@ -1671,7 +1671,7 @@ describe('regras de fotos', () => {
     expect(await screen.findByRole('heading', { name: 'Photo rules' })).toBeVisible()
     expect(screen.getByText('A photo is approved only if it follows these rules:')).toBeVisible()
     expect(listedRules()).toEqual([
-      'The photo must show you.',
+      'The photo must be of you.',
       'No other identifiable people.',
       'No nudity or explicit sexual content.',
       'No graphic violence.',

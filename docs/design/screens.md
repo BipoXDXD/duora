@@ -187,9 +187,11 @@ em [system.md](system.md); critérios de acessibilidade, em [accessibility.md](a
 - **Envio incerto:** além de "Repetir o mesmo pedido", há "Desistir", que descarta chave e bytes e avisa para conferir
   a lista antes de enviar de novo (decisão do dono, 06/11/2026).
 - **Regras de fotos:** seção nesta tela, destino de "Consulte as regras", visível só com o gate aberto e para quem
-  envia. Lista os critérios de P173-1 (ADR-0035): a foto mostra a pessoa, sem outras pessoas identificáveis, nudez ou
-  conteúdo sexual explícito, violência gráfica, ódio ou dados de contato à mostra. Não cita revisão humana, por
-  extensão de P4 (ADR-0035), que trata só da política de privacidade. A redação precisa de aprovação do dono **antes de ligar o upload** (#69).
+  envia. Lista os critérios de P173-1 (ADR-0035): a foto é apresentada como do titular ("A foto deve ser sua.", sem
+  sugerir verificação de identidade, que o ADR nega), sem outras pessoas identificáveis, nudez ou conteúdo sexual
+  explícito, violência gráfica, ódio ou dados de contato à mostra. Não cita revisão humana, por extensão de P4
+  (ADR-0035), que trata só da política de privacidade. A redação precisa de aprovação do dono **antes de ligar o
+  upload** (#69).
 - **Foco:** quando o controle focado some, o foco vai ao painel da exclusão, ao título "Suas fotos" ou ao aviso de
   indisponível.
 - **Saída da página:** com envio em curso ou resultado incerto, o navegador pede confirmação (`beforeunload`).

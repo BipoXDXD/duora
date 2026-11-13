@@ -648,7 +648,7 @@ export const en = {
   'photoOwner.rulesTitle': 'Photo rules',
   // P173-1 criteria (ADR-0035). The wording needs the owner's approval before uploads are turned on (#69, screens.md).
   'photoOwner.rulesIntro': 'A photo is approved only if it follows these rules:',
-  'photoOwner.ruleShowsYou': 'The photo must show you.',
+  'photoOwner.ruleIsYours': 'The photo must be of you.',
   'photoOwner.ruleNoOtherPeople': 'No other identifiable people.',
   'photoOwner.ruleNoSexualContent': 'No nudity or explicit sexual content.',
   'photoOwner.ruleNoGraphicViolence': 'No graphic violence.',
