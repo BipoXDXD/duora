@@ -6,9 +6,9 @@ documento.
 
 ## Fila de merges: o strict continua ligado (#548)
 
-**Decisão (13/11/2026, opção conservadora da issue; o merge deste registro é o aceite do dono):** manter o
-ruleset da `main` como está, com os nove checks obrigatórios e `strict_required_status_checks_policy: true`.
-O PR só entra em dia com a `main`.
+**Decisão (13/11/2026):** opção conservadora e reversível, tomada sob a ordem do dono de 13/11 de resolver as
+issues; o dono pode revê-la a qualquer momento. Manter o ruleset da `main` como está, com os nove checks
+obrigatórios e `strict_required_status_checks_policy: true`. O PR só entra em dia com a `main`.
 
 **Custo aceito:** cada merge deixa o próximo PR BEHIND. Ele precisa de update-branch e de um CI de PR
 completo (30 a 45 min), e a fila sai em cerca de um merge a cada 40 min.
@@ -32,8 +32,10 @@ completo (30 a 45 min), e a fila sai em cerca de um merge a cada 40 min.
 **Garantia que vale em qualquer opção:** commit da `main` com CI vermelho nunca fica `eligible` para a
 release. O caso nomeado é `test_main_commit_with_red_ci_never_becomes_eligible`, em
 [test_gate.py](../../scripts/release/coolify/test_gate.py) (`python3 -m unittest discover -s
-scripts/release/coolify`). Ele cobre o run com `failure` ou `timed_out` e um job obrigatório com falha, e o run
-`failure` com os jobs verdes. Cai se `validate()` ignorar a conclusão do run e dos jobs.
+scripts/release/coolify`). Pelo `main()` do gate, ele prova que nada é gravado em `GITHUB_OUTPUT` (nem
+`eligible=true`) em quatro casos: run `failure` ou `timed_out` com um job obrigatório em `failure`, run `failure` com os jobs
+verdes e run `success` com um job obrigatório em `failure`. Cai se `validate()` deixar de conferir a conclusão
+do run ou a dos jobs obrigatórios, cada uma sozinha.
 
 **Reabrir quando:** a fila de PRs prontos passar a esperar mais que um dia de forma recorrente, ou o
 repositório for para uma organização com merge queue disponível.
@@ -43,8 +45,9 @@ repositório for para uma organização com merge queue disponível.
 São ensaios de merge, preparação e diagnóstico que só existiam localmente. O dono pediu tudo no GitHub, então
 foram publicados sem PR. O conteúdo útil já entrou na `main` por outros PRs ou foi substituído.
 
-**Decisão (13/11/2026, opção conservadora; o merge deste registro é o aceite do dono):** os branches ficam
-preservados. **Nunca mesclar** nenhum deles, nem abrir PR a partir deles.
+**Decisão (13/11/2026):** opção conservadora e reversível, tomada sob a ordem do dono de 13/11 de resolver as
+issues; o dono pode revê-la a qualquer momento. Os branches ficam preservados. **Nunca mesclar** nenhum deles,
+nem abrir PR a partir deles.
 
 **Por quê:** preservar é reversível e apagar não é. Os branches guardam o histórico dos ensaios (pilhas de
 merge, instrumentação de diagnóstico) que os PRs citam como evidência. Custam só uma entrada na lista de

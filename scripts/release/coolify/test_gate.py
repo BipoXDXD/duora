@@ -152,7 +152,8 @@ class ConsistentJobViewTests(unittest.TestCase):
     def test_main_commit_with_red_ci_never_becomes_eligible(self):
         # Issue #548: com ou sem strict no ruleset, a CI de push da main é a última barreira da release.
         red_job = [{**self.jobs[0], 'conclusion': 'failure'}, *self.jobs[1:]]
-        for conclusion, jobs in [('failure', red_job), ('timed_out', red_job), ('failure', self.jobs)]:
+        for conclusion, jobs in [('failure', red_job), ('timed_out', red_job),
+                                ('failure', self.jobs), ('success', red_job)]:
             with self.subTest(conclusion=conclusion, red_job=jobs is red_job):
                 self.ci_run = {**self.ci_run, 'conclusion': conclusion}
                 output, _, waits, error = self.execute([jobs])
