@@ -43,10 +43,22 @@ FROM --platform=$BUILDPLATFORM golang:1.26.10-alpine@sha256:9ce231b28998b32e1169
 ARG TARGETOS
 ARG TARGETARCH
 ENV CGO_ENABLED=0
-RUN go install github.com/caddyserver/xcaddy/cmd/xcaddy@v0.4.7
-RUN GOOS="$TARGETOS" GOARCH="$TARGETARCH" XCADDY_GO_BUILD_FLAGS="-trimpath -ldflags=-s" \
-    xcaddy build v2.11.7 --replace golang.org/x/net=golang.org/x/net@v0.62.0 \
-    --replace github.com/go-jose/go-jose/v4=github.com/go-jose/go-jose/v4@v4.1.6 --output /out/caddy
+# Os módulos baixam do Go proxy, que já falhou no meio do build (#549). O cache mount guarda o que uma tentativa
+# já baixou (o go.sum de cada módulo continua conferido), e o build tem até 3 tentativas com prazo cada; a falha
+# persistente continua quebrando o build. Versões e replaces são os mesmos em todas as tentativas.
+RUN --mount=type=cache,id=duora-go-mod,target=/go/pkg/mod \
+    go install github.com/caddyserver/xcaddy/cmd/xcaddy@v0.4.7
+RUN --mount=type=cache,id=duora-go-mod,target=/go/pkg/mod \
+    --mount=type=cache,id=duora-go-build,target=/root/.cache/go-build \
+    for attempt in 1 2 3; do \
+      GOOS="$TARGETOS" GOARCH="$TARGETARCH" XCADDY_GO_BUILD_FLAGS="-trimpath -ldflags=-s" \
+        timeout 900 xcaddy build v2.11.7 --replace golang.org/x/net=golang.org/x/net@v0.62.0 \
+        --replace github.com/go-jose/go-jose/v4=github.com/go-jose/go-jose/v4@v4.1.6 --output /out/caddy \
+        && exit 0; \
+      echo "xcaddy build falhou (tentativa $attempt de 3)" >&2; \
+      sleep $((attempt * 15)); \
+    done; \
+    exit 1
 
 # --- Caddy: usuário sem privilégio; as portas 80/443 vêm do sysctl do Compose, não de capability ------------------
 FROM caddy:2.11.7-alpine@sha256:d8542f48d34a9cf4e4c11a478865229840e87e4c96ea3f439101f31a5d35f75f AS edge
