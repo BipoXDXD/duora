@@ -127,6 +127,14 @@ describe('events after a cancelled round', () => {
     expect(screen.queryByText(ROUND_CANCELLED_PT)).not.toBeInTheDocument()
   })
 
+  it('shows the withdrawn outcome instead of the notice when the person withdrew', async () => {
+    serveEventWithParticipation(() => ({ state: 'Withdrawn', roomId: null, roundCancelled: true }))
+    await renderApp('/events')
+
+    expect(await screen.findByText('Você saiu deste encontro.')).toHaveAttribute('role', 'status')
+    expect(screen.queryByText(ROUND_CANCELLED_PT)).not.toBeInTheDocument()
+  })
+
   it('goes away when a new round starts and the person is still waiting', async () => {
     let body: ParticipationBody = { state: 'Waiting', roomId: null, roundCancelled: true }
     serveEventWithParticipation(() => body)
