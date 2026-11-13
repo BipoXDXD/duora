@@ -121,6 +121,18 @@ jobs:
             --diagnostic --diagnostic-verbosity Trace --diagnostic-output-directory "$results" \
             -- ${{ matrix.filter }}
 
+      # Duora.MediaCorpusTests compila fontes de IntegrationTests/Media (namespace Duora.IntegrationTests.Media).
+      # O "resto" exclui esse namespace em toda a solução, então esses casos rodam aqui. Sem nenhum caso, o
+      # dotnet test sai com código 8 e o shard falha.
+      - name: Testes do corpus de mídia no namespace Media
+        if: ${{ matrix.shard == 'media' }}
+        run: |
+          results="$RUNNER_TEMP/backend-test-results"
+          dotnet test --project backend/tests/Duora.MediaCorpusTests/Duora.MediaCorpusTests.csproj --no-build \
+            --report-xunit-trx --results-directory "$results" \
+            --diagnostic --diagnostic-verbosity Trace --diagnostic-output-directory "$results" \
+            -- --filter-namespace "Duora.IntegrationTests.Media*"
+
       # Só em falha ou corte: nada de verde sobe para um repositório público. O upload não muda o veredito do job.
       - name: Preservar telemetria dos testes
         if: ${{ failure() || cancelled() }}
