@@ -62,6 +62,18 @@ class BootSwitchTests(unittest.TestCase):
                 self.assertIn(SWITCH, _conditions(creators[0]))
                 self.assertIn(f"not ({SWITCH})", _conditions(removers[0]))
 
+    def test_boot_changes_inside_the_account_home_never_run_as_root(self) -> None:
+        """Root seguiria um symlink plantado pela conta em .config; só a própria conta mexe no seu home."""
+        boot = [t for t in self.install if SWITCH in " ".join(_conditions(t))]
+        touching_home = [t for t in boot if "media_sanitizer_home" in yaml.safe_dump(t)]
+
+        self.assertEqual(3, len(touching_home))
+        for task in touching_home:
+            with self.subTest(task=task["name"]):
+                self.assertIs(True, task.get("become"))
+                self.assertEqual("{{ media_sanitizer_user }}", task.get("become_user"))
+                self.assertNotIn("/etc/", yaml.safe_dump(task))
+
     def test_switch_requires_a_pinned_image_and_the_started_runtime(self) -> None:
         guards = [t for t in self.install if "ansible.builtin.assert" in t and SWITCH in _conditions(t)]
 

@@ -277,18 +277,14 @@
   notify: Recarregar systemd
 
 # Opt-in (media_sanitizer_start_on_boot): links feitos à mão, porque o template não tem [Install] e continua sem.
-- name: Criar os diretórios de partida no boot
+# O que fica no home da conta é feito pela própria conta: root seguiria um symlink plantado nela.
+- name: Criar o diretório de drop-in do launcher
   ansible.builtin.file:
-    path: "{{ item.path }}"
+    path: /etc/systemd/system/duora-media-launcher.service.d
     state: directory
-    owner: "{{ item.owner }}"
-    group: "{{ item.owner }}"
-    mode: "{{ item.mode }}"
-  loop:
-    - { path: /etc/systemd/system/duora-media-launcher.service.d, owner: root, mode: "0755" }
-    - path: "{{ media_sanitizer_home }}/.config/systemd/user/default.target.wants"
-      owner: "{{ media_sanitizer_user }}"
-      mode: "0700"
+    owner: root
+    group: root
+    mode: "0755"
   when: media_sanitizer_start_on_boot | bool
 
 - name: Ordenar o launcher depois do gerenciador da conta no boot
@@ -309,28 +305,43 @@
   when: media_sanitizer_start_on_boot | bool
   notify: Recarregar systemd
 
-- name: Ligar o daemon rootless ao default.target da conta
-  ansible.builtin.file:
-    path: "{{ media_sanitizer_home }}/.config/systemd/user/default.target.wants/docker.service"
-    src: "{{ media_sanitizer_home }}/.config/systemd/user/docker.service"
-    state: link
-    owner: "{{ media_sanitizer_user }}"
-    group: "{{ media_sanitizer_user }}"
-  when: media_sanitizer_start_on_boot | bool
-  notify: Recarregar o gerenciador de usuário do sanitizador
-
-- name: Remover a partida no boot quando a opção está desligada
+- name: Remover a partida do launcher no boot quando a opção está desligada
   ansible.builtin.file:
     path: "{{ item }}"
     state: absent
   loop:
     - /etc/systemd/system/multi-user.target.wants/duora-media-launcher.service
     - /etc/systemd/system/duora-media-launcher.service.d/50-boot.conf
-    - "{{ media_sanitizer_home }}/.config/systemd/user/default.target.wants/docker.service"
   when: not (media_sanitizer_start_on_boot | bool)
-  notify:
-    - Recarregar systemd
-    - Recarregar o gerenciador de usuário do sanitizador
+  notify: Recarregar systemd
+
+- name: Criar o diretório de wants do default.target da conta
+  ansible.builtin.file:
+    path: "{{ media_sanitizer_home }}/.config/systemd/user/default.target.wants"
+    state: directory
+    mode: "0700"
+  become: true
+  become_user: "{{ media_sanitizer_user }}"
+  when: media_sanitizer_start_on_boot | bool
+
+- name: Ligar o daemon rootless ao default.target da conta
+  ansible.builtin.file:
+    path: "{{ media_sanitizer_home }}/.config/systemd/user/default.target.wants/docker.service"
+    src: "{{ media_sanitizer_home }}/.config/systemd/user/docker.service"
+    state: link
+  become: true
+  become_user: "{{ media_sanitizer_user }}"
+  when: media_sanitizer_start_on_boot | bool
+  notify: Recarregar o gerenciador de usuário do sanitizador
+
+- name: Remover a partida do daemon rootless no boot quando a opção está desligada
+  ansible.builtin.file:
+    path: "{{ media_sanitizer_home }}/.config/systemd/user/default.target.wants/docker.service"
+    state: absent
+  become: true
+  become_user: "{{ media_sanitizer_user }}"
+  when: not (media_sanitizer_start_on_boot | bool)
+  notify: Recarregar o gerenciador de usuário do sanitizador
 
 - name: Criar o diretório de autoridade e o journal do launcher (fora de /var/lib/duora-media)
   ansible.builtin.file:
