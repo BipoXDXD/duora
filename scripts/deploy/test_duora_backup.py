@@ -988,6 +988,19 @@ class VerifyRepositoryActionTests(unittest.TestCase):
         # *:0/15 com até 60 s de atraso aleatório; o check leva segundos. Cinco minutos depois do disparo ele acabou.
         self.assertGreaterEqual(automatic_reboot_minute() % 15, 5)
 
+    def test_base_role_refuses_a_local_override_of_the_reboot_time(self) -> None:
+        # O teste acima confere o group_vars; um arquivo do apt.conf.d lido depois do 52 venceria em silêncio no host.
+        base = REPO_ROOT / "infra" / "ansible" / "roles" / "base"
+        template = (base / "templates" / "52duora-unattended-upgrades.j2").read_text(encoding="utf-8")
+        tasks = (base / "tasks" / "main.yml").read_text(encoding="utf-8")
+
+        self.assertIn('Unattended-Upgrade::Automatic-Reboot-Time "{{ duora_unattended_reboot_time }}";', template)
+        self.assertIn("      - Unattended-Upgrade::Automatic-Reboot-Time\n", tasks)
+        assertion = "base_apt_reboot_policy.stdout_lines | sort == base_expected_reboot_policy | sort"
+        self.assertIn(f"      - {assertion}\n", tasks)
+        self.assertIn("      - \"REBOOT_TIME='{{ duora_unattended_reboot_time }}'\"\n", tasks)
+        self.assertLess(tasks.index("52duora-unattended-upgrades.j2"), tasks.index("apt-config"))
+
     def test_calendar_timers_catch_up_runs_missed_while_the_host_was_down(self) -> None:
         role = Path(__file__).resolve().parents[2] / "infra" / "ansible" / "roles" / "backup"
         timers = sorted(path for path in (role / "files").glob("*.timer") if path.name != "duora-backup-verify.timer")

@@ -128,7 +128,8 @@ até o dono atualizá-la. Quem subir a VPS para 3.14 deve mover esses testes do 
 mantém `pythonVersion` 3.12 para barrar o que a VPS não tem.
 
 - `base`: pacotes, UTC, `unattended-upgrades` com reinício automático às 05:40 UTC (`duora_unattended_reboot`),
-  depois dos timers de backup.
+  depois dos timers de backup. O role confere o valor efetivo com `apt-config` e falha se outro arquivo do
+  `apt.conf.d` sobrescrever o horário (fora do check mode).
   `/proc` com `hidepid=invisible`: quem não é root não vê processos (e linhas de comando) de outros usuários.
   O repositório do Docker fica fora das atualizações automáticas: atualizar o daemon é mudança planejada.
 - `ssh`: drop-in `00-duora.conf` (só chave, sem root, sem senha, `AllowUsers`); recusa aplicar se o operador não
