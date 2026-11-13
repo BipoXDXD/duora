@@ -8,19 +8,3 @@
 # Exemplo (não ativo):
 #   # Só afeta o parser de X, que não usamos; aceito por @responsavel em 2026-10-15
 #   CVE-2026-00000 exp:2027-01-15
-
-# apt/libapt-pkg7.0 3.0.3 da imagem duora-postgres. Exige ataque na rede durante um apt install; o apt só roda no build
-# da imagem, nunca em runtime, e o container roda como 999. Ponte até o lock do componente corrigido, que remove esta
-# entrada (POSTGRES_COMPONENT.md pede atualizar, não suprimir). Risco aceito pelo dono (BipoXDXD) em 2026-11-05.
-CVE-2026-109518 exp:2026-12-05
-
-# zlib1g 1:1.3.dfsg+really1.3.1-1+b1 da imagem duora-postgres, corrigido em +deb13u1. Heap overflow na API gz* de
-# escrita (gzwrite após falha de write()), que só os clientes pg_dump/pg_basebackup usam; postgres e pgbackrest não,
-# e o banco não publica porta. Ponte de 7 dias até o #353 com pin do zlib. Risco aceito pelo dono (BipoXDXD)
-# em 2026-11-08.
-CVE-2026-76844 exp:2026-11-15
-
-# zlib1g 1:1.3.dfsg+really1.3.1-1+b1 da imagem duora-postgres, corrigido em +deb13u1. Heap overflow em gz_vacate() via
-# gzprintf após um write travado, na mesma API gz* que só pg_dump/pg_basebackup usam; postgres e pgbackrest não. Ponte
-# de 7 dias até o #353 com pin do zlib, que remove a entrada. Risco aceito pelo dono (BipoXDXD) em 2026-11-08.
-CVE-2026-85091 exp:2026-11-15
