@@ -9,6 +9,7 @@ using Amazon.Runtime;
 using Duora.Core.Identity;
 using Duora.Infrastructure.Email;
 using Duora.Infrastructure.Identity;
+using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
 using Microsoft.Extensions.Hosting;
@@ -37,12 +38,18 @@ public sealed class SelfieSlowProviderTests(PostgresFixture postgres)
 
     /// <summary>
     /// Teto em tempo real do teste inteiro, descarte do host incluído. Fica acima dos tetos internos, que falham antes e
-    /// apontam a causa; o teste mais lento desta classe levou cerca de 10 s na CI.
+    /// apontam a causa; o teste mais lento desta classe levou cerca de 10 s na CI. Derivado do <see cref="CallCeiling"/>
+    /// para continuar acima dele se ele mudar.
     /// </summary>
-    private static readonly TimeSpan WholeTestCeiling = TimeSpan.FromSeconds(90);
+    private static readonly TimeSpan WholeTestCeiling = CallCeiling * 3;
 
-    /// <summary>Acima do teto do teste: uma leitura vencida nunca chega antes da falha e não se passa pelo corte do worker.</summary>
-    private static readonly TimeSpan StalledReadCeiling = WholeTestCeiling + CallCeiling;
+    /// <summary>
+    /// Só solta a thread que a leitura síncrona do corpo parado prende, para ela não ficar retida para sempre quando o
+    /// corpo nunca é descartado. Solta depois do teto do lote, nunca antes: a leitura solta vira erro do SDK, que o worker
+    /// trata como o corte, e um corte que não veio passaria por corte. O dobro do <see cref="CallCeiling"/> cobre a
+    /// leitura começar antes de o teste passar a esperar o lote, e a derivação mantém essa ordem se o teto do lote mudar.
+    /// </summary>
+    private static readonly TimeSpan StalledReadCeiling = CallCeiling * 2;
 
     /// <summary>Maior que a espera de 5 s até a próxima tentativa.</summary>
     private static readonly TimeSpan UntilNextTry = TimeSpan.FromSeconds(6);
@@ -441,6 +448,59 @@ public sealed class SelfieSlowProviderTests(PostgresFixture postgres)
             Assert.True(releasedByTheCut,
                 "A trava síncrona só terminou pelo teto: o lote prendeu a thread que avança o relógio.");
         });
+
+    /// <summary>Leitura que o teto soltou não está mais presa: o teste não pode tomá-la pelo corpo parado e esperar o corte.</summary>
+    [Fact]
+    public void AStalledSyncReadReleasedByItsCeilingNoLongerCountsAsStalled()
+    {
+        const int ReadCeilingMilliseconds = 50;
+        using var body = new StalledStream(TimeSpan.FromMilliseconds(ReadCeilingMilliseconds));
+
+        Assert.Throws<TimeoutException>(() => body.Read(new byte[1], 0, 1));
+
+        Assert.False(body.IsStalled, body.State);
+    }
+
+    /// <summary>
+    /// O fato de que depende o lote começar em outra thread no <see cref="CutAsync"/>
+    /// (issue #458): com a resposta já pronta no transporte, o fornecedor que a produção registra lê o corpo parado de
+    /// forma síncrona, na thread que o chamou, antes de devolver a tarefa. Quem chama fica preso até o corpo ser
+    /// descartado; se for a thread do teste, ninguém mais avança o relógio até o corte. Sem banco: só o registro da selfie
+    /// da produção e o SDK real, sobre o transporte sintético.
+    /// </summary>
+    [Fact]
+    public Task TheRealSdkReadsAStalledBodyOnTheCallingThreadBeforeReturningTheTask() => WithinTheWholeTestCeilingAsync(async () =>
+    {
+        var stalledBodies = new ConcurrentQueue<StalledStream>();
+        var firstBody = new TaskCompletionSource<StalledStream>(TaskCreationOptions.RunContinuationsAsynchronously);
+        var transport = new SyntheticAwsTransport(_ =>
+        {
+            var response = StalledBody(stalledBodies);
+            firstBody.TrySetResult(stalledBodies.Last());
+            return response;
+        });
+        await using var services = ProductionSelfieServices(transport);
+        var provider = services.GetRequiredService<ISelfieProvider>();
+        var call = new CallOnADedicatedThread(() => provider.StartAsync(Guid.NewGuid(), Ct));
+
+        var body = await firstBody.Task.WaitAsync(CallCeiling, Ct);
+        int readThread;
+        bool returnedBeforeTheRead;
+        try
+        {
+            readThread = await body.SyncReadThread.WaitAsync(CallCeiling, Ct);
+            returnedBeforeTheRead = call.Returned;
+        }
+        finally
+        {
+            transport.Send = HealthySession;
+            body.Dispose();
+        }
+
+        await call.FinishedAsync().WaitAsync(CallCeiling, Ct);
+        Assert.Equal(call.ThreadId, readThread);
+        Assert.False(returnedBeforeTheRead, "O SDK devolveu a tarefa antes de ler o corpo parado.");
+    });
 
     [Fact]
     public async Task TheCeilingNamesTheHostDisposalWhenItHangsAfterAPassingBody()
@@ -1148,7 +1208,7 @@ public sealed class SelfieSlowProviderTests(PostgresFixture postgres)
     /// <summary>Cada resposta ganha um corpo novo: nenhuma chamada, de teste nenhum, herda o descarte de outra.</summary>
     private static Task<HttpResponseMessage> StalledBody(ConcurrentQueue<StalledStream> bodies)
     {
-        var body = new StalledStream();
+        var body = new StalledStream(StalledReadCeiling);
         bodies.Enqueue(body);
         var response = new HttpResponseMessage(HttpStatusCode.OK) { Content = new StreamContent(body) };
         response.Content.Headers.ContentType = new MediaTypeHeaderValue("application/x-amz-json-1.1");
@@ -1207,6 +1267,18 @@ public sealed class SelfieSlowProviderTests(PostgresFixture postgres)
     /// <summary>Chamadas ao fornecedor real já concluídas, inclusive as que o dispatcher abandonou no corte.</summary>
     private static int FinishedProviderCalls(DuoraWebFactory host) =>
         ((FinishCountingSelfieProvider)host.Services.GetRequiredService<ISelfieProvider>()).Finished;
+
+    /// <summary>O registro da selfie que a produção usa, com o SDK real sobre o transporte sintético e sem banco.</summary>
+    private ServiceProvider ProductionSelfieServices(SyntheticAwsTransport transport)
+    {
+        var services = new ServiceCollection();
+        services.AddSingleton<IConfiguration>(new ConfigurationBuilder()
+            .AddInMemoryCollection(SelfieTestSettings.Enabled(ScriptedSelfieProvider.Policy)).Build());
+        services.AddSingleton<TimeProvider>(_time);
+        services.AddSelfieVerification();
+        services.AddSingleton<HttpClientFactory>(transport);
+        return services.BuildServiceProvider();
+    }
 
     private DuoraWebFactory FakeProviderHost(string connection, ISelfieProvider provider, CapturingLoggerProvider? logs = null) =>
         DisposedAtTheEnd(SelfieConcurrencyHarness.Host(connection, _time, provider, logs: logs));
@@ -1447,18 +1519,24 @@ public sealed class SelfieSlowProviderTests(PostgresFixture postgres)
 
     /// <summary>
     /// Corpo de resposta que nunca entrega um byte, como um socket parado: a leitura assíncrona só termina pelo
-    /// cancelamento, e a síncrona só quando o corpo é descartado ou, sem descarte, pelo teto que solta a thread.
+    /// cancelamento, e a síncrona só quando o corpo é descartado ou, sem descarte, pelo teto que solta a thread. A leitura
+    /// que o teto soltou não está mais presa.
     /// </summary>
-    private sealed class StalledStream : Stream
+    private sealed class StalledStream(TimeSpan readCeiling) : Stream
     {
         private readonly TaskCompletionSource _closed = new(TaskCreationOptions.RunContinuationsAsynchronously);
         private volatile bool _syncReadStarted;
         private volatile bool _asyncReadStarted;
+        private volatile bool _syncReadReleasedByCeiling;
+        private readonly TaskCompletionSource<int> _syncReadThread = new(TaskCreationOptions.RunContinuationsAsynchronously);
 
-        public bool IsStalled => (_syncReadStarted || _asyncReadStarted) && !_closed.Task.IsCompleted;
+        /// <summary>Completa com a thread da primeira leitura síncrona, assim que ela começa e antes de ela prender a thread.</summary>
+        public Task<int> SyncReadThread => _syncReadThread.Task;
+
+        public bool IsStalled => (_syncReadStarted || _asyncReadStarted) && !_syncReadReleasedByCeiling && !_closed.Task.IsCompleted;
 
         public string State =>
-            $"leitura síncrona iniciada: {_syncReadStarted}; assíncrona iniciada: {_asyncReadStarted}; corpo descartado: {_closed.Task.IsCompleted}";
+            $"leitura síncrona iniciada: {_syncReadStarted}; solta pelo teto: {_syncReadReleasedByCeiling}; assíncrona iniciada: {_asyncReadStarted}; corpo descartado: {_closed.Task.IsCompleted}";
 
         public override bool CanRead => true;
 
@@ -1477,8 +1555,10 @@ public sealed class SelfieSlowProviderTests(PostgresFixture postgres)
         public override int Read(byte[] buffer, int offset, int count)
         {
             _syncReadStarted = true;
-            if (!_closed.Task.Wait(StalledReadCeiling))
+            _syncReadThread.TrySetResult(Environment.CurrentManagedThreadId);
+            if (!_closed.Task.Wait(readCeiling))
             {
+                _syncReadReleasedByCeiling = true;
                 throw new TimeoutException("O corpo parado não foi descartado dentro do teto.");
             }
 
@@ -1510,6 +1590,37 @@ public sealed class SelfieSlowProviderTests(PostgresFixture postgres)
             _closed.TrySetResult();
             base.Dispose(disposing);
         }
+    }
+
+    /// <summary>
+    /// Chamada feita numa thread só dela, fora do pool: a thread que lê o corpo só é a mesma se a leitura acontecer dentro
+    /// da chamada, e <see cref="Returned"/> só vira verdadeiro depois que a chamada devolve a tarefa.
+    /// </summary>
+    private sealed class CallOnADedicatedThread
+    {
+        private readonly TaskCompletionSource _finished = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        private volatile bool _returned;
+
+        public CallOnADedicatedThread(Func<Task> call)
+        {
+            var thread = new Thread(() =>
+            {
+                var pending = call();
+                _returned = true;
+                pending.ContinueWith(finished => { _ = finished.Exception; _finished.TrySetResult(); }, CancellationToken.None,
+                    TaskContinuationOptions.ExecuteSynchronously, TaskScheduler.Default);
+            })
+            { IsBackground = true, Name = "chamada ao fornecedor" };
+            thread.Start();
+            ThreadId = thread.ManagedThreadId;
+        }
+
+        public int ThreadId { get; }
+
+        public bool Returned => _returned;
+
+        /// <summary>Termina quando a tarefa da chamada termina, com sucesso ou falha: o resultado não importa aqui.</summary>
+        public Task FinishedAsync() => _finished.Task;
     }
 
     /// <summary>
