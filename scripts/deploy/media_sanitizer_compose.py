@@ -22,6 +22,7 @@ import argparse
 import copy
 import hashlib
 import json
+import posixpath
 import re
 import sys
 from pathlib import Path
@@ -34,7 +35,9 @@ PREFIX = "Media__Processing__Sanitizer__"
 MOUNT = {"type": "bind", "source": SOCKET_DIRECTORY, "target": SOCKET_DIRECTORY, "read_only": True,
          "bind": {"create_host_path": False}}
 _PROFILE = re.compile(r"[0-9a-f]{64}")
-_FORBIDDEN_SOURCES = ("docker.sock", "/run/user")
+KEYS = tuple(PREFIX + name for name in ("LauncherSocket", "LauncherUid", "ProfileSha256"))
+# Montar /run (ou um ancestral) entregaria docker.sock, /run/user/<uid> e o socket de controle de uma vez.
+_RUNTIME_ANCESTORS = ("/", "/var", "/run")
 
 
 class ComposeError(ValueError):
@@ -65,9 +68,9 @@ def disable(compose: dict) -> dict:
     result = copy.deepcopy(compose)
     worker = _service(result, SERVICE)
     environment = _environment(worker)
-    enabled = PREFIX + "LauncherSocket" in environment
-    for key in [key for key in environment if key.startswith(PREFIX)]:
-        del environment[key]
+    enabled = KEYS[0] in environment
+    for key in KEYS:
+        environment.pop(key, None)
     if enabled and "group_add" in worker:
         del worker["group_add"]
     if "volumes" in worker:
@@ -83,8 +86,7 @@ def _environment_values(launcher_uid: int, client_gid: int, profile_sha256: str)
         raise ComposeError("launcher-uid não pode ser o UID do Worker")
     if not isinstance(profile_sha256, str) or _PROFILE.fullmatch(profile_sha256) is None:
         raise ComposeError("profile-sha256 precisa de 64 dígitos hexadecimais minúsculos")
-    return {PREFIX + "LauncherSocket": CONTROL_SOCKET, PREFIX + "LauncherUid": str(launcher_uid),
-            PREFIX + "ProfileSha256": profile_sha256}
+    return dict(zip(KEYS, (CONTROL_SOCKET, str(launcher_uid), profile_sha256), strict=True))
 
 
 def _refuse_socket_outside_worker(compose: dict) -> None:
@@ -95,10 +97,29 @@ def _refuse_socket_outside_worker(compose: dict) -> None:
         for item in block.get("volumes", []) if isinstance(block, dict) else []:
             source = str(item.get("source", "")) if isinstance(item, dict) else str(item)
             target = str(item.get("target", "")) if isinstance(item, dict) else str(item)
-            if any(marker in source for marker in _FORBIDDEN_SOURCES):
-                raise ComposeError(f"{name}: montagem de socket de runtime ({source}) não é aceita")
-            if name != SERVICE and SOCKET_DIRECTORY in (source, target):
+            _refuse_runtime_source(name, source)
+            if name != SERVICE and _host_path(target) == SOCKET_DIRECTORY:
                 raise ComposeError(f"{name}: só o worker pode montar {SOCKET_DIRECTORY}")
+
+
+def _refuse_runtime_source(service: str, source: str) -> None:
+    path = _host_path(source)
+    if path is None:
+        return
+    if "docker.sock" in path or path in _RUNTIME_ANCESTORS:
+        raise ComposeError(f"{service}: montagem de runtime ({source}) não é aceita")
+    if path.startswith("/run/") and not (service == SERVICE and path == SOCKET_DIRECTORY):
+        raise ComposeError(f"{service}: só o worker monta {SOCKET_DIRECTORY}, e nada mais de /run ({source})")
+
+
+def _host_path(source: str) -> str | None:
+    """Caminho absoluto normalizado, com /var/run como /run; None para volume nomeado."""
+    if not source.startswith("/"):
+        return None
+    path = "/" + posixpath.normpath(source).lstrip("/")
+    if path == "/var/run" or path.startswith("/var/run/"):
+        path = "/run" + path.removeprefix("/var/run")
+    return path
 
 
 def _service(compose: dict, name: str) -> dict:

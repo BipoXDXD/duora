@@ -214,7 +214,9 @@ segurança, com o launcher já validado à mão (UID 1654 falando com o socket).
 bind somente leitura de `/run/duora-media` (sem `create_host_path`) e as chaves
 `Media__Processing__Sanitizer__{LauncherSocket,LauncherUid,ProfileSha256}`. O upload continua governado só por
 `DUORA_MEDIA_REVIEW`. Recusa UID/GID root, o UID do Worker como launcher, pin fora de 64 hex minúsculos, valor
-conflitante e qualquer montagem de `docker.sock` ou `/run/user`; `disable` desfaz exatamente o que `enable` acrescenta
+conflitante, qualquer `docker.sock`, `/`, `/var`, `/run` (ou `/var/run`) e qualquer outra coisa sob `/run`, com
+o caminho normalizado (só o worker monta `/run/duora-media`); `disable` remove só as três chaves que `enable`
+acrescenta, o grupo e o bind
 (`test_media_sanitizer_compose.py`, inclusive contra o `compose.prod.yml` renderizado). UID, GID e pin saem do
 "Resumo da instalação inativa" do role (`uid`, `control_gid`, `profile_sha256`). Como root, na VPS, com `SHA` = commit
 da main que contém este script:
@@ -238,11 +240,17 @@ diff <(python3 -I -m json.tool --sort-keys /opt/duora/compose.coolify.json) \
 A troca e a nova selagem (`compose_sha256`) seguem o passo 3 do procedimento da selfie em deploy.md, sob a trava do
 deploy, com sufixo `.pre-media`. Rollback: devolver os `.pre-media` ou rodar `disable` e selar de novo.
 
+**Trocar o perfil** (imagem nova, pin novo): `enable` recusa um `ProfileSha256` diferente do que já está no compose.
+Rode `disable` no arquivo instalado, depois `enable` com o pin novo, revise o diff e sele de novo, tudo na mesma
+janela e sob a trava.
+
 **Partida no boot.** O template do launcher continua sem `[Install]`. Com `media_sanitizer_start_on_boot: true` (que
 o role recusa sem `media_sanitizer_image` por digest e sem `media_sanitizer_runtime_started: true`), o role liga à mão
 o launcher ao `multi-user.target`, o daemon rootless ao `default.target` da conta e instala o drop-in
 `duora-media-launcher.service.d/50-boot.conf`, que espera `user@<uid>.service` e aguenta as saídas 70 enquanto o
-daemon sobe. Com `false` (padrão) o role remove os três; a desinstalação também.
+daemon sobe. Também instala `/etc/tmpfiles.d/duora-media-launcher.conf`, que recria `/run/duora-media` (tmpfs) no
+boot com o dono e o modo da unidade, antes de o Docker do sistema subir o worker que o monta. Com `false` (padrão) o
+role remove os quatro; a desinstalação também.
 
 ```bash
 ansible-playbook -i <inventário> media-sanitizer.yml \

@@ -193,13 +193,14 @@
     path: "/run/user/{{ media_sanitizer_uid }}/bus"
     timeout: 60
 
+# Dentro do home, tudo é feito pela própria conta: root seguiria um symlink plantado por ela (#174).
 - name: Criar os diretórios de configuração do daemon rootless
   ansible.builtin.file:
     path: "{{ media_sanitizer_home }}/{{ item }}"
     state: directory
-    owner: "{{ media_sanitizer_user }}"
-    group: "{{ media_sanitizer_user }}"
     mode: "0700"
+  become: true
+  become_user: "{{ media_sanitizer_user }}"
   loop:
     - .config
     - .config/docker
@@ -212,17 +213,17 @@
   ansible.builtin.copy:
     src: daemon.json
     dest: "{{ media_sanitizer_home }}/.config/docker/daemon.json"
-    owner: "{{ media_sanitizer_user }}"
-    group: "{{ media_sanitizer_user }}"
     mode: "0600"
+  become: true
+  become_user: "{{ media_sanitizer_user }}"
 
 - name: Instalar a unidade de usuário do daemon rootless (sem [Install])
   ansible.builtin.copy:
     src: docker-rootless.service
     dest: "{{ media_sanitizer_home }}/.config/systemd/user/docker.service"
-    owner: "{{ media_sanitizer_user }}"
-    group: "{{ media_sanitizer_user }}"
     mode: "0644"
+  become: true
+  become_user: "{{ media_sanitizer_user }}"
   notify: Recarregar o gerenciador de usuário do sanitizador
 
 - name: Aplicar a unidade de usuário
@@ -297,6 +298,17 @@
   when: media_sanitizer_start_on_boot | bool
   notify: Recarregar systemd
 
+# /run é tmpfs: sem esta entrada o Docker do sistema pode subir o worker antes do launcher recriar o diretório, e o
+# bind sem create_host_path falha. Mesmo dono e modo do RuntimeDirectory da unidade.
+- name: Recriar o diretório do socket de controle no boot
+  ansible.builtin.template:
+    src: launcher-tmpfiles.conf.j2
+    dest: /etc/tmpfiles.d/duora-media-launcher.conf
+    owner: root
+    group: root
+    mode: "0644"
+  when: media_sanitizer_start_on_boot | bool
+
 - name: Ligar o launcher ao multi-user.target
   ansible.builtin.file:
     path: /etc/systemd/system/multi-user.target.wants/duora-media-launcher.service
@@ -312,6 +324,7 @@
   loop:
     - /etc/systemd/system/multi-user.target.wants/duora-media-launcher.service
     - /etc/systemd/system/duora-media-launcher.service.d/50-boot.conf
+    - /etc/tmpfiles.d/duora-media-launcher.conf
   when: not (media_sanitizer_start_on_boot | bool)
   notify: Recarregar systemd
 

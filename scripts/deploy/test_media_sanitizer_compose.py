@@ -80,6 +80,36 @@ class EnableTests(unittest.TestCase):
         self.assertEqual(original, patch.disable(enable(original)))
         self.assertEqual(original, patch.disable(original))
 
+    def test_disable_removes_only_the_three_keys_enable_adds(self) -> None:
+        original = coolify_compose()
+        original["services"]["worker"]["environment"]["Media__Processing__Sanitizer__Timeout"] = "30"
+
+        self.assertEqual(original, patch.disable(enable(original)))
+
+    def test_runtime_roots_and_their_ancestors_are_refused_after_normalization(self) -> None:
+        for source in ("/run", "/var/run", "/", "/var", "/run/", "//run", "/var/run/../run", "/run/user",
+                       "/run/user/997", "/run/user/997/docker.sock", "/var/run/docker.sock", "/run/docker.sock",
+                       "/run/containerd", "/srv/../run/user/997", "/var/run/duora-media/../user",
+                       "/opt/docker.sock"):
+            compose = coolify_compose()
+            compose["services"]["worker"]["volumes"].append({"type": "bind", "source": source, "target": "/x"})
+            with self.subTest(source=source), self.assertRaises(patch.ComposeError):
+                enable(compose)
+
+    def test_socket_directory_aliases_are_worker_only(self) -> None:
+        for source in ("/run/duora-media", "/var/run/duora-media", "/run/./duora-media/", "/run/duora-media/x"):
+            compose = coolify_compose()
+            compose["services"]["web"]["volumes"].append({"type": "bind", "source": source, "target": "/x"})
+            with self.subTest(source=source), self.assertRaises(patch.ComposeError):
+                enable(compose)
+
+    def test_unrelated_host_paths_are_still_accepted(self) -> None:
+        compose = coolify_compose()
+        compose["services"]["web"]["volumes"].append({"type": "bind", "source": "/var/lib/duora/x", "target": "/x"})
+        compose["services"]["web"]["volumes"].append({"type": "volume", "source": "pgdata", "target": "/y"})
+
+        self.assertIn(patch.MOUNT, enable(compose)["services"]["worker"]["volumes"])
+
     def test_invalid_identities_or_profile_are_refused(self) -> None:
         for name, arguments in [
             ("root launcher", {"launcher_uid": 0}), ("negative gid", {"client_gid": -1}),

@@ -14,6 +14,8 @@ SWITCH = "media_sanitizer_start_on_boot | bool"
 LAUNCHER_LINK = "/etc/systemd/system/multi-user.target.wants/duora-media-launcher.service"
 LAUNCHER_DROP_IN = "/etc/systemd/system/duora-media-launcher.service.d/50-boot.conf"
 DAEMON_LINK = "{{ media_sanitizer_home }}/.config/systemd/user/default.target.wants/docker.service"
+TMPFILES = "/etc/tmpfiles.d/duora-media-launcher.conf"
+HOME = "{{ media_sanitizer_home }}"
 
 
 def _tasks(name: str) -> list[dict]:
@@ -30,6 +32,10 @@ def _module(task: dict) -> dict:
         if key in task:
             return task[key]
     return {}
+
+
+def _module_any(task: dict) -> dict:
+    return next((v for k, v in task.items() if k.startswith("ansible.builtin.") and isinstance(v, dict)), {})
 
 
 def _touching(tasks: list[dict], path: str) -> list[dict]:
@@ -52,7 +58,7 @@ class BootSwitchTests(unittest.TestCase):
         self.assertIs(False, defaults["media_sanitizer_start_on_boot"])
 
     def test_every_boot_link_is_created_only_behind_the_switch_and_removed_without_it(self) -> None:
-        for path in (LAUNCHER_LINK, LAUNCHER_DROP_IN, DAEMON_LINK):
+        for path in (LAUNCHER_LINK, LAUNCHER_DROP_IN, DAEMON_LINK, TMPFILES):
             with self.subTest(path=path):
                 tasks = _touching(self.install, path)
                 creators = [t for t in tasks if _module(t).get("state") != "absent"]
@@ -61,18 +67,6 @@ class BootSwitchTests(unittest.TestCase):
                 self.assertEqual(1, len(removers))
                 self.assertIn(SWITCH, _conditions(creators[0]))
                 self.assertIn(f"not ({SWITCH})", _conditions(removers[0]))
-
-    def test_boot_changes_inside_the_account_home_never_run_as_root(self) -> None:
-        """Root seguiria um symlink plantado pela conta em .config; só a própria conta mexe no seu home."""
-        boot = [t for t in self.install if SWITCH in " ".join(_conditions(t))]
-        touching_home = [t for t in boot if "media_sanitizer_home" in yaml.safe_dump(t)]
-
-        self.assertEqual(3, len(touching_home))
-        for task in touching_home:
-            with self.subTest(task=task["name"]):
-                self.assertIs(True, task.get("become"))
-                self.assertEqual("{{ media_sanitizer_user }}", task.get("become_user"))
-                self.assertNotIn("/etc/", yaml.safe_dump(task))
 
     def test_switch_requires_a_pinned_image_and_the_started_runtime(self) -> None:
         guards = [t for t in self.install if "ansible.builtin.assert" in t and SWITCH in _conditions(t)]
@@ -103,6 +97,42 @@ class BootSwitchTests(unittest.TestCase):
         self.assertIn("Wants=user@{{ media_sanitizer_uid }}.service\n", drop_in)
         self.assertNotIn("[Install]", drop_in)
 
+    def test_socket_directory_exists_after_reboot_before_any_container_mounts_it(self) -> None:
+        """O worker monta /run/duora-media sem create_host_path; /run é tmpfs e o launcher pode subir depois dele."""
+        unit = (ROOT / "infra/media/systemd/duora-media-launcher.service").read_text(encoding="utf-8")
+        entry = (ROLE / "templates/launcher-tmpfiles.conf.j2").read_text(encoding="utf-8")
+        values = dict(line.split("=", 1) for line in unit.splitlines() if line.startswith(("User=", "Group=",
+                                                                                           "RuntimeDirectory")))
+
+        lines = [line for line in entry.splitlines() if line and not line.startswith("#")]
+        self.assertEqual([f"d /run/{values['RuntimeDirectory']} {values['RuntimeDirectoryMode']} "
+                          "{{ media_sanitizer_user }} {{ media_sanitizer_client_group }} -"], lines)
+        self.assertEqual("duora-media-launcher", values["User"])
+        self.assertEqual("duora-media-client", values["Group"])
+
+
+class AccountHomeTests(unittest.TestCase):
+    def test_every_task_inside_the_account_home_runs_as_the_account(self) -> None:
+        """Root seguiria um symlink plantado pela conta no próprio home; só a conta mexe dentro dele."""
+        inside = [t for t in _tasks("install.yml") if HOME + "/" in yaml.safe_dump(t)]
+
+        self.assertGreaterEqual(len(inside), 6)
+        for task in inside:
+            with self.subTest(task=task["name"]):
+                self.assertIs(True, task.get("become"))
+                self.assertEqual("{{ media_sanitizer_user }}", task.get("become_user"))
+                self.assertNotIn("owner", _module(task) | _module_any(task))
+                self.assertNotIn("/etc/", yaml.safe_dump(task))
+
+    def test_only_root_owned_parents_are_touched_by_root(self) -> None:
+        by_root = [t for t in _tasks("install.yml") if HOME in yaml.safe_dump(t) and "become_user" not in t]
+
+        self.assertEqual({"ansible.builtin.user", "ansible.builtin.file"},
+                         {next(k for k in t if k.startswith("ansible.")) for t in by_root})
+        for task in by_root:
+            module = task.get("ansible.builtin.file") or task["ansible.builtin.user"]
+            self.assertEqual(HOME, module.get("path", module.get("home")))
+
 
 class UninstallTests(unittest.TestCase):
     def test_uninstall_removes_the_launcher_boot_link_and_drop_in(self) -> None:
@@ -111,6 +141,7 @@ class UninstallTests(unittest.TestCase):
 
         self.assertIn(LAUNCHER_LINK, paths)
         self.assertIn("/etc/systemd/system/duora-media-launcher.service.d", paths)
+        self.assertIn(TMPFILES, paths)
 
 
 if __name__ == "__main__":
