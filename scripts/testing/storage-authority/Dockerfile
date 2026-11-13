@@ -1,5 +1,5 @@
 # Disposable native-arm64 acceptance runner, never a production service image.
-FROM mcr.microsoft.com/dotnet/sdk@sha256:f34803987e201bd321984712d40a4bed1f797d4756b9b21eb5b6ddd2b178d2ef
+FROM mcr.microsoft.com/dotnet/sdk:10.0.404-noble@sha256:35c2411e519ef047d430b7237234ff56d1f6e1dfde49320c7583d2e970942cf6
 ENV DOTNET_PROCESSOR_COUNT=2 DOTNET_GCHeapHardLimit=0xC0000000
 RUN apt-get update && apt-get install -y --no-install-recommends python3 && rm -rf /var/lib/apt/lists/*
 WORKDIR /src
