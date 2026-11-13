@@ -27,9 +27,6 @@ internal static class RegistrationReconciliationEndpoints
     private const string DigestPattern = "^[0-9a-f]{64}$";
     private const string SingleLinePattern = "^[^\\u0000-\\u001F\\u007F-\\u009F]+$";
 
-    /// <summary>Contenção curta de lock ou índice: nada foi gravado e o pedido pode ser repetido com a mesma chave.</summary>
-    private static readonly TimeSpan BusyRetryAfter = TimeSpan.FromSeconds(2);
-
     /// <summary>Espera sugerida quando o snapshot passa do statement_timeout; a consulta é cara, não insistir já.</summary>
     private static readonly TimeSpan TimeoutRetryAfter = TimeSpan.FromSeconds(30);
 
@@ -359,11 +356,8 @@ internal static class RegistrationReconciliationEndpoints
     private static ProblemHttpResult Forbidden() =>
         ApiProblems.Problem(StatusCodes.Status403Forbidden, ApiProblems.AccountModerationForbidden);
 
-    private static ProblemHttpResult Busy(HttpContext http)
-    {
-        ApiProblems.SetRetryAfter(http, BusyRetryAfter);
-        return ApiProblems.Problem(StatusCodes.Status503ServiceUnavailable, ApiProblems.TemporarilyUnavailable);
-    }
+    /// <summary>Contenção curta de lock ou índice: nada foi gravado e o pedido pode ser repetido com a mesma chave.</summary>
+    private static ProblemHttpResult Busy(HttpContext http) => DatabaseUnavailability.Contention(http);
 
     /// <summary>Só nestas rotas: o statement_timeout delas não passa a valer como indisponibilidade em outras.</summary>
     private static ProblemHttpResult TimedOut(HttpContext http)

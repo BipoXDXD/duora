@@ -54,9 +54,11 @@ internal sealed class RegistrationLockOptions
     public const string Section = "Identity";
 
     /// <summary>Abaixo de 1 ms o <c>lock_timeout</c> vira <c>0</c>, que no PostgreSQL desliga o teto.</summary>
-    internal static readonly TimeSpan Minimum = TimeSpan.FromMilliseconds(1);
+    private static readonly TimeSpan Minimum = TimeSpan.FromMilliseconds(1);
 
-    /// <summary>Acima disso a espera volta a aparecer no tempo de resposta (#466: 100 ms de teto somaram +78 ms).</summary>
+    /// <summary>
+    /// Acima disso a espera volta a aparecer no tempo de resposta (#466: 100 ms de teto somaram +78 ms).
+    /// </summary>
     private static readonly TimeSpan Maximum = TimeSpan.FromMilliseconds(50);
 
     /// <summary>
@@ -122,11 +124,11 @@ public sealed partial class AccountService
     /// </summary>
     /// <remarks>
     /// Os três casos fazem o mesmo trabalho (TM-06): um hash, um upsert que grava uma versão da linha do usuário,
-    /// os mesmos comandos de aceite, uma leitura, um hash de código e uma linha de outbox, na mesma transação. O upsert com
-    /// <c>ON CONFLICT</c> no e-mail normalizado também serializa cadastros simultâneos do mesmo e-mail.
-    /// Os dois caminhos que desistem (conta ocupada além do teto curto, orçamento de emissão esgotado) também pagam os
-    /// dois hashes, que são quase todo o tempo do cadastro, e esperam a trava só pelo teto curto do cadastro: o tempo de
-    /// resposta não distingue os casos além do SQL que a desistência não roda (#466, ADR-0055).
+    /// os mesmos comandos de aceite, uma leitura, um hash de código e uma linha de outbox, na mesma transação. O
+    /// upsert com <c>ON CONFLICT</c> no e-mail normalizado também serializa cadastros simultâneos do mesmo e-mail.
+    /// Os dois caminhos que desistem (conta ocupada além do teto curto, orçamento de emissão esgotado) também pagam
+    /// os dois hashes, que são quase todo o tempo do cadastro, e esperam a trava só pelo teto curto do cadastro: o
+    /// tempo de resposta não distingue os casos além do SQL que a desistência não roda (#466, ADR-0055).
     /// </remarks>
     public async Task RegisterAsync(
         EmailAddress email,
