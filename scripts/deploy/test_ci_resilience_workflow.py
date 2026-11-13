@@ -12,6 +12,7 @@ ACTION = ROOT / ".github/actions/postgres-component/action.yml"
 MEDIA_RELEASE = ROOT / ".github/workflows/media-release.yml"
 EDGE_DOCKERFILE = ROOT / "infra/images/edge/Dockerfile"
 DOWNLOAD_ARTIFACT = "actions/download-artifact@"
+JOB_TIMEOUT_SECONDS = 30 * 60  # timeout-minutes do job images em ci.yml
 
 
 class PostgresComponentResilienceTests(unittest.TestCase):
@@ -75,8 +76,16 @@ class EdgeImageResilienceTests(unittest.TestCase):
     def test_xcaddy_build_has_bounded_attempts_with_a_per_attempt_deadline(self):
         instruction = self.instruction("xcaddy build")
         self.assertRegex(instruction, r"for attempt in 1 2 3; do")
-        self.assertRegex(instruction, r"timeout \d+ xcaddy build")
+        deadline = re.search(r"timeout (\d+) xcaddy build", instruction)
+        self.assertIsNotNone(deadline)
+        # 3 tentativas precisam caber, com folga para o resto do build, no timeout-minutes: 30 do job images.
+        self.assertLessEqual(3 * int(deadline.group(1)), JOB_TIMEOUT_SECONDS // 2)
         self.assertRegex(instruction, r"exit 1$")
+
+    def test_xcaddy_build_does_not_wait_after_the_last_attempt(self):
+        instruction = self.instruction("xcaddy build")
+        self.assertIn('if [ "$attempt" -lt 3 ]; then sleep', instruction)
+        self.assertNotRegex(instruction, r"(?m)^\s*sleep ")
 
 
 if __name__ == "__main__":
