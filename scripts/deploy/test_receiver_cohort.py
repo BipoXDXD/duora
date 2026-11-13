@@ -22,7 +22,7 @@ class ReceiverCohortTests(unittest.TestCase):
     @contextmanager
     def installed_receiver(self, *, version: str = "2.1.1", content: bytes | None = None):
         with tempfile.TemporaryDirectory() as temporary:
-            root = Path(temporary)
+            root = Path(temporary).resolve()  # sem o symlink /var -> /private/var do macOS
             entry = root / "receiver.py"
             target = root / "versions" / (version + "-" + E9) / "receiver.py"
             target.parent.mkdir(parents=True)

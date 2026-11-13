@@ -34,7 +34,8 @@ jobs:
   backend:
     name: backend
     runs-on: ubuntu-24.04
-    timeout-minutes: 40
+    # Interino até os shards (#510): a suíte passou de 40 min por tamanho, não por teste preso (#507).
+    timeout-minutes: 60
     steps:
       - name: Registrar arquitetura do runner (spec 2.4)
         run: |
@@ -409,8 +410,18 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
+        with:
+          python-version: '3.14.10'
 
-      # Python 3.12 do próprio Ubuntu 24.04: a mesma versão que roda o duora-deploy na VPS.
+      # Critério de versão do Python neste repositório:
+      #  - Tooling que só roda no runner (ansible-core 2.22, ansible-lint, pyright, pipeline de ilustrações, verificadores
+      #    de supply chain, ensaios): Python 3.14.10 exato por actions/setup-python (o ansible-core 2.22 exige 3.13+).
+      #  - Código que executa no Python do HOST da VPS (duora-deploy, duora-backup, validador da chave do apt): os testes
+      #    rodam no python3 do sistema do Ubuntu 24.04 (3.12), a mesma versão da VPS. É o que ela roda até o dono
+      #    atualizá-la. Esses passos chamam /usr/bin/python3 de propósito e conferem que é 3.12; os jobs backend e images
+      #    não usam setup-python pelo mesmo motivo.
+      # O pyright segue com pythonVersion 3.12 (pyrightconfig.json) para barrar sintaxe e API que a VPS não tem.
       # Os passos abaixo dependem só da instalação de que precisam (if com steps.*.outcome): uma falha no venv
       # visual não esconde o resultado das ferramentas de operação, e vice-versa. A falha continua reprovando o job.
       - name: Ferramentas fixadas
@@ -443,13 +454,28 @@ jobs:
         if: ${{ !cancelled() && steps.ops-tools.outcome == 'success' && steps.visual-deps.outcome == 'success' }}
         run: pyright -p tools/visual/pyrightconfig.json --pythonpath "$RUNNER_TEMP/venv-visual/bin/python" tools/visual
 
-      - name: Testes dos scripts de deploy
-        if: ${{ !cancelled() && steps.ops-tools.outcome == 'success' }}
-        run: python3 -m unittest discover -s scripts/deploy -v
+      # Venv do Python do host (3.12 do sistema) só com o que os testes importam e os scripts da VPS não usam: PyYAML e o
+      # pyright (test_telemetry_types chama `python -m pyright`) com suas dependências. Pins e hashes saem do mesmo
+      # lockfile do tooling, para nada entrar sem hash. O assert protege o critério acima.
+      - name: Python do host da VPS (3.12) para os testes
+        id: host-py
+        if: ${{ !cancelled() }}
+        run: |
+          /usr/bin/python3 -c 'import sys; assert sys.version_info[:2] == (3, 12), sys.version'
+          /usr/bin/python3 -m venv "$RUNNER_TEMP/venv-host"
+          awk '/^(pyyaml|pyright|nodeenv|typing-extensions)==/ {keep=1; print; next} keep && /^ +--hash=/ {print; next} {keep=0}' \
+            scripts/deploy/requirements.txt > "$RUNNER_TEMP/host-requirements.txt"
+          test -s "$RUNNER_TEMP/host-requirements.txt"
+          "$RUNNER_TEMP/venv-host/bin/pip" install --quiet --require-hashes --only-binary=:all: \
+            -r "$RUNNER_TEMP/host-requirements.txt"
 
-      - name: Testes do validador da chave do apt (role docker)
-        if: ${{ !cancelled() && steps.ops-tools.outcome == 'success' }}
-        run: python3 -m unittest discover -s infra/ansible/roles/docker/files -v
+      - name: Testes dos scripts de deploy (Python 3.12 do host)
+        if: ${{ !cancelled() && steps.host-py.outcome == 'success' }}
+        run: '"$RUNNER_TEMP/venv-host/bin/python" -m unittest discover -s scripts/deploy -v'
+
+      - name: Testes do validador da chave do apt (role docker, Python 3.12 do host)
+        if: ${{ !cancelled() && steps.host-py.outcome == 'success' }}
+        run: '"$RUNNER_TEMP/venv-host/bin/python" -m unittest discover -s infra/ansible/roles/docker/files -v'
 
       - name: Pyright
         if: ${{ !cancelled() && steps.ops-tools.outcome == 'success' }}
@@ -591,6 +617,9 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
+        with:
+          python-version: '3.14.10'
 
       - name: Testes dos verificadores
         run: python3 -m unittest discover -s scripts/supply-chain -v

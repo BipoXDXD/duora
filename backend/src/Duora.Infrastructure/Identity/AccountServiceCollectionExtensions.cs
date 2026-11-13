@@ -55,7 +55,8 @@ public static class AccountServiceCollectionExtensions
             .ValidateOnStart();
         services.AddOptions<AccountLockOptions>()
             .BindConfiguration(AccountLockOptions.Section)
-            .Validate(o => o.IsValid(), "Identity:AccountLockTimeout e Identity:AccountQueueTimeout precisam ficar entre 100 ms e 1 min.")
+            .Validate(o => o.IsValid(),
+                "Identity:AccountLockTimeout e Identity:AccountQueueTimeout precisam ficar entre 100 ms e 1 min.")
             .ValidateOnStart();
         services.AddOptions<IdentityShortWaitOptions>()
             .BindConfiguration(IdentityShortWaitOptions.Section)

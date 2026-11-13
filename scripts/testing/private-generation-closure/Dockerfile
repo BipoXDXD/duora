@@ -1,5 +1,5 @@
-# Test tool only, Linux arm64 SDK 10.0.403 pinned by digest; the recorded experiments ran on 10.0.402.
-FROM mcr.microsoft.com/dotnet/sdk@sha256:f34803987e201bd321984712d40a4bed1f797d4756b9b21eb5b6ddd2b178d2ef
+# Test tool only, Linux arm64 SDK 10.0.404 (noble) pinned by digest; the recorded experiments ran on 10.0.402.
+FROM mcr.microsoft.com/dotnet/sdk:10.0.404-noble@sha256:35c2411e519ef047d430b7237234ff56d1f6e1dfde49320c7583d2e970942cf6
 RUN apt-get update && apt-get install -y --no-install-recommends python3 && rm -rf /var/lib/apt/lists/*
 WORKDIR /src
 COPY Directory.Build.props Directory.Packages.props .editorconfig global.json ./

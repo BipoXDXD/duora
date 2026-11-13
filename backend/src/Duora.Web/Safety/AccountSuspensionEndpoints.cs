@@ -216,11 +216,8 @@ internal static partial class AccountSuspensionEndpoints
 
     private static ProblemHttpResult NotFound() => ApiProblems.Problem(StatusCodes.Status404NotFound, "NOT_FOUND");
 
-    private static ProblemHttpResult Busy(HttpContext http)
-    {
-        ApiProblems.SetRetryAfter(http, TimeSpan.FromSeconds(2));
-        return ApiProblems.Problem(StatusCodes.Status503ServiceUnavailable, ApiProblems.TemporarilyUnavailable);
-    }
+    // Contenção que esgotou as tentativas: o serviço devolve Busy sem a exceção, e o prazo é o da contenção.
+    private static ProblemHttpResult Busy(HttpContext http) => DatabaseUnavailability.Contention(http);
 
     private static Task DocumentIdempotencyKey(
         OpenApiOperation operation,

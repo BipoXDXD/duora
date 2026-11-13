@@ -3,7 +3,9 @@ using System.Text.Json.Serialization;
 namespace Duora.Contracts.Participation;
 
 public sealed record EventResponse(Guid EventId, string Title, DateTimeOffset StartsAt, DateTimeOffset CheckInOpensAt, string State, string? TimeZone);
-public sealed record ParticipationResponse(string State, Guid? RoomId);
+// RoundCancelled: a última rodada do encontro que saiu de Scheduled foi cancelada e a pessoa está com presença confirmada.
+// Não diz quem nem por quê (spec 5.2); volta a false quando outra rodada do encontro começa.
+public sealed record ParticipationResponse(string State, Guid? RoomId, bool RoundCancelled);
 public sealed record RoomActionRequest(Guid ActionId, string ExpectedVersion, string Type, string CardId, string? OptionId);
 public sealed record RoomResponse(Guid RoomId, string State, string Version, string CommunicationLanguage,
     int CommunicationPolicyVersion, string DisplayLocale, DateTimeOffset InvitationExpiresAt, GameResponse? Game, IReadOnlyList<RoomAudioResponse> Audio, RoutesGameResponse? RoutesGame = null);

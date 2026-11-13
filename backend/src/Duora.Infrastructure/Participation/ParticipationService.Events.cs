@@ -10,7 +10,7 @@ using static Duora.Infrastructure.Participation.ParticipationSql;
 namespace Duora.Infrastructure.Participation;
 
 public sealed record ParticipationEvent(Guid Id, string Title, DateTimeOffset StartsAt, string State, string? TimeZone);
-public sealed record ParticipationStatus(string State, Guid? RoomId);
+public sealed record ParticipationStatus(string State, Guid? RoomId, bool RoundCancelled);
 public enum ParticipationOutcome { Done, Unavailable, Conflict, Invalid }
 
 public sealed class ParticipationOptions
@@ -41,6 +41,9 @@ public sealed partial class ParticipationService(NpgsqlDataSource source, TimePr
         .Where(zone => zone.HasIanaId).Select(zone => zone.Id).Append("UTC").ToHashSet(StringComparer.Ordinal);
     /// <summary>As três rodadas e o fechamento somam 36 min depois do início; a folga cobre o arredondamento do PostgreSQL.</summary>
     private static readonly DateTimeOffset LatestEventStart = DateTimeOffset.MaxValue.AddHours(-1);
+    /// <summary>Depois deste atraso sobre o início, a rodada é cancelada em vez de montada.</summary>
+    private static readonly TimeSpan LateBuildLimit = TimeSpan.FromSeconds(60);
+    private static readonly TimeSpan InviteWindow = TimeSpan.FromSeconds(60);
     private bool MatchingEnabled => options?.Value.MatchingEnabled ?? true;
 
     private DateTimeOffset Now => PreciseClock.Truncate(time.GetUtcNow());
@@ -227,6 +230,45 @@ public sealed partial class ParticipationService(NpgsqlDataSource source, TimePr
         return ParticipationOutcome.Done;
     }
 
+    /// <summary>
+    /// API-E04 (ADR-0053): a própria pessoa retira a inscrição antes do início. Repetir não repete efeito; evento ou
+    /// inscrição inexistente, encerrada ou fora da janela respondem igual, como indisponível.
+    /// </summary>
+    public async Task<ParticipationOutcome> WithdrawAsync(Guid eventId, Guid user, CancellationToken ct)
+    {
+        for (var attempt = 0; attempt < 3; attempt++)
+        {
+            try
+            {
+                return await WithdrawOnceAsync(eventId, user, ct);
+            }
+            catch (RegistrationPlanChangedException)
+            {
+                // A new waiter appeared before the event lock. Start over with all guards, in UUID order.
+            }
+        }
+        throw new AccountBusyException(TimeSpan.FromSeconds(2));
+    }
+
+    private async Task<ParticipationOutcome> WithdrawOnceAsync(Guid eventId, Guid user, CancellationToken ct)
+    {
+        await using var connection = await source.OpenConnectionAsync(ct);
+        await using var tx = await connection.BeginTransactionAsync(ct);
+        var plan = await RegistrationLockPlan.ForRegistrationAsync(connection, eventId, user, ct);
+        await Guard(connection, plan.Users, ct);
+        await plan.LockEventsAsync(connection, ct);
+        plan.RequireCovered(await RegistrationLockPlan.ForRegistrationAsync(connection, eventId, user, ct));
+        // A rota está no grupo EligibleParticipant: só chega aqui quem a política considerou elegível na porta, e conta
+        // inelegível não retira (ADR-0053). Não se revalida sob os locks porque a retirada não dá acesso a nada; uma
+        // mudança de conta durante a transação não muda o efeito. O relógio só é lido depois dos locks.
+        var outcome = await RegistrationTransitions.WithdrawByParticipantAsync(connection, eventId, user, Now, ct);
+        if (outcome == ParticipationOutcome.Done)
+        {
+            await tx.CommitAsync(ct);
+        }
+        return outcome;
+    }
+
     public async Task<ParticipationStatus?> StatusAsync(Guid eventId, Guid user, CancellationToken ct)
     {
         await using var connection = await source.OpenConnectionAsync(ct);
@@ -236,23 +278,31 @@ public sealed partial class ParticipationService(NpgsqlDataSource source, TimePr
         }
 
         // Só a sala mais recente conta: filtrar dentro do lateral faria a sala abortada trazer de volta a de uma rodada anterior.
+        // O aviso de cancelamento olha a última rodada que saiu de Scheduled: some quando a seguinte começa (spec 5.2). Só
+        // vale para quem já tinha presença confirmada quando essa rodada começava, e só com o encontro ainda aberto.
         await using var command = Command(connection, """
-            select r.state,case when s.state<>'Aborted' and not s.blocked then s.id end,s.state from events.registrations r
+            select r.state,case when s.state<>'Aborted' and not s.blocked then s.id end,s.state,
+              r.state='CheckedIn' and e.state in ('Published','Running')
+                and coalesce(lr.state='Cancelled' and r.checked_in_at<=lr.starts_at,false)
+            from events.registrations r join events.events e on e.id=r.event_id
             left join lateral(select gs.id,gs.state,
                 exists(select 1 from safety.blocks b where (b.blocker_id=p.user_low and b.blocked_id=p.user_high) or (b.blocker_id=p.user_high and b.blocked_id=p.user_low)) blocked
               from events.pairings p join experiences.game_sessions gs on gs.pairing_id=p.id
               where p.event_id=r.event_id and (p.user_low=r.user_id or p.user_high=r.user_id)
               order by p.created_at desc limit 1) s on true
+            left join lateral(select rd.state,rd.starts_at from events.rounds rd where rd.event_id=r.event_id and rd.state<>'Scheduled'
+              order by rd.number desc limit 1) lr on true
             where r.event_id=$1 and r.user_id=$2
             """, eventId, user);
         await using var reader = await command.ExecuteReaderAsync(ct);
         if (!await reader.ReadAsync(ct))
         {
-            return new("Unregistered", null);
+            return new("Unregistered", null, false);
         }
 
-        return reader.IsDBNull(1) ? new(reader.GetString(0) == "CheckedIn" ? "Waiting" : reader.GetString(0), null)
-            : new(reader.GetString(2) == "Expired" ? "Unavailable" : reader.GetString(2), reader.GetGuid(1));
+        var roundCancelled = reader.GetBoolean(3);
+        return reader.IsDBNull(1) ? new(reader.GetString(0) == "CheckedIn" ? "Waiting" : reader.GetString(0), null, roundCancelled)
+            : new(reader.GetString(2) == "Expired" ? "Unavailable" : reader.GetString(2), reader.GetGuid(1), roundCancelled);
     }
 
     public async Task BuildRoundPairingsAsync(Guid roundId, CancellationToken ct)
@@ -269,60 +319,78 @@ public sealed partial class ParticipationService(NpgsqlDataSource source, TimePr
         {
             return;
         }
+
         // Preliminary IDs are suggestions only. The same set is revalidated after acquiring its user guards.
-        List<Guid> ids = [];
-        await using (var query = Command(connection, "select rg.user_id from events.registrations rg join events.rounds r on r.event_id=rg.event_id where r.id=$1 and rg.state='CheckedIn' order by rg.user_id", roundId))
-        await using (var reader = await query.ExecuteReaderAsync(ct))
+        var ids = await ReadCheckedInUsersAsync(connection, roundId, ct);
+        await ObserveStageAsync("CandidatesRead", ct);
+        await Guard(connection, ids, ct);
+        await ObserveStageAsync("CandidatesGuarded", ct);
+        await LockEventAndRoundAsync(connection, roundId, ct);
+        if (await ReadRoundToBuildAsync(connection, roundId, ct) is not { } round)
         {
-            while (await reader.ReadAsync(ct))
-            {
-                ids.Add(reader.GetGuid(0));
-            }
+            return;
         }
 
-        if (ObserveMatchingStage is { } observed)
+        var now = Now;
+        if (round.State != "Scheduled" || round.Starts > now)
         {
-            await observed("CandidatesRead", ct);
+            return;
         }
-        await Guard(connection, ids, ct);
-        if (ObserveMatchingStage is { } guarded)
+
+        if (now > round.Starts + LateBuildLimit)
         {
-            await guarded("CandidatesGuarded", ct);
+            await Execute(connection, "update events.rounds set state='Cancelled',version=version+1 where id=$1", ct, round.Id);
+            return;
         }
+
+        var eligible = await LoadCandidatesAsync(connection, ids, round, ct);
+        var blocked = await ReadPairsAsync(connection, "select blocker_id,blocked_id from safety.blocks where blocker_id=any($1) or blocked_id=any($1)", ids.ToArray(), ct);
+        var prior = await ReadPairsAsync(connection, "select user_low,user_high from events.pairings where event_id=$1", round.EventId, ct);
+        var selected = PairSelector.Select(new(eligible.Candidates, blocked, prior, new RoundSeed(round.Seed), round.Algorithm));
+        RecordMetrics(selected);
+        await WritePairingsAsync(connection, round, selected, eligible.DisplayLocales, now, ct);
+        await ObserveStageAsync("PairingsWritten", ct);
+        await Execute(connection, "update events.rounds set state='Inviting',version=version+1 where id=$1", ct, round.Id);
+        await Execute(connection, "update events.events set state='Running',version=version+1 where id=$1", ct, round.EventId);
+    }
+
+    private static async Task<List<Guid>> ReadCheckedInUsersAsync(NpgsqlConnection connection, Guid roundId, CancellationToken ct)
+    {
+        List<Guid> ids = [];
+        await using var query = Command(connection, "select rg.user_id from events.registrations rg join events.rounds r on r.event_id=rg.event_id where r.id=$1 and rg.state='CheckedIn' order by rg.user_id", roundId);
+        await using var reader = await query.ExecuteReaderAsync(ct);
+        while (await reader.ReadAsync(ct))
+        {
+            ids.Add(reader.GetGuid(0));
+        }
+
+        return ids;
+    }
+
+    private Task ObserveStageAsync(string stage, CancellationToken ct) =>
+        ObserveMatchingStage?.Invoke(stage, ct) ?? Task.CompletedTask;
+
+    private static async Task LockEventAndRoundAsync(NpgsqlConnection connection, Guid roundId, CancellationToken ct)
+    {
         await Execute(connection, "select 1 from events.events where id=(select event_id from events.rounds where id=$1) for update", ct, roundId);
         await Execute(connection, "select 1 from events.rounds where id=$1 for update", ct, roundId);
-        Guid eventId;
-        Guid contentId;
-        DateTimeOffset starts;
-        long seed;
-        string state;
-        PairingAlgorithmVersion algorithm;
-        await using (var query = Command(connection, "select r.event_id,e.experience_version_id,r.starts_at,r.seed,r.state,r.algorithm_version from events.rounds r join events.events e on e.id=r.event_id where r.id=$1 and e.state in ('Published','Running')", roundId))
-        await using (var reader = await query.ExecuteReaderAsync(ct))
-        {
-            if (!await reader.ReadAsync(ct))
-            {
-                return;
-            }
+    }
 
-            eventId = reader.GetGuid(0);
-            contentId = reader.GetGuid(1);
-            starts = reader.GetFieldValue<DateTimeOffset>(2);
-            seed = reader.GetInt64(3);
-            state = reader.GetString(4);
-            algorithm = (PairingAlgorithmVersion)reader.GetInt32(5);
-        }
-        var now = Now;
-        if (state != "Scheduled" || starts > now)
+    private static async Task<RoundToBuild?> ReadRoundToBuildAsync(NpgsqlConnection connection, Guid roundId, CancellationToken ct)
+    {
+        await using var query = Command(connection, "select r.event_id,e.experience_version_id,r.starts_at,r.seed,r.state,r.algorithm_version from events.rounds r join events.events e on e.id=r.event_id where r.id=$1 and e.state in ('Published','Running')", roundId);
+        await using var reader = await query.ExecuteReaderAsync(ct);
+        if (!await reader.ReadAsync(ct))
         {
-            return;
+            return null;
         }
 
-        if (now > starts.AddSeconds(60))
-        {
-            await Execute(connection, "update events.rounds set state='Cancelled',version=version+1 where id=$1", ct, roundId);
-            return;
-        }
+        return new(roundId, reader.GetGuid(0), reader.GetGuid(1), reader.GetFieldValue<DateTimeOffset>(2), reader.GetInt64(3),
+            reader.GetString(4), (PairingAlgorithmVersion)reader.GetInt32(5));
+    }
+
+    private static async Task<EligibleCandidates> LoadCandidatesAsync(NpgsqlConnection connection, IEnumerable<Guid> ids, RoundToBuild round, CancellationToken ct)
+    {
         List<Candidate> candidates = [];
         Dictionary<Guid, string> locales = [];
         foreach (var user in ids)
@@ -332,97 +400,137 @@ public sealed partial class ParticipationService(NpgsqlDataSource source, TimePr
                 continue;
             }
 
-            await using var query = Command(connection, """
-                select rg.checked_in_at,coalesce(u.preferred_locale,'en-US'),p.allow_different_display_locales,
-                  array(select language_code from profiles.communication_languages l where l.user_id=u.id order by language_code),
-                  (select count(*)::integer from events.rounds earlier where earlier.event_id=rg.event_id and earlier.starts_at < $3
-                    and earlier.state in ('Inviting','Closed') and rg.checked_in_at<=earlier.starts_at
-                    and not exists(select 1 from events.pairing_participants pp where pp.round_id=earlier.id and pp.user_id=u.id)),
-                  location.country_code, regional.mode,
-                  array(select country_code from profiles.regional_preference_countries rc where rc.user_id=u.id order by country_code)
-                from events.registrations rg join identity.users u on u.id=rg.user_id join profiles.preferences p on p.user_id=u.id
-                left join profiles.profiles location on location.user_id=u.id
-                left join profiles.regional_preferences regional on regional.user_id=u.id
-                where rg.event_id=$1 and rg.user_id=$2 and rg.state='CheckedIn'
-                  and not exists(select 1 from events.pairing_participants pp where pp.user_id=u.id and pp.released_at is null)
-                """, eventId, user, starts);
-            await using var reader = await query.ExecuteReaderAsync(ct);
-            if (!await reader.ReadAsync(ct))
+            if (await LoadCandidateAsync(connection, user, round, ct) is not { } loaded)
             {
                 continue;
             }
 
-            var preferences = Preferences.Unrestricted;
-            if (algorithm == PairingAlgorithmVersion.GreedyByPriorityV3)
-            {
-                // Absence is pending, never an implicit unrestricted choice. Only declared country is projected.
-                if (reader.IsDBNull(6))
-                { continue; }
-                Dictionary<string, string> own = [];
-                Dictionary<string, IReadOnlySet<string>> accepted = [];
-                if (!reader.IsDBNull(5))
-                { own.Add("country", reader.GetString(5)); }
-                if (reader.GetString(6) == "countries")
-                {
-                    accepted.Add("country", reader.GetFieldValue<string[]>(7).ToHashSet(StringComparer.Ordinal));
-                }
-                else if (reader.GetString(6) != "unrestricted")
-                {
-                    throw new InvalidOperationException("Invalid stored regional mode.");
-                }
-                preferences = new Preferences(own, accepted);
-            }
-            var locale = reader.GetString(1);
-            candidates.Add(new(user, reader.GetFieldValue<DateTimeOffset>(0), reader.GetInt32(4), preferences,
-                new CommunicationDeclaration(locale, reader.GetFieldValue<string[]>(3), reader.GetBoolean(2))));
-            locales.Add(user, locale);
-        }
-        List<UserPair> blocked = [];
-        List<UserPair> prior = [];
-        await using (var query = Command(connection, "select blocker_id,blocked_id from safety.blocks where blocker_id=any($1) or blocked_id=any($1)", ids.ToArray()))
-        await using (var reader = await query.ExecuteReaderAsync(ct))
-        {
-            while (await reader.ReadAsync(ct))
-            {
-                blocked.Add(UserPair.Of(reader.GetGuid(0), reader.GetGuid(1)));
-            }
+            candidates.Add(loaded.Candidate);
+            locales.Add(user, loaded.DisplayLocale);
         }
 
-        await using (var query = Command(connection, "select user_low,user_high from events.pairings where event_id=$1", eventId))
-        await using (var reader = await query.ExecuteReaderAsync(ct))
+        return new(candidates, locales);
+    }
+
+    /// <summary>Null when the user is no longer a checked-in participant of the event, is already reserved elsewhere or has no regional choice yet.</summary>
+    private static async Task<LoadedCandidate?> LoadCandidateAsync(NpgsqlConnection connection, Guid user, RoundToBuild round, CancellationToken ct)
+    {
+        await using var query = Command(connection, """
+            select rg.checked_in_at,coalesce(u.preferred_locale,'en-US'),p.allow_different_display_locales,
+              array(select language_code from profiles.communication_languages l where l.user_id=u.id order by language_code),
+              (select count(*)::integer from events.rounds earlier where earlier.event_id=rg.event_id and earlier.starts_at < $3
+                and earlier.state in ('Inviting','Closed') and rg.checked_in_at<=earlier.starts_at
+                and not exists(select 1 from events.pairing_participants pp where pp.round_id=earlier.id and pp.user_id=u.id)),
+              location.country_code, regional.mode,
+              array(select country_code from profiles.regional_preference_countries rc where rc.user_id=u.id order by country_code)
+            from events.registrations rg join identity.users u on u.id=rg.user_id join profiles.preferences p on p.user_id=u.id
+            left join profiles.profiles location on location.user_id=u.id
+            left join profiles.regional_preferences regional on regional.user_id=u.id
+            where rg.event_id=$1 and rg.user_id=$2 and rg.state='CheckedIn'
+              and not exists(select 1 from events.pairing_participants pp where pp.user_id=u.id and pp.released_at is null)
+            """, round.EventId, user, round.Starts);
+        await using var reader = await query.ExecuteReaderAsync(ct);
+        if (!await reader.ReadAsync(ct))
         {
-            while (await reader.ReadAsync(ct))
-            {
-                prior.Add(UserPair.Of(reader.GetGuid(0), reader.GetGuid(1)));
-            }
+            return null;
         }
 
-        var selected = PairSelector.Select(new(candidates, blocked, prior, new RoundSeed(seed), algorithm));
+        if (ReadRegionalPreferences(reader, round.Algorithm) is not { } preferences)
+        {
+            return null;
+        }
+
+        var locale = reader.GetString(1);
+        var communication = new CommunicationDeclaration(locale, reader.GetFieldValue<string[]>(3), reader.GetBoolean(2));
+        return new(new Candidate(user, reader.GetFieldValue<DateTimeOffset>(0), reader.GetInt32(4), preferences, communication), locale);
+    }
+
+    /// <summary>Null when a V3 round finds no declared regional mode: absence is pending, never an implicit unrestricted choice.</summary>
+    private static Preferences? ReadRegionalPreferences(NpgsqlDataReader reader, PairingAlgorithmVersion algorithm)
+    {
+        if (algorithm != PairingAlgorithmVersion.GreedyByPriorityV3)
+        {
+            return Preferences.Unrestricted;
+        }
+
+        // Only declared country is projected.
+        if (reader.IsDBNull(6))
+        {
+            return null;
+        }
+
+        Dictionary<string, string> own = [];
+        Dictionary<string, IReadOnlySet<string>> accepted = [];
+        if (!reader.IsDBNull(5))
+        {
+            own.Add("country", reader.GetString(5));
+        }
+
+        if (reader.GetString(6) == "countries")
+        {
+            accepted.Add("country", reader.GetFieldValue<string[]>(7).ToHashSet(StringComparer.Ordinal));
+        }
+        else if (reader.GetString(6) != "unrestricted")
+        {
+            throw new InvalidOperationException("Invalid stored regional mode.");
+        }
+
+        return new Preferences(own, accepted);
+    }
+
+    private static async Task<List<UserPair>> ReadPairsAsync(NpgsqlConnection connection, string sql, object parameter, CancellationToken ct)
+    {
+        List<UserPair> pairs = [];
+        await using var query = Command(connection, sql, parameter);
+        await using var reader = await query.ExecuteReaderAsync(ct);
+        while (await reader.ReadAsync(ct))
+        {
+            pairs.Add(UserPair.Of(reader.GetGuid(0), reader.GetGuid(1)));
+        }
+
+        return pairs;
+    }
+
+    private static void RecordMetrics(PairSelection selected)
+    {
         RoundsBuilt.Add(1);
         PairsBuilt.Add(selected.Pairs.Count);
         CandidatesWaiting.Add(selected.Unpaired.Count);
+    }
+
+    private static async Task WritePairingsAsync(NpgsqlConnection connection, RoundToBuild round, PairSelection selected,
+        IReadOnlyDictionary<Guid, string> locales, DateTimeOffset now, CancellationToken ct)
+    {
         foreach (var pair in selected.Pairs)
         {
-            var id = Guid.CreateVersion7();
-            var room = Guid.CreateVersion7();
-            var agreement = selected.CommunicationAgreements[pair];
-            await Execute(connection, """
-                insert into events.pairings(id,round_id,event_id,user_low,user_high,algorithm_version,communication_language,communication_policy_version,created_at)
-                values($1,$2,$3,$4,$5,$6,$7,$8,$9)
-                """, ct, id, roundId, eventId, pair.UserLow, pair.UserHigh, (int)selected.AlgorithmVersion, agreement.Language, agreement.PolicyVersion, now);
-            await Execute(connection, "insert into experiences.game_sessions(id,pairing_id,experience_version_id,state,invite_expires_at) values($1,$2,$3,'Invited',$4)", ct, room, id, contentId, now.AddSeconds(60));
-            foreach (var user in new[] { pair.UserLow, pair.UserHigh })
-            {
-                await Execute(connection, "insert into events.pairing_participants(pairing_id,user_id,round_id) values($1,$2,$3)", ct, id, user, roundId);
-                await Execute(connection, "insert into experiences.game_participants(game_session_id,user_id,display_locale) values($1,$2,$3)", ct, room, user, locales[user]);
-            }
-            await ScheduleAsync(connection, "expire-invite", room, now.AddSeconds(60), ct);
+            await WritePairingAsync(connection, round, selected, pair, locales, now, ct);
         }
-        if (ObserveMatchingStage is { } written)
-        {
-            await written("PairingsWritten", ct);
-        }
-        await Execute(connection, "update events.rounds set state='Inviting',version=version+1 where id=$1", ct, roundId);
-        await Execute(connection, "update events.events set state='Running',version=version+1 where id=$1", ct, eventId);
     }
+
+    private static async Task WritePairingAsync(NpgsqlConnection connection, RoundToBuild round, PairSelection selected, UserPair pair,
+        IReadOnlyDictionary<Guid, string> locales, DateTimeOffset now, CancellationToken ct)
+    {
+        var id = Guid.CreateVersion7();
+        var room = Guid.CreateVersion7();
+        var agreement = selected.CommunicationAgreements[pair];
+        var inviteExpiresAt = now + InviteWindow;
+        await Execute(connection, """
+            insert into events.pairings(id,round_id,event_id,user_low,user_high,algorithm_version,communication_language,communication_policy_version,created_at)
+            values($1,$2,$3,$4,$5,$6,$7,$8,$9)
+            """, ct, id, round.Id, round.EventId, pair.UserLow, pair.UserHigh, (int)selected.AlgorithmVersion, agreement.Language, agreement.PolicyVersion, now);
+        await Execute(connection, "insert into experiences.game_sessions(id,pairing_id,experience_version_id,state,invite_expires_at) values($1,$2,$3,'Invited',$4)", ct, room, id, round.ContentId, inviteExpiresAt);
+        foreach (var user in new[] { pair.UserLow, pair.UserHigh })
+        {
+            await Execute(connection, "insert into events.pairing_participants(pairing_id,user_id,round_id) values($1,$2,$3)", ct, id, user, round.Id);
+            await Execute(connection, "insert into experiences.game_participants(game_session_id,user_id,display_locale) values($1,$2,$3)", ct, room, user, locales[user]);
+        }
+
+        await ScheduleAsync(connection, "expire-invite", room, inviteExpiresAt, ct);
+    }
+
+    private sealed record RoundToBuild(Guid Id, Guid EventId, Guid ContentId, DateTimeOffset Starts, long Seed, string State, PairingAlgorithmVersion Algorithm);
+
+    private sealed record LoadedCandidate(Candidate Candidate, string DisplayLocale);
+
+    private sealed record EligibleCandidates(IReadOnlyList<Candidate> Candidates, IReadOnlyDictionary<Guid, string> DisplayLocales);
 }
