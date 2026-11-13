@@ -552,10 +552,72 @@ a janela e nenhum é alterado.
 **Janela.** Entre 07:00 e 21:00 UTC; quarta e quinta só depois das 08:00. O comando recusa fora disso, para não cruzar
 backups, `verify-repo` nem o prune diário. Plano e apply na mesma janela: o prune remove imagem sem container.
 
-**Ordem com o lock na main.** Freeze, revisor obrigatório no environment `production`, merge só do lock (`gh pr merge
---merge --match-head-commit`), CI e `images` verdes, troca, ressela, aprovar a primeira release com o lock novo (R''),
-`healthy`, remover o revisor, fim do freeze. Se a troca abortar com o lock já na main, toda release recusa: nova janela
-em até 7 dias; passado isso, PR de reversão do lock.
+**Ordem segura.** Troca, ressela e só então a release com o lock novo: o PR do lock entra depois da troca. Em sequência:
+freeze e revisor, `duora-backup full`, troca, ressela, `troca --resume`, conferência, merge só do lock (`gh pr merge
+--merge --match-head-commit`), CI e `images` verdes, aprovar a primeira release com o lock novo (R''), `healthy`, remover
+o revisor, fim do freeze. O CI do PR do lock pode ficar verde antes da janela; só o merge espera. Merge do lock antes
+da troca só com o revisor já ativo: sem ele, a release automática do merge chega ao host com o digest novo, é recusada
+e o `pending` trava todos os projetos (registro de 13/11/2026, abaixo). Se a troca abortar com o lock já na main, toda
+release recusa: nova janela em até 7 dias; passado isso, PR de reversão do lock (abaixo).
+
+**Freeze e revisor.** O repositório não tem comando de freeze. O freeze do Duora é o revisor obrigatório no environment
+`production`: o job `deploy` do `Coolify release` (`.github/workflows/coolify.yml`) espera aprovação, e nenhuma release
+automática chega ao host. O revisor é o dono (`BipoXDXD`). StillOn e GoblinShift não têm trava neste repositório: o
+freeze deles é combinado fora dele. A troca só os recusa do passo 1 em diante (fence); antes disso, o passo 0 recusa a
+troca se o Coolify do host não estiver ocioso. Os comandos são da API do GitHub, não de ferramenta do repositório. Rode
+na sua máquina, com o `gh` do dono:
+
+```bash
+ID=$(gh api users/BipoXDXD --jq .id)
+printf '{"reviewers":[{"type":"User","id":%s}],"prevent_self_review":false,%s}' "$ID" \
+  '"deployment_branch_policy":{"protected_branches":false,"custom_branch_policies":true}' \
+  | gh api -X PUT repos/BipoXDXD/duora/environments/production --input -
+gh api repos/BipoXDXD/duora/environments/production --jq '[.protection_rules[].type]'   # inclui "required_reviewers"
+```
+
+O `deployment_branch_policy` repete o valor atual, para o PUT não mexer na regra de branch. O `prevent_self_review`
+fica `false` porque quem aprova é quem fez o push. Para remover o revisor no fim, o mesmo PUT com `"reviewers":[]`.
+Em 13/11/2026 o environment só tinha a regra `branch_policy`, sem revisor.
+
+**Executor instalado.** Como root, na VPS. Os quatro valores do recibo servem também ao plano e à ressela:
+
+```bash
+RCPT=/var/lib/duora/executor-install-receipt.json
+campo() { python3 -I -c 'import json,sys;print(json.load(open(sys.argv[1]))[sys.argv[2]])' "$RCPT" "$1"; }
+test "$(campo status)" = installed
+C=$(campo sourceCommit); M=$(campo manifestSha256); A=$(campo qualificationArtifactId); E=$(campo executorSha256)
+B=/opt/duora-executor/releases/$C
+echo "$C $M $A $E"
+test "$(readlink /usr/local/sbin/duora-deploy)" = "$B/duora_deploy.py"
+test "$(sha256sum "$B/duora_deploy.py" | cut -d' ' -f1)" = "$E"
+/usr/local/sbin/duora-deploy --help | grep -- --swap-postgres-component
+test ! -e /var/lib/coolify-release/duora/pending.json
+```
+
+O instalador ativa o executor como link para `$B/duora_deploy.py` e grava `executorSha256` no recibo
+(`install_executor.py`). A troca confere o mesmo recibo contra o arquivo em execução e recusa com "Executor em
+execução não é o instalado pelo recibo". Na sua máquina, confira que o `sourceCommit` está na main e que o artefato de
+qualificação não expirou (o instalador recusa artefato expirado, de outro run ou de outra arquitetura):
+
+```bash
+git fetch origin && git merge-base --is-ancestor <C> origin/main && echo na-main
+gh api repos/BipoXDXD/duora/actions/artifacts/<A> --jq '[.name, .expired, .workflow_run.head_sha, .expires_at] | @tsv'
+# duora-executor-amd64  false  <C>  <data de expiração depois da janela>
+```
+
+**Backup antes da troca.** Rode um full na janela, antes do `--preflight-only`, pela mesma unit do timer semanal. O
+passo 0 roda `verify-repo` e o passo 2 roda `verify`, que passam a valer sobre esse full:
+
+```bash
+systemctl start duora-backup@full.service                     # oneshot: só volta quando o full termina
+systemctl show -p Result --value duora-backup@full.service    # success
+journalctl -u duora-backup@full.service --since today --no-pager | tail -20
+duora-backup info                                             # o full mais novo tem a data de hoje
+```
+
+O `full` espera um deploy em curso terminar (mesmo lock, até 30 min). Falha deixa a unit em `failed` e dispara
+`duora-backup-failed@` ([backup-restore.md](backup-restore.md#operação)): não comece a troca. Snapshot da VPS no
+provedor não aparece em nenhum procedimento do repositório; se o dono quiser um, é fora deste roteiro.
 
 Rode tudo pelo `systemd-run`: queda de SSH não pode matar o comando no meio. Filhos ficam em grupo próprio, com
 `PDEATHSIG`. A saída vai para o journal do systemd.
@@ -573,6 +635,40 @@ troca --reviewed-plan-sha256 <planSha256>         # para em awaiting-reseal, com
 
 Rode como root, em shell próprio. O comando não existe no sudoers do executor de deploy e recusa o `SSH_ORIGINAL_COMMAND`
 do envio. `Ctrl-C` no `journalctl` só para de seguir o log; a unit continua.
+
+O `releaseId` de `R` é o de `/var/lib/duora/current.json`. O `ALVO` é o `images.amd64` do lock revisado; na sua máquina:
+
+```bash
+git fetch origin && git show origin/main:infra/images/postgres-component-lock.json \
+  | python3 -I -c 'import json,sys;print(json.load(sys.stdin)["images"]["amd64"])'
+```
+
+Com o lock ainda fora da main (ordem segura), troque `origin/main` pelo head revisado do PR do lock.
+
+**O que revisar no plano.** O `--preflight-only` escreve uma linha JSON no journal da unit, com `planSha256` e `plan`
+(`postgres_swap.py`, `_swap_plan`). Salve a linha, confira que o hash é o do plano e compare os campos antes de aprovar:
+
+```bash
+W=$(mktemp -d /root/pgswap-XXXX)
+journalctl -u duora-postgres-swap -o cat --no-pager | grep '"status": "plan"' | tail -1 > "$W/plano.json"
+python3 -I -m json.tool "$W/plano.json"
+python3 -I -c 'import hashlib,json,sys;d=json.load(open(sys.argv[1]));print(hashlib.sha256(json.dumps(d["plan"],sort_keys=True,separators=(",",":"),allow_nan=False).encode()).hexdigest()==d["planSha256"])' "$W/plano.json"   # True
+sha256sum /var/lib/duora/executor-runtime-baseline.json /etc/duora/coolify-deploy.json /var/lib/duora/current.json \
+  "$(python3 -I -c 'import json;print(json.load(open("/etc/duora/coolify-deploy.json"))["compose"])')" /etc/duora/duora.env
+```
+
+| Campo do plano | Tem de ser |
+|---|---|
+| `sourceReleaseId` | O `releaseId` de `current.json`, o mesmo de `R` |
+| `sourcePostgres` | O digest que roda hoje; antes da primeira troca, o `LEGACY_DIGESTS["amd64"]` de `runtime_guard.py` |
+| `targetPostgres` | Exatamente `$ALVO` |
+| `executor` | `sourceCommit`, `manifestSha256` e `executorSha256` do recibo (`C`, `M` e `E` acima) |
+| `facts.sourceImageId`, `facts.targetImageId` | Diferentes entre si. Anote o segundo: volta na conferência depois da troca |
+| `facts.postgres`, `facts.pgbackrest` | Mesma major do banco que roda e a mesma versão do pgBackRest. O comando já recusa o contrário; aqui você confere o valor |
+| `facts.compatibility`, `facts.collationVersion` | Controle, catálogo, encoding, provider, collate, ctype, locale e versão da colação lidos do banco que roda |
+| `stateSha256` | Os cinco hashes do `sha256sum`, na ordem `baseline`, `pin`, `current`, `compose` e `hostEnvironment` |
+
+Campo diferente do esperado: não aprove. O apply refaz o plano e recusa se o hash mudou ("Plano difere do revisado").
 
 | Passo | Fase no journal | O que acontece | Falhou aqui |
 |---|---|---|---|
@@ -617,6 +713,55 @@ executor ativo. Com journal aberto sem fence, ou numa transição de coorte do r
 com `troca --resume`, que recusa com instalação pendente, confere o baseline contra o runtime, roda `verify-repo`, arquiva
 o journal em `/var/lib/duora/postgres-swap-history/<swapId>/` e remove a fence. Só então uma release volta a andar.
 
+Os valores saem de dois lugares. `sourceCommit`, `manifestSha256`, `qualificationArtifactId` e `executorSha256` vêm do
+recibo, já lidos em `C`, `M`, `A` e `E` no bloco do executor instalado. O `inventorySha256` vem da saída da inspeção,
+uma linha JSON com o recibo candidato e o `inventory` (`install_executor.py`, `install_bundle`):
+
+```bash
+B=/opt/duora-executor/releases/$C
+python3 -I "$B/install_executor.py" --bundle "$B" --source-commit "$C" --manifest-sha256 "$M" --artifact-id "$A" \
+  > "$W/ressela.json"
+python3 -I -c 'import json,sys;print(json.load(open(sys.argv[1]))["inventorySha256"])' "$W/ressela.json"
+diff <(python3 -I -m json.tool --sort-keys /var/lib/duora/executor-runtime-baseline.json) \
+     <(python3 -I -c 'import json,sys;print(json.dumps(json.load(open(sys.argv[1]))["inventory"]["profile"],indent=4,sort_keys=True))' "$W/ressela.json") || true
+python3 -I "$B/install_executor.py" --bundle "$B" --source-commit "$C" --manifest-sha256 "$M" --artifact-id "$A" --apply \
+  --reviewed-inventory-sha256 <inventorySha256 revisado> --expected-executor-sha256 "$E"
+troca --resume
+```
+
+O baseline é o `profile` selado, então o `diff` mostra só o que a ressela muda: linhas em `services.*` e `configHashes`.
+Qualquer outra linha (host, Docker, volume, `composeSha256`) barra o `--apply`.
+
+**Conferência depois da troca.** O `troca --resume` final já confere digest, foto, volume e baseline. Para ver com os
+próprios olhos, como root, depois dele:
+
+```bash
+test ! -e /var/lib/duora/postgres-swap/attempt.json
+test ! -e /var/lib/coolify-release/duora-postgres-swap/pending.json
+ls /var/lib/duora/postgres-swap-history/
+docker ps --all --quiet --filter name=duora-postgres-swap-hold-          # vazio
+for s in postgres backup; do
+  docker ps --all --no-trunc --quiet --filter label=com.docker.compose.project=duora \
+    --filter label=com.docker.compose.service=$s | xargs -r docker container inspect \
+    --format '{{.Name}} {{.Config.Image}} {{.Image}} {{.State.Status}} {{range .Mounts}}{{.Name}}{{end}}'
+done
+docker image inspect --format '{{.Id}}' "$ALVO"
+CUR=$(python3 -I -c 'import json;print(json.load(open("/var/lib/duora/current.json"))["releaseId"])')
+python3 -I -c 'import json,sys;print(json.load(open(sys.argv[1]))["images"]["postgres"])' "/var/lib/duora/releases/$CUR.json"
+```
+
+Esperado: uma linha só por serviço; `.Config.Image` igual a `$ALVO`; `.Image` igual ao `Id` da imagem e ao
+`facts.targetImageId` do plano; estado `running`; volume `duora_pgdata`. São os campos que o `collect_runtime` de
+`runtime_guard.py` compara. O `CUR` começa com `pgswap-` e os 12 primeiros hex do digest alvo, e o manifesto de R'
+aponta `$ALVO`. Journal ou fence ainda presente: a troca não fechou, volte ao `troca --resume`.
+
+Depois, a primeira release com o lock novo (R''). Com o lock já na main, dispare o `Coolify release` do commit atual da
+main e aprove o job `deploy` no environment `production`:
+
+```bash
+gh workflow run coolify.yml --ref main -f commit=<SHA completo da main>
+```
+
 **Abort.** Dos passos 1 a 3 fecha sozinho, salvo se um reboot ou OOM mudou o `startedAt`: aí o banco não é tocado e o
 abort termina em `aborted-awaiting-reseal`. A partir do passo 4 ele recria o digest antigo, compara a foto e reabre a
 aplicação, mas termina em `aborted-awaiting-reseal`, com a fence mantida: basta o `stop` para mudar o `startedAt` selado,
@@ -628,6 +773,26 @@ essas escritas no mesmo volume.
 antigo como alvo. Ela gera outra release e exige reverter o lock na main; fora do envelope de compatibilidade, conserto
 para frente ou restore, por decisão do dono. R''→R' é rollback normal. R'→R segue recusado de propósito, porque R fixa o
 digest antigo.
+
+**Reversão do lock.** Vale quando o lock está na main e o host continua no digest antigo: a troca não aconteceu, ou
+abortou e foi selada contra R. Sem nova janela em até 7 dias, reverta o merge do lock com outro merge commit. O lock
+`cd9e9808` entrou pelo merge `1deb186b` do #353, que também fixou apt e zlib no Dockerfile do componente e tirou as
+exceções do `.trivyignore` e de `docs/security/supply-chain.md`. Reverter o merge inteiro devolve as quatro coisas juntas,
+e o `images` volta a escanear o `d32f8c44…` com as exceções antigas:
+
+```bash
+git fetch origin
+git switch -c revert/postgres-lock-353 origin/main
+git revert -m 1 1deb186b
+gh pr create --base main --fill
+gh pr merge <PR> --merge --match-head-commit <head do PR>
+```
+
+As exceções devolvidas vencem: `exp:2026-11-15` nas duas da zlib e `exp:2026-12-05` na do apt. Vencida a data, o Trivy
+do `images` falha no digest antigo, e o PR de reversão só fica verde com exceção nova e data nova, por decisão do dono
+(`scripts/release/POSTGRES_COMPONENT.md` pede atualizar, não suprimir). Depois do merge, a release seguinte leva de novo
+o digest que roda e passa no `runtime_preflight`. Um `pending` deixado no host por release recusada antes continua
+travando: este documento não traz o comando que o resolve, e em 13/11/2026 isso foi feito pela coordenação.
 
 **O que a CI prova a cada PR.** `continuity_lab.py`, no job `images`, termina cada rodada trocando pelo comando real
 para um digest diferente do que está rodando, escolhido em `scripts/deploy/fixtures/postgres-swap-target.json`: sentinela,
@@ -660,6 +825,12 @@ prova, restaura no fim e, antes da primeira troca, confere cada caminho com o pr
 Em banco pequeno, sem Coolify real, a queda medida foi de 6 a 7 s no banco e cerca de 14 s na aplicação; `--abort` soma
 outro tanto. Tempo com volume real só no sombra. Continuam sem prova até a janela: observer e Coolify reais, B2, GHCR a
 partir da VPS, cron de prune e `docker load` do receiver sobre imagem já puxada.
+
+**Registro de 13/11/2026.** O lock novo (`d32f8c44` → `cd9e9808`) chegou à main pelo #353 antes da troca, sem revisor
+no environment. A release `b685c3ce` foi recusada no preflight com "Cannot qualify the unchanged database/backup
+runtime" (`_collect_runtime` em `duora_deploy.py`), e o `pending.json` travou o host. A coordenação reconciliou às
+22:38 UTC de 13/11. A troca está marcada para 14/11 às 07:12 UTC, um sábado, dentro da janela de 07:00 a 21:00 UTC.
+Lição: a ordem segura é troca, ressela e release com o lock novo; o PR do lock só entra depois da troca.
 
 ### Primeira configuração do host
 
