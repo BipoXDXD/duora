@@ -1,4 +1,5 @@
 using System.Data.Common;
+using Duora.Infrastructure;
 using Duora.Infrastructure.Identity;
 using Microsoft.EntityFrameworkCore;
 
@@ -21,6 +22,10 @@ internal sealed partial class SelfieVerificationProviderService(IServiceScopeFac
             {
                 DatabaseUnavailable(logger);
             }
+            catch (Exception exception) when (exception is not OutOfMemoryException && !stoppingToken.IsCancellationRequested)
+            {
+                LogUnexpectedFailure(logger, exception.GetType().Name, ExceptionFrames.Describe(exception));
+            }
 
             await Task.Delay(TimeSpan.FromSeconds(1), stoppingToken);
         }
@@ -28,4 +33,7 @@ internal sealed partial class SelfieVerificationProviderService(IServiceScopeFac
 
     [LoggerMessage(Level = LogLevel.Warning, Message = "Selfie queue unavailable; retrying without logging payloads.")]
     private static partial void DatabaseUnavailable(ILogger logger);
+
+    [LoggerMessage(Level = LogLevel.Error, Message = "Selfie dispatch failed unexpectedly ({Cause}); the delivery returns when its lease expires. Frames: {Frames}")]
+    private static partial void LogUnexpectedFailure(ILogger logger, string cause, string frames);
 }

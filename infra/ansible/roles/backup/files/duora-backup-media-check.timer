@@ -4,8 +4,7 @@
 Description=Duora: verificação semanal completa do backup das fotos
 
 [Timer]
-OnCalendar=Thu *-*-* 06:30:00 UTC
-RandomizedDelaySec=15min
+OnCalendar=Thu *-*-* 04:05:00 UTC
 Persistent=true
 Unit=duora-media-backup@media-check.service
 

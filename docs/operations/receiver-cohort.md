@@ -14,9 +14,9 @@ O emissor continua calculando o digest dos bytes reais do módulo; não há over
 `receiver_binding()` ordinário continua aceitando apenas o candidato e9. O perfil antigo privado existe
 somente para a transação explícita ou para o journal local autenticado de uma tentativa interrompida.
 
-O bundle continua contendo os quatro arquivos já previstos. A transição não altera os bytes do executor,
-de `reconcile_payload.py` ou de `runtime_guard.py`: o manifesto do bundle antigo e o novo devem concordar
-nesses três componentes. Somente o instalador muda. O bundle novo precisa conter o próprio instalador
+O bundle continua contendo os cinco arquivos já previstos. A transição não altera os bytes do executor,
+de `postgres_swap.py`, de `reconcile_payload.py` ou de `runtime_guard.py`: o manifesto do bundle antigo e o novo
+devem concordar nesses quatro componentes. Somente o instalador muda. O bundle novo precisa conter o próprio instalador
 invocado, com seu hash exato e a qualificação remota vinculada à fonte e ao artefato reais. Não preencher
 hashes com os de um bundle histórico.
 
@@ -82,6 +82,6 @@ instalação estática efetiva ainda são necessários aceite independente e pas
 automática de produto. Nenhuma dessas provas promete indisponibilidade zero ou operação contínua24x7.
 
 As regressões de revisão usam também o snapshot histórico55d2, somente como fixture de teste fora do
-bundle de quatro arquivos. Os controles executam os casos sintéticos no código anterior e exigem a
+bundle de cinco arquivos. Os controles executam os casos sintéticos no código anterior e exigem a
 recusa no código corrigido, sem publicar um instalador com falha conhecida. Isso não é um novo job RED
 anterior à correção: a reprodução dirigida e a verificação da correção são pareadas no mesmo CI remoto.

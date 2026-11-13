@@ -52,7 +52,7 @@ A classe de cada tabela é a da coluna mais sensível; colunas mais sensíveis q
 
 ```mermaid
 flowchart LR
-    identity["identity<br/>conta, sessão, idade, consentimento"]
+    identity["identity<br/>conta, sessão, presença, consentimento"]
     profiles["profiles<br/>perfil, preferências, fotos"]
     events["events<br/>evento, inscrição, rodada,<br/>par e reserva (Matching)"]
     experiences["experiences<br/>catálogo e sala (game_session)"]
@@ -94,7 +94,7 @@ detalhar este modelo. Todas **Proposta — confirmar**.
 | D9 | Não repetir par no evento | `events.pairings` carrega `event_id` (consistente com a rodada por FK composta) e `UNIQUE (event_id, user_low, user_high)` | Checar repetição só no algoritmo: check-then-insert sem constraint |
 | D10 | Uma conexão por par para sempre | `UNIQUE (user_low, user_high)` em `social.connections` vale também para conexões encerradas (reconexão fora do MVP, spec 7.1); o pareamento exclui pares com conexão `Ended` ou `Blocked` | Unicidade só de conexão ativa: permitiria reconexão implícita, que a spec deixa fora do MVP |
 | D11 | Sequência de mensagens | `social.conversations.next_sequence bigint`, incrementado sob o lock da conversa no envio | `SEQUENCE` global ou `max(sequence)+1`: a primeira não é por conversa; a segunda é read-modify-write |
-| D12 | Data de nascimento | `identity.users.birth_date date` (classe P3), nunca exposta; o perfil guarda só a faixa etária derivada | Só faixa etária autodeclarada: a faixa precisa ser recalculada com o tempo e conferida com a verificação etária |
+| D12 | Data de nascimento (**superada em 29/10/2026:** não há `birth_date` nem `age_band`; [decisões de 29/10](../product/decisions-2026-10-29.md), item 1) | `identity.users.birth_date date` (classe P3), nunca exposta; o perfil guarda só a faixa etária derivada | Só faixa etária autodeclarada: a faixa precisa ser recalculada com o tempo e conferida com a verificação etária |
 | D13 | Conta privilegiada separada (**Accepted**, 2026-10-15) | Trigger de atribuição: conta com papel privilegiado não tem papel `participant` ([auth.md](../security/auth.md#papéis-e-contas)) | Elevação de sessão de participante |
 
 ## Schema `identity`
@@ -152,7 +152,7 @@ Preferência de apresentação (issue #81, aprovação de 2026-10-21): `preferre
   `password_hash text`; `security_stamp text`, `concurrency_stamp text` (Identity);
   `two_factor_enabled boolean`; `lockout_end timestamptz`, `lockout_enabled boolean`,
   `access_failed_count int`; `state text` (`PendingEmail`, `PendingEligibility`, `Active`, `Restricted`,
-  `Suspended`, `DeletionPending`, `Deleted`); `birth_date date` (D12); `created_at`, `state_changed_at
+  `Suspended`, `DeletionPending`, `Deleted`); `created_at`, `state_changed_at
   timestamptz`; `version bigint`.
 - **Chaves e constraints:** PK `id`; `UNIQUE (normalized_email)` (`RequireUniqueEmail`; normalização do
   Identity, explícita e testada); `CHECK` de estado; `CHECK (access_failed_count >= 0)`.
@@ -164,7 +164,7 @@ Preferência de apresentação (issue #81, aprovação de 2026-10-21): `preferre
   ck_users_temporary_password_requires_confirmed_email (temporary_password_expires_at IS NULL OR
   email_confirmed)`: conta com senha temporária é confirmada, e o upsert do cadastro nunca a substitui (TM-66;
   auth.md, "Bootstrap administrativo").
-- **Classe:** S (`password_hash`, `security_stamp`); P3 (`birth_date`); P2 (e-mail).
+- **Classe:** S (`password_hash`, `security_stamp`); P2 (e-mail).
 - **Exclusão:** a linha é anonimizada (e-mail substituído por valor não reversível, hash e stamp zerados) e,
   depois das etapas do Privacy, apagada; nenhuma FK de outro módulo cascateia.
 
@@ -278,7 +278,6 @@ erDiagram
     profiles {
         uuid user_id PK
         text display_name
-        text age_band
         text country_code FK
         text subdivision_code FK
         bigint version
@@ -296,18 +295,19 @@ erDiagram
 
 ### profiles.profiles
 
-- **Colunas:** `user_id uuid`; `display_name text` (≤ 40); `age_band text` (faixas fechadas, ex. `18-24`,
-  `25-34`; derivada de `birth_date`); `country_code text` e `subdivision_code text` (localização aproximada e
+- **Colunas:** `user_id uuid`; `display_name text` (≤ 40); `country_code text` e `subdivision_code text` (localização aproximada e
   opcional: país ISO 3166-1 e subdivisão ISO 3166-2 do catálogo, ADR-0030); `bio text` (≤ 500); `updated_at`;
   `version bigint` (`ETag` de API-P01/P02).
-- **Constraints:** PK e FK `user_id` → `identity.users` `RESTRICT`; `CHECK` de tamanhos e de `age_band`; FKs de
+- **Constraints:** PK e FK `user_id` → `identity.users` `RESTRICT`; `CHECK` de tamanhos; FKs de
   localização para o catálogo e `CHECK` de país quando há subdivisão.
 - **Classe:** P2 (perfil exibido a contextos legítimos, spec 12.1).
 - **Implementado (migração `Profiles`):** `user_id`, `display_name text null` (1 a 40), `bio text null` (1 a 500),
   `version bigint` (`CHECK version >= 1`; a linha só nasce na primeira gravação, e o perfil sem linha é lido como
   versão 0) e `updated_at`, com `CHECK` de tamanho por `char_length` e FK `RESTRICT`. O texto é gravado em NFC,
-  sem Cc, Cf, Zl, Zp nem surrogate solto (`ProfileText`). `age_band` **ainda não existe**: a origem da faixa (issue
-  #9 item 7, D12) está por decidir.
+  sem Cc, Cf, Zl, Zp nem surrogate solto (`ProfileText`). O perfil não tem `age_band` nem há `birth_date`: nenhuma data de
+  nascimento, idade ou faixa etária é coletada ([24/10](../product/decisions-2026-10-24.md), item 3; [29/10](../product/decisions-2026-10-29.md), item 1;
+  [ADR-0029](../architecture/adr/0029-confirmacao-email-presenca-sem-idade.md); issue #9 item 7; [data-map](../privacy/data-map.md#lacunas), lacuna 3).
+  `PATCH /me/profile` recusa `ageBand` com 400, como campo desconhecido (`OwnProfileTests.UnknownOrRepeatedFieldIs400AndWritesNothing`).
 - **Expansão para revisão (issue #78, [ADR-0030](../architecture/adr/0030-profile-country-subdivision.md)):**
   `country_code text null` referencia `profiles.countries(code)`; `subdivision_code text null` participa da FK
   composta para `profiles.subdivisions(country_code, code)` (MATCH SIMPLE). CHECK exige país quando há subdivisão;
@@ -437,7 +437,9 @@ erDiagram
   `NoShow`, `Completed`); `waitlist_position bigint`; `registered_at`, `confirmed_at`, `checked_in_at`,
   `withdrawn_at timestamptz`; `version bigint`.
 - **Constraints:** `UNIQUE (event_id, user_id)` (spec 10.3); `CHECK ((state = 'Waitlisted') = (waitlist_position
-  IS NOT NULL))`; índice único parcial `(event_id, waitlist_position)` onde `state = 'Waitlisted'`; FK
+  IS NOT NULL))`; `ck_registrations_withdrawal`: as colunas de retirada (`withdrawn_at`, `withdrawn_from_state`,
+  `withdrawn_waitlist_position`) ficam todas nulas (linha legada, histórico desconhecido) ou todas coerentes com
+  `state = 'Withdrawn'`, com ou sem `withdrawn_by_suspension_id` (sem ela, retirada voluntária; ADR-0044, ADR-0053); índice único parcial `(event_id, waitlist_position)` onde `state = 'Waitlisted'`; FK
   `event_id` `RESTRICT`; FK `user_id` `RESTRICT`.
 - **Índices:** `ix_registrations_user_id`; o `UNIQUE` cobre `event_id`; `ix_registrations_event_state` para
   check-in e promoção.
@@ -1220,7 +1222,10 @@ Dono: Operations (D3).
   bootstrap `identity.admin_granted.<papel>` e `identity.admin_temporary_password_reissued`,
   `ops.registration_reconciliation_run_created` e `ops.registration_reconciliation_run_closed`,
   `events.legacy_registration_reconciliation_applied` e `events.legacy_registration_reconciliation_skipped` (ADR-0049, alvo
-  run ou unidade; o motivo fechado fica no recibo da unidade); próximas: `moderation.evidence_read`...);
+  run ou unidade; o motivo fechado fica no recibo da unidade), `identity.selfie_verification_passed` e
+  `identity.selfie_verification_failed` (#384, ator `System`, alvo a tentativa com a versão resultante),
+  `identity.account_activated` (ator `System`, alvo a conta, sem versão; na selfie, só quando a aprovação tira a conta
+  de `PendingEligibility`, nunca numa conta que já está `Active`); próximas: `moderation.evidence_read`...);
   `target_type varchar(32)`; `target_id uuid`; `target_version bigint`; `correlation_id varchar(32)` (trace id
   W3C da requisição).
 - **Colunas previstas, por migration aditiva quando o primeiro uso chegar (moderação, T-10):** `reason text`;
@@ -1409,7 +1414,7 @@ imagem real):
 
 Tabela implementada `identity.selfie_failures` (issue #300, ADR-0043): PK `verification_id` (a tentativa reprovada; sem FK, porque a tentativa sai em 30 dias), `user_id` com FK `ON DELETE CASCADE` e índice `(user_id, failed_at)`, `failed_at timestamptz` finito. Uma linha por reprovação; contagem e pausa são derivadas. duora_app tem SELECT/INSERT/UPDATE/DELETE (a aprovação e a revogação da suspensão por selfie apagam as linhas da conta).
 
-Tabela implementada `identity.selfie_verifications`: PK id; FK user_id com Restrict; estados Pending/Capturing/Processing/Passed/RecaptureRequired/Inconclusive/Expired; policy_version, provider_reference transitório único, feedback_code, requested_at, expires_at, completed_at e version de concorrência. Índice único parcial permite uma tentativa aberta por conta, índice user_id/requested_at atende status e orçamento. duora_app tem SELECT/INSERT/UPDATE/DELETE conforme allowlist explícita. Não armazena imagens, idade, documentos ou scores. Registros etários antigos ficam somente para compatibilidade histórica.
+Tabela implementada `identity.selfie_verifications`: PK id; FK user_id com `ON DELETE CASCADE` (migração `SelfieResultFollowsAccount`, decisão do dono de 28/10/2026, ADR-0029: o resultado acompanha a conta); estados Pending/Capturing/Processing/Passed/RecaptureRequired/Inconclusive/Expired; policy_version, provider_reference transitório único, feedback_code, requested_at, expires_at, completed_at e version de concorrência. Índice único parcial permite uma tentativa aberta por conta, índice user_id/requested_at atende status e orçamento. duora_app tem SELECT/INSERT/UPDATE/DELETE conforme allowlist explícita. Não armazena imagens, idade, documentos ou scores. Registros etários antigos ficam somente para compatibilidade histórica.
 
 Código de e-mail: identity.user_tokens guarda hash ligado ao security stamp e instante de emissão explícito. O registro separado Duora.RegistrationBudget/Hourly guarda início/contador do limite de emissões e não é segredo de autenticação nem fator MFA. Ambos são serializados pelo lock da conta.
 ## Estado implementado da fatia linguística (2026-10-19)

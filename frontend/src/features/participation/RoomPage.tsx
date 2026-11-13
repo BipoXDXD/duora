@@ -1,10 +1,11 @@
+import { useState } from 'react'
 import { PrivateAudioPlayer } from './PrivateAudioPlayer'
 import { usePrivateOperation } from '@/features/session/private-operation'
 import { usePrivateMutation } from '@/features/session/private-mutation'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { useParams } from 'react-router'
 import { useAccount } from '@/features/session/account-context'
-import { classifyRequestFailure } from '@/shared/api'
+import { classifyRequestFailure, type RequestFailure } from '@/shared/api'
 import { useI18n } from '@/shared/i18n/i18n-context'
 import { paths } from '@/shared/paths'
 import { Alert, RequestFailureAlert } from '@/shared/ui/alert'
@@ -13,7 +14,17 @@ import { Page, TextLink } from '@/shared/ui/page'
 import { useGameFocus } from './use-game-focus'
 import { ExperienceDeadline } from './ExperienceDeadline'
 import { RoutesGamePanel } from './RoutesGamePanel'
-import { act, actOnRoutes, fetchRoom, roomCommand, type RoutesAction, type Room } from './participation-api'
+import {
+  act,
+  actOnRoutes,
+  readRoom,
+  roomCommand,
+  type RoomRead,
+  type RoutesAction,
+  type Room,
+} from './participation-api'
+
+const NOT_FOUND = 404
 
 export function RoomPage(): React.JSX.Element {
   const privateOperation = usePrivateOperation()
@@ -22,28 +33,64 @@ export function RoomPage(): React.JSX.Element {
   const { t } = useI18n()
   const client = useQueryClient()
   const key = ['account', id, 'room', roomId]
+  const [exited, setExited] = useState(false)
   const room = useQuery({
     queryKey: key,
-    queryFn: ({ signal }) => privateOperation.run((operation) => fetchRoom(operation, roomId, signal)),
+    queryFn: ({ signal }) => privateOperation.run((operation) => readRoom(operation, roomId, signal)),
     gcTime: 0,
     refetchInterval: 2000,
+    enabled: !exited,
   })
   const refresh = async () => {
     await client.invalidateQueries({ queryKey: key })
   }
+  if (exited) {
+    return (
+      <Page title={t('participation.room')}>
+        <p role="status">{t('participation.closed')}</p>
+        <TextLink to={paths.events}>{t('participation.backToEvents')}</TextLink>
+      </Page>
+    )
+  }
+  const read: RoomRead | undefined = room.isError
+    ? { kind: 'failed', failure: classifyRequestFailure(room.error) }
+    : room.data
   return (
     <Page title={t('participation.room')}>
-      {room.isError ? (
-        <RequestFailureAlert failure={classifyRequestFailure(room.error)} />
-      ) : room.data === undefined ? (
+      {read === undefined ? (
         <p role="status">{t('preferences.loading')}</p>
+      ) : read.kind === 'failed' ? (
+        <RoomFailure failure={read.failure} />
       ) : (
-        <RoomBody room={room.data} refresh={refresh} />
+        <RoomBody room={read.room} refresh={refresh} />
       )}
+      {read?.kind === 'failed' ? (
+        <ExitAfterForbiddenRead
+          roomId={roomId}
+          failure={read.failure}
+          onExited={() => {
+            setExited(true)
+          }}
+        />
+      ) : null}
       <TextLink to={paths.events}>{t('participation.backToEvents')}</TextLink>
     </Page>
   )
 }
+
+function isNotFound(failure: RequestFailure | null): boolean {
+  return failure?.kind === 'problem' && failure.status === NOT_FOUND
+}
+
+/** 404 é o aviso neutro de sala indisponível: não distingue sala inexistente de encerrada, nem o motivo (TM-24). */
+function RoomFailure({ failure }: { readonly failure: RequestFailure }): React.JSX.Element {
+  const { t } = useI18n()
+  if (isNotFound(failure)) {
+    return <p role="status">{t('participation.unavailable')}</p>
+  }
+  return <RequestFailureAlert failure={failure} />
+}
+
 function RoomBody({
   room,
   refresh,
@@ -67,13 +114,18 @@ function RoomBody({
     onSuccess: refresh,
     onError: refresh,
   })
+  const actionFailure = action.isError ? classifyRequestFailure(action.error) : null
+  const routesFailure = routesAction.isError ? classifyRequestFailure(routesAction.error) : null
   const state = room.state.toLowerCase()
   const invited = state === 'invited' || state === 'ready'
-  const active = state === 'active'
+  const activeState = state === 'active'
+  // Depois do prazo a ação recebe 404 (ADR-0054) enquanto a releitura ainda devolve Active, até o job rodar (#462).
+  const unavailable = activeState && (isNotFound(actionFailure) || isNotFound(routesFailure))
+  const active = activeState && !unavailable
   const gamePanel = useGameFocus(active)
   const completed = state === 'completed'
   const expiredGame = state === 'expired' && (room.game !== null || room.routesGame !== null)
-  const closed = !invited && !active && !completed && !expiredGame
+  const closed = !invited && !activeState && !completed && !expiredGame
   const deadline = room.game?.deadline ?? room.routesGame?.deadline
   const busy = command.isPending || action.isPending || routesAction.isPending
   const card = room.game?.currentCard
@@ -87,8 +139,9 @@ function RoomBody({
       <p>{t('preferences.noTranslation')}</p>
       <p>{t('preferences.voiceOptional')}</p>
       {command.isError ? <RequestFailureAlert failure={classifyRequestFailure(command.error)} /> : null}
-      {action.isError ? <RequestFailureAlert failure={classifyRequestFailure(action.error)} /> : null}
-      {routesAction.isError ? <RequestFailureAlert failure={classifyRequestFailure(routesAction.error)} /> : null}
+      {actionFailure !== null && !isNotFound(actionFailure) ? <RequestFailureAlert failure={actionFailure} /> : null}
+      {routesFailure !== null && !isNotFound(routesFailure) ? <RequestFailureAlert failure={routesFailure} /> : null}
+      {unavailable ? <p role="status">{t('participation.unavailable')}</p> : null}
       {invited ? (
         <section className="flex flex-col gap-4">
           <p>
@@ -208,6 +261,45 @@ function RoomBody({
           {t('participation.exit')}
         </Button>
       ) : null}
+    </>
+  )
+}
+
+/**
+ * Participante que deixou de ser elegível não lê mais a sala, mas ainda pode sair dela (API-R04, ADR-0052). Conta
+ * privilegiada também recebe `FORBIDDEN` ao ler, e a rota de saída continua recusando-a.
+ */
+function ExitAfterForbiddenRead({
+  roomId,
+  failure,
+  onExited,
+}: {
+  readonly roomId: string
+  readonly failure: ReturnType<typeof classifyRequestFailure>
+  readonly onExited: () => void
+}): React.JSX.Element | null {
+  const { t } = useI18n()
+  const { roles } = useAccount()
+  const exit = usePrivateMutation({
+    mutationFn: (operation) => roomCommand(operation, roomId, 'exit'),
+    onSuccess: onExited,
+  })
+  const privileged = roles.some((role) => role !== 'participant')
+  if (privileged || failure.kind !== 'problem' || failure.code !== 'FORBIDDEN') {
+    return null
+  }
+  return (
+    <>
+      {exit.isError ? <RequestFailureAlert failure={classifyRequestFailure(exit.error)} /> : null}
+      <Button
+        variant="secondary"
+        disabled={exit.isPending}
+        onClick={() => {
+          exit.mutate()
+        }}
+      >
+        {t('participation.exit')}
+      </Button>
     </>
   )
 }

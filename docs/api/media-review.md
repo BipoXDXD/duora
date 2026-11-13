@@ -203,7 +203,9 @@ A entrega M1 prepara leitura/status/replay de AwaitingReview e dos três resulta
 índice/cotas e raiz SQL do caso Safety. Nenhum escritor HumanReview existe nessa etapa. As afirmações de
 M0 acima continuam delimitando o contrato futuro: assetId, ETag e rotas administrativas são posteriores.
 DTOs/OpenAPI/tipos atuais conservam strings e o formato existente; o gate contract regenera/compara os artefatos.
-A SPA tem transporte genérico testado, ainda sem tela consumidora de status.
+Nessa entrega a SPA só tinha transporte genérico testado. Hoje `/account/photos` consome API-M02 ao excluir uma foto.
+A rota API-M02 não tem `RequireMediaAdmission`; quem fica atrás do gate do upload é a tela, que só abre depois de
+`GET /me/photos` responder 200.
 [Relatório M1 e gate de rollback antes dos escritores](../testing/reports/media-review-readers.md).
 
 ## Entrega API-M03/M04 — recorte executável (#173)
@@ -211,6 +213,12 @@ A SPA tem transporte genérico testado, ainda sem tela consumidora de status.
 Atrás do mesmo gate do upload: sem `Media:Review`, as duas rotas respondem 503 `MEDIA_UPLOADS_DISABLED`;
 Production admite HumanReview desde 28/10/2026, mas o inventário mantém `duora_media_review` vazio, então nada muda lá até a #69. Com o upload ligado, a Web exige `Media:Deletion`
 (escopo e material da chave de operação V1) no boot.
+
+Falha do storage (#504): erro transitório do adaptador S3 (5xx, `SlowDown`, 429, `RequestTimeout`, conexão recusada
+ou caída, timeout do SDK) sobe como `StorageUnavailableException`, um `IOException`, e a rota responde 503
+`TEMPORARILY_UNAVAILABLE` com Retry-After, como na falha de I/O local. Credencial, política ou bucket errados
+(`AccessDenied`, `InvalidAccessKeyId`, `SignatureDoesNotMatch`, `NoSuchBucket`) são defeito de configuração: 500
+INTERNAL_ERROR, sem Retry-After. Evidência: `S3ObjectStoreTransientFailureTests` e `MediaStorageUnavailableTests`.
 
 **API-M03.** API-M02 passa a devolver o ETag forte `"photo-<id>-<versão>"`, o mesmo da linha do tempo de revisão.
 DELETE sem corpo, com If-Match exato (428 ausente, 412 qualquer outra forma ou versão vencida) e Idempotency-Key
@@ -292,13 +300,14 @@ concedidas. "404 uniforme" quer dizer que alheio e inexistente dão o mesmo stat
 | GET `/admin/photo-reviews/{caseId}/evidence/{variant}` | 403 `FORBIDDEN` | 403 `FORBIDDEN` | 200 `image/webp`, `no-store`, auditada antes dos bytes; 404 caso não atribuído ou variante desconhecida; 503 storage | 403 `PHOTO_REVIEW_FORBIDDEN` | 401 `UNAUTHENTICATED` |
 | POST `/admin/photo-reviews/{caseId}/decisions` | 403 `FORBIDDEN` | 403 `FORBIDDEN` | 200 com MFA recente (TOTP na última hora, ADR-0041); sem ela, 401 `REAUTHENTICATION_REQUIRED` | 401 `REAUTHENTICATION_REQUIRED` sem MFA recente; com ela, 403 `PHOTO_REVIEW_FORBIDDEN` | 401 `UNAUTHENTICATED` |
 
-Evidência: `PhotoReviewHttpTests` (fluxo do moderador único, 404 uniforme no histórico, rotas de recurso
-inexistentes), `PhotoReviewOwnerPhotoListTests` (lista só do titular, 401), `PhotoDeletionTests` e
+Evidência: `PhotoReviewApprovalTests` (classe `partial` dos arquivos `PhotoReviewHttpTests.cs`, `PhotoReviewOwnerPhotoListTests.cs` e
+`PhotoReviewAuthorizationMatrixTests.cs`; filtro `FullyQualifiedName~Safety.PhotoReviewApprovalTests`): fluxo do moderador único, 404 uniforme no
+histórico, rotas de recurso inexistentes e lista só do titular com 401. Também: `PhotoDeletionTests` e
 `MediaAssetReadTests` (404 uniforme, 401), `AdminRouteTests` (401 anônimo, 403 participante, 503 com upload
 desligado, 401 `REAUTHENTICATION_REQUIRED` sem MFA recente numa ação crítica), `SecondFactorHardeningTests`
 (403 da conta privilegiada em API-M01/M02) e `PhotoReviewAccessTests` (capacidades explícitas; `operator`, `product_admin` e `participant` não
 recebem grant). As células que só tinham o código como evidência (política padrão e recusa do serviço) têm agora
-teste HTTP em `PhotoReviewAuthorizationMatrixTests`, com o upload ligado, PostgreSQL real e dados sintéticos; cada
+teste HTTP no arquivo `PhotoReviewAuthorizationMatrixTests.cs` (mesma classe `PhotoReviewApprovalTests`), com o upload ligado, PostgreSQL real e dados sintéticos; cada
 teste afirma o status, o código do problema e que o corpo não traz identificador alheio, e confere que banco e
 armazenamento não mudaram: as 403 de `moderator`, `product_admin` e `operator` em lista, histórico, DELETE e
 `/media` (`PrivilegedAccountsAreForbiddenOnTheOwnerPhotoRoutesAndNothingOfTheOwnerLeaks`); as 403 de titular e outro

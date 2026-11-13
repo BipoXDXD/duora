@@ -8,7 +8,7 @@ coletor C1 `scripts/deploy/capacity_inventory.py`. Este documento descreve a fer
 
 | Peça | Onde roda | Papel |
 |---|---|---|
-| `scripts/deploy/c2_shadow.py` | VPS, root | Sobe o projeto sombra `duora-c2`: a release corrente (digests do env da release), os limites e o hardening do `compose.prod.yml`, com segredos, banco, volumes, redes e repositório pgBackRest **sintéticos** (MinIO do drill). Semeia contas e eventos sintéticos, gera a fixture do restic e faz o restore do ensaio (RPO/RTO). |
+| `scripts/deploy/c2_shadow.py` | VPS, root | Sobe o projeto sombra `duora-c2`: a release corrente (digests do env da release), os limites e o hardening do `compose.prod.yml`, com segredos, banco, volumes, redes e repositório pgBackRest **sintéticos** (MinIO do drill). Semeia contas, eventos e tentativas de selfie sintéticas, gera a fixture do restic e faz o restore do ensaio (RPO/RTO e conferência de `identity.selfie_verifications`). |
 | `scripts/deploy/c2_probe.py` | VPS, por stdin via SSH | Sampler somente leitura a cada 5 s: CPU/steal/iowait, PSI, MemAvailable, swap, OOM, discos, uso de filesystem, CPU/throttling/memória/PSI/I/O de **todos** os containers (sombra e outros apps) e das slices indicadas, e do sombra o arquivamento de WAL, `ops.jobs` e outbox. Dois comandos exatos em allowlist; recusa o projeto `duora`. |
 | `scripts/deploy/c2_load.py` | Mac | Participantes sintéticos (uma thread e uma conexão keep-alive cada, cookies e CSRF como a SPA) pelo túnel SSH, com TLS verificado contra a raiz interna do Caddy do sombra. |
 | `scripts/deploy/c2_harness.py` | Mac | Executa as fases, dispara FULL e DIFF na VPS, avalia os guardas a cada segundo, aborta e grava evidência e relatório. |
@@ -61,7 +61,7 @@ Mensagens e SignalR não existem no produto: ficam como **pendentes** no relató
 | `BACKUP_ERROR` / `DEADLINE` | comando de backup com código ≠ 0, ou fase além do prazo |
 | `WINDOW` | execução inteira além de `window_seconds` (80 min no perfil `janela`) |
 | `FAILURE_RATE` | ≥ 5% de 5xx/timeout em 60 s (mínimo 20 requisições) |
-| `OTHER_APPS_PSI` | PSI de CPU de qualquer container que não é do sombra > 40 por 60 s |
+| `OTHER_APPS_PSI` | PSI de CPU de qualquer container que não é do sombra > 40 por 60 s, exceto o painel do Coolify: nome exatamente `coolify` e dono `coolify` em `capacity_inventory.CONTAINER_RULES`. `coolify-proxy` (Traefik de todos os sites), `coolify-realtime`, `coolify-db` e os apps que o Coolify implanta continuam protegidos |
 | `OTHER_APPS_HTTP` | 2 sondas HTTPS seguidas falhando num app externo, ou p95 das últimas 8 acima de max(3× a linha de base, base + 500 ms) |
 | `PROBE_STALE` | 30 s sem amostra da VPS |
 
@@ -130,7 +130,11 @@ Pior caso com todos os cortes: 70 + 80 + 20 + 6 + 3 = 179 min.
    não reduzir guardas.
 7. **Restore do ensaio** (VPS): `sudo python3 scripts/deploy/c2_shadow.py restore-rehearsal --no-final-full`
    (marcadores por 90 s, `docker kill` do postgres sombra, volume apagado, restore até o fim do WAL, web/worker de
-   pé). No Mac: `python3 scripts/deploy/c2_harness.py restore-objectives` com os quatro instantes de
+   pé). O comando confere `identity.selfie_verifications` antes da perda, com o app de pé, e depois da promoção, com
+   web e worker parados: as 8 tentativas de `scripts/deploy/c2/selfie-restore-seed.sql` campo a campo, com a conta
+   de cada uma, FK, constraints e índices, e o total da tabela igual ao de antes (`selfie_rows` no JSON). Isso prova
+   integridade e esquema, não replay de WAL: o fixture já está no backup base, e quem mede o replay é o RPO pelos
+   marcadores. Diferença termina em erro, sem subir web e worker e sem gravar o JSON. Nesse caso, ir para o passo 9 e reportar. No Mac: `python3 scripts/deploy/c2_harness.py restore-objectives` com os quatro instantes de
    `/var/lib/duora-c2/state/restore-rehearsal.json` (RPO ≤ 300 s, RTO ≤ 7.200 s).
 8. **C1 depois** (Mac): `c2run/c1-after.json`, para comparar MemAvailable, containers e limites com o passo 1.
 9. **Derrubar o sombra** (VPS): `sudo python3 scripts/deploy/c2_shadow.py down` (só volumes e diretório

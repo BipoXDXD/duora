@@ -25,6 +25,8 @@ internal sealed class ReconciliationApplyScenario : IAsyncDisposable
     // Fora de identity (a sessão é tocada) e de safety (as guardas nascem sob demanda): AccountsAsync cobre o resto dos dois.
     public const string BusinessSchemas = "'profiles','events','experiences','social','media','privacy'";
 
+    private const long GateLock = 321323;
+
     private ReconciliationApplyScenario(SuspendedRegistrationScenario s, DuoraWebFactory host, AccountSuspensionScenario accounts,
         Guid moderatorId, Browser moderator, Guid sessionId)
     {
@@ -235,6 +237,34 @@ internal sealed class ReconciliationApplyScenario : IAsyncDisposable
         var transaction = await connection.BeginTransactionAsync(Token);
         await Execute(connection, sql, Token, values);
         return new Holder(connection, transaction, Token);
+    }
+
+    /// <summary>
+    /// Segura como <see cref="HoldAsync"/> numa sessão que nunca roda a checagem de deadlock: o PostgreSQL aborta quem a
+    /// roda, e só superusuário muda o <c>deadlock_timeout</c> da própria sessão. O valor passa de longe o teto do teste.
+    /// </summary>
+    public async Task<Holder> HoldWithoutDeadlockCheckAsync(PostgresFixture postgres, string sql, params object[] values)
+    {
+        var connection = new NpgsqlConnection(postgres.ScratchSuperuserConnectionString(S.Database));
+        await connection.OpenAsync(Token);
+        var transaction = await connection.BeginTransactionAsync(Token);
+        await Execute(connection, "set local deadlock_timeout='10min'", Token);
+        await Execute(connection, sql, Token, values);
+        return new Holder(connection, transaction, Token);
+    }
+
+    /// <summary>
+    /// Cria <c>ops.test_gate()</c>, que um gatilho de teste chama para parar a transação até o portão devolvido fechar a
+    /// sua. A função desliga o <c>lock_timeout</c> só enquanto roda: a parada não tem prazo, e a espera seguinte da
+    /// transação nasce com o 2 s do protocolo e um <c>deadlock_timeout</c> novo.
+    /// </summary>
+    public async Task<Holder> HoldGateAsync()
+    {
+        await AsMigratorAsync($"""
+            create function ops.test_gate() returns void language plpgsql set lock_timeout=0 as $f$
+            begin perform pg_advisory_xact_lock({GateLock}); end $f$;
+            """);
+        return await HoldAsync($"select pg_advisory_xact_lock({GateLock})");
     }
 
     public Task<Holder> HoldEventAsync() => HoldAsync("select 1 from events.events where id=$1 for update", S.EventId);

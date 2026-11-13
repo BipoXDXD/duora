@@ -1,0 +1,28 @@
+[Unit]
+Description=Duora selfie provider alert (fixed read-only probe, mail outbox event)
+After=docker.service
+
+[Service]
+Type=oneshot
+User=root
+Group=root
+ExecStart=/usr/bin/python3 /opt/duora-selfie-alert/selfie_provider_alert.py
+StateDirectory=duora-selfie-alert
+StateDirectoryMode=0700
+UMask=0077
+ProtectSystem=strict
+ReadWritePaths=/var/lib/duora-selfie-alert -/var/lib/duora-next-deploy-monitor/outbox
+ProtectHome=yes
+PrivateTmp=yes
+NoNewPrivileges=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectControlGroups=yes
+RestrictAddressFamilies=AF_UNIX
+MemoryMax=64M
+MemorySwapMax=0
+CPUQuota=20%
+CPUWeight=25
+IOWeight=25
+TasksMax=16
+TimeoutStartSec=30

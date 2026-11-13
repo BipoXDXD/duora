@@ -372,3 +372,17 @@ Nota de reconciliação, sem decisão nova. O texto aceito acima não foi altera
   depende da #69.
 - **Autorização.** Cada célula da [matriz de autorização](../../api/media-review.md#matriz-de-autorização-28102026)
   tem teste HTTP (`PhotoReviewAuthorizationMatrixTests`). A revisão humana da autorização continua pendente na #173.
+
+## Correção de 05/11/2026: classes de teste citadas pelo nome do arquivo
+
+Correção de nome, sem decisão nova. O texto aceito acima não foi alterado. Vários testes citados neste ADR pelo nome
+do arquivo são, no código, partes de uma classe `partial` com outro nome; um filtro por nome de classe
+(`FullyQualifiedName~PhotoReviewHttpTests`, por exemplo) não encontra nada. Onde o texto acima cita o nome da
+esquerda como classe, leia a classe da direita (os nomes dos métodos citados estão corretos):
+
+| Nome citado | Arquivo | Classe |
+|---|---|---|
+| `PhotoReviewHttpTests`, `PhotoReviewWithoutAppealsMigrationTests`, `PhotoReviewExpirationTests`, `PhotoReviewAuthorizationMatrixTests` | `backend/tests/Duora.IntegrationTests/Safety/<nome>.cs` | `PhotoReviewApprovalTests` |
+| `ReviewCandidateStageTests`, `ReviewPromotionCleanupTests` | `backend/tests/Duora.IntegrationTests/Media/<nome>.cs` | `MediaPipelineTests` |
+
+Filtro que funciona: `FullyQualifiedName~Safety.PhotoReviewApprovalTests` ou `FullyQualifiedName~Media.MediaPipelineTests`.

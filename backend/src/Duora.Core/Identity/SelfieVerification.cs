@@ -12,6 +12,16 @@ public enum SelfieState
     Expired,
 }
 
+/// <summary>Códigos de <c>feedback_code</c> que nascem no produto, e não na resposta do fornecedor.</summary>
+public static class SelfieFeedbackCodes
+{
+    /// <summary>
+    /// O fornecedor falhou ou não houve tempo de chamá-lo: a captura não foi julgada, não conta como reprovação e nada
+    /// é liberado. Não prova queda: o transitório inclui toda exceção do SDK, até credencial errada.
+    /// </summary>
+    public const string ProviderUnavailable = "PROVIDER_UNAVAILABLE";
+}
+
 public sealed record SelfieSession(string Reference, DateTimeOffset ExpiresAt);
 
 public sealed record SelfieResult(SelfieState State, string? FeedbackCode, string PolicyVersion);

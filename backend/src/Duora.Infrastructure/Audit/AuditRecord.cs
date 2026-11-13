@@ -177,6 +177,15 @@ internal sealed record AuditAction
 
     public static readonly AuditAction AgeVerificationLateNotAdult = new("identity.age_verification_late_not_adult");
 
+    /// <summary>Selfie aprovada pelo fornecedor (issue #384); o alvo é a tentativa, com a versão resultante.</summary>
+    public static readonly AuditAction SelfieVerificationPassed = new("identity.selfie_verification_passed");
+
+    /// <summary>
+    /// Reprovação que conta para o limite (<c>SelfieAttemptPolicy.CountsAsFailure</c>); o alvo é a tentativa, com a
+    /// versão resultante. Expiração, abandono e descompasso de política não entram.
+    /// </summary>
+    public static readonly AuditAction SelfieVerificationFailed = new("identity.selfie_verification_failed");
+
     private AuditAction(string code) => Code = code;
 
     public string Code { get; }
@@ -198,6 +207,8 @@ internal static class AuditTargetTypes
     public const string User = "user";
 
     public const string AgeVerification = "age_verification";
+
+    public const string SelfieVerification = "selfie_verification";
 
     public const string LoginSession = "login_session";
 

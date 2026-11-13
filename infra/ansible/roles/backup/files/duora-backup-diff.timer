@@ -4,7 +4,6 @@ Description=Duora: backup diferencial diário do PostgreSQL
 
 [Timer]
 OnCalendar=Mon..Sat *-*-* 03:00:00 UTC
-RandomizedDelaySec=15min
 Persistent=true
 Unit=duora-backup@diff.service
 

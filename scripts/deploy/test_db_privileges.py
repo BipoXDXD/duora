@@ -29,6 +29,7 @@ import duora_deploy as deploy
 import reconcile_payload as payload
 
 IMAGE = os.environ.get("DUORA_POSTGRES_IMAGE", "")
+ROOT = Path(__file__).resolve().parents[2]
 READY_TIMEOUT_SECONDS = 60
 SECRETS = {
     "postgres_superuser_password": "superuser-synthetic",
@@ -143,6 +144,7 @@ class RuntimeContinuityLabTests(unittest.TestCase):
                           "first_failed_v2_current_v1_app_recovery_preserved_floor", "pinnedComposePolicy", "receiverVersionedLinkPolicy",
                           "historical_v1_application_qualified", "legacy_schema_upgraded_preserving_history"]:
                 self.assertTrue(report[field], field)
+            self.assertTrue(report["postgresSwap"]["photoStable"])
             self.assertEqual(report["qualificationOrdinal"], trial)
             self.assertEqual(report["qualificationTrial"]["ordinal"], trial)
             self.assertEqual(report["qualificationTrial"]["load"]["workers"], int(trial == 3))
@@ -230,6 +232,56 @@ class DatabaseObserverImageTests(unittest.TestCase):
             finally:
                 _run(["docker", "exec", self.container, "sh", "-c",
                       'kill -CONT "$(head -n 1 /tmp/observer-pgdata/postmaster.pid)"'])
+
+    def test_selfie_probe_runs_read_only_with_the_real_argv_user_and_pg_hba(self) -> None:
+        import selfie_provider_alert as alert
+        hba = "/etc/postgresql/pg_hba.duora.conf"
+        installed = subprocess.run(["docker", "exec", self.container, "cat", hba],
+                                   capture_output=True, text=True, check=True, timeout=10).stdout
+        self.assertEqual(installed, (ROOT / "infra/images/postgres/pg_hba.duora.conf").read_text(encoding="utf-8"))
+        # Same socket path, port and peer rule as production; no trust entry from this class's setUp survives.
+        _run(["docker", "exec", self.container, "sh", "-c",
+              "pg_ctl -w -D /tmp/observer-pgdata stop -m fast >/dev/null && "
+              "initdb -D /tmp/probe-pgdata --username=postgres --auth-local=peer --auth-host=scram-sha-256 >/dev/null && "
+              f"pg_ctl -w -D /tmp/probe-pgdata -l /tmp/probe-postgres.log -o '-h 127.0.0.1 -c hba_file={hba}' start"])
+
+        def superuser(sql: str, database: str = "duora") -> None:
+            _run(["docker", "exec", self.container, "psql", "--no-psqlrc", "-v", "ON_ERROR_STOP=1",
+                  "--username", "postgres", "--dbname", database, "--command", sql])
+
+        def runner(args: list[str]) -> str:
+            # Only the host path of the binary changes; every other argument is the collector's.
+            if "ps" in args:
+                return self.container + "\n"
+            return subprocess.run(["docker", *args[1:]], capture_output=True, text=True, check=True, timeout=8).stdout
+
+        superuser("create database duora", "postgres")
+        superuser("""
+            create schema ops;
+            create table ops.outbox_deliveries(
+                id bigint generated always as identity primary key, consumer text not null, status text not null,
+                available_at timestamptz not null, lease_expires_at timestamptz, last_error text)""")
+        self.assertEqual(alert.read_queue(runner), (False, False))
+        superuser("""insert into ops.outbox_deliveries(consumer, status, available_at, last_error)
+                     values ('selfie-provider', 'Pending', now(), 'ProviderUnavailable')""")
+        self.assertEqual(alert.read_queue(runner), (True, False))
+        superuser("""update ops.outbox_deliveries set available_at = now() - interval '61 seconds', last_error = null""")
+        self.assertEqual(alert.read_queue(runner), (False, True))
+
+        identity = ["docker", "exec", self.container, "psql", "--no-psqlrc", "--no-password"]
+        write = subprocess.run(identity + ["--dbname", alert.CONNECTION, "--command",
+                                           "delete from ops.outbox_deliveries"],
+                               capture_output=True, text=True, check=False, timeout=10)
+        self.assertNotEqual(write.returncode, 0)
+        self.assertIn("read-only transaction", write.stderr)
+        network = subprocess.run(identity + ["--host", "127.0.0.1", "--username", "postgres", "--dbname", "duora",
+                                             "--command", "select 1"],
+                                 capture_output=True, text=True, check=False, timeout=10)
+        self.assertNotEqual(network.returncode, 0)
+        self.assertIn("pg_hba.conf", network.stderr)
+
+        _run(["docker", "exec", self.container, "pg_ctl", "-w", "-D", "/tmp/probe-pgdata", "stop", "-m", "fast"])
+        self.assertIsNone(alert.read_queue(runner))
 
 
 @unittest.skipUnless(IMAGE, "defina DUORA_POSTGRES_IMAGE com a imagem derivada (docker)")

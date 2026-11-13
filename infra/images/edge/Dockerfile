@@ -24,6 +24,9 @@ RUN for attempt in 1 2 3; do \
     done; \
     exit 1
 COPY frontend/pnpm-lock.yaml ./
+# patchedDependencies (pnpm-workspace.yaml) aponta para patches/; sem os dois, o install congelado falha.
+COPY frontend/pnpm-workspace.yaml ./
+COPY frontend/patches/ ./patches/
 RUN --mount=type=cache,id=duora-pnpm,target=/root/.local/share/pnpm/store \
     pnpm install --frozen-lockfile
 COPY frontend/ ./
@@ -33,16 +36,16 @@ RUN pnpm build
 # O binário da imagem oficial 2.11.7 foi compilado com Go 1.26.8 e golang.org/x/net 0.59.0, com CVEs HIGH de DoS em
 # HTTP/2 e TLS (CVE-2026-78667, CVE-2026-78669, CVE-2026-97031), justamente na borda pública.
 # Go 1.26.10 também corrige CVE-2026-111943 em crypto/x509, e go-jose 4.1.6 corrige o DoS ao ler JWK com chave RSA
-# (CVE-2026-116587), que vem pelo módulo ACME da 2.11.7. Aplicar os
-# patches resolve sem exceção no .trivyignore. Quando a imagem oficial trouxer o Go corrigido, volte a usar o
-# binário dela e remova este estágio. Compilação cruzada (CGO desligado), sem emulação.
+# (CVE-2026-116587), que vem pelo módulo ACME da 2.11.7. x/net 0.62.0 corrige o DoS em x/net/html (CVE-2026-78661).
+# Aplicar os patches resolve sem exceção no .trivyignore. Quando a imagem oficial trouxer o Go corrigido, volte a usar
+# o binário dela e remova este estágio. Compilação cruzada (CGO desligado), sem emulação.
 FROM --platform=$BUILDPLATFORM golang:1.26.10-alpine@sha256:9ce231b28998b32e116927c61aa5c406183061d4f3f2d61b292c88e7f6bdf7ca AS caddy-build
 ARG TARGETOS
 ARG TARGETARCH
 ENV CGO_ENABLED=0
 RUN go install github.com/caddyserver/xcaddy/cmd/xcaddy@v0.4.7
 RUN GOOS="$TARGETOS" GOARCH="$TARGETARCH" XCADDY_GO_BUILD_FLAGS="-trimpath -ldflags=-s" \
-    xcaddy build v2.11.7 --replace golang.org/x/net=golang.org/x/net@v0.60.0 \
+    xcaddy build v2.11.7 --replace golang.org/x/net=golang.org/x/net@v0.62.0 \
     --replace github.com/go-jose/go-jose/v4=github.com/go-jose/go-jose/v4@v4.1.6 --output /out/caddy
 
 # --- Caddy: usuário sem privilégio; as portas 80/443 vêm do sysctl do Compose, não de capability ------------------
@@ -54,7 +57,8 @@ LABEL org.opencontainers.image.title="duora-edge" \
 
 # CVE-2026-111497: atualizar só a biblioteca da base Alpine; pacote assinado disponível em ambas as arquiteturas.
 # CVE-2026-92392: curl e libcurl corrigidos, disponíveis nas duas arquiteturas.
-RUN apk add --no-cache --upgrade 'brotli-libs=1.2.1-r0' 'curl=8.23.0-r0' 'libcurl=8.23.0-r0'
+# CVE-2026-107891: o upgrade acima já leva musl à r24 como dependência, mas musl-utils precisa ser nomeado.
+RUN apk add --no-cache --upgrade 'brotli-libs=1.2.1-r0' 'curl=8.23.0-r0' 'libcurl=8.23.0-r0' 'musl-utils=1.2.5-r24'
 
 # /data guarda certificados e chaves do ACME e /config o autosave; os volumes nomeados herdam dono e modo 0700.
 RUN addgroup -S -g 10001 caddy \

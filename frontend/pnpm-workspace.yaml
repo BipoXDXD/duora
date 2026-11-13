@@ -1,0 +1,2 @@
+patchedDependencies:
+  '@mswjs/interceptors@0.45.8': patches/@mswjs__interceptors@0.45.8.patch

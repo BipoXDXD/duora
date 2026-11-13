@@ -29,6 +29,10 @@ internal static class DuoraWebApp
 
     private const int MaxJsonDepth = 16;
 
+    // Abaixo dos 30 s do stop_grace_period do web no Compose: o padrão do HostOptions também é 30 s, e com prazos
+    // iguais o SIGKILL chega no instante em que o host desiste de esperar, sem margem para ele encerrar sozinho.
+    private const int ShutdownTimeoutSeconds = 25;
+
     public static WebApplication Build(string[] args)
     {
         var builder = WebApplication.CreateBuilder(BuildTimeOpenApi.BuilderOptions(args));
@@ -41,10 +45,9 @@ internal static class DuoraWebApp
             options.ValidateOnBuild = true;
         });
         builder.WebHost.ConfigureKestrel(kestrel => kestrel.Limits.MaxRequestBodySize = MaxRequestBodyBytes);
+        builder.Services.Configure<HostOptions>(options => options.ShutdownTimeout = TimeSpan.FromSeconds(ShutdownTimeoutSeconds));
 
-        builder.Services.AddProblemDetails(options => options.CustomizeProblemDetails = ApiProblems.AddDefaultCode);
-        builder.Services.AddExceptionHandler<AccountBusyExceptionHandler>();
-        builder.Services.AddExceptionHandler<DatabaseUnavailableExceptionHandler>();
+        builder.Services.AddApiErrorHandling();
         builder.Services.ConfigureHttpJsonOptions(options =>
         {
             // DTO estrito (spec 8.1): campo desconhecido ou repetido é 400, nunca ignorado.
@@ -55,11 +58,13 @@ internal static class DuoraWebApp
         builder.Services.AddOpenApi(options =>
         {
             PatchFieldOpenApi.Configure(options);
+            ExplicitOffsetOpenApi.Configure(options);
             ProblemDetailsOpenApi.Configure(options);
             ProfileEndpoints.ConfigureOpenApi(options);
             RegionalPreferenceEndpoints.ConfigureOpenApi(options);
             RegionDetectionEndpoints.ConfigureOpenApi(options);
             RegistrationReconciliationEndpoints.ConfigureOpenApi(options);
+            ServiceUnavailableOpenApi.Configure(options);
         });
         builder.Services.AddSingleton(TimeProvider.System);
         builder.Services.AddSingleton<System.Diagnostics.DistributedContextPropagator>(new InboundTraceContextDiscarded());
@@ -103,9 +108,7 @@ internal static class DuoraWebApp
 
         // Primeiro: tudo o que vem depois (rate limit por IP, esquema https) precisa do cliente real.
         app.UseForwardedHeaders();
-        app.UseExceptionHandler();
-        app.UseStatusCodePages();
-        app.Use(PreventCachingOfApiResponses);
+        app.UseApiErrorHandling();
         app.UseRouting();
         app.UseRateLimiter();
         app.UseGoogleOidcCallbackGuard();
@@ -148,21 +151,5 @@ internal static class DuoraWebApp
         api.MapParticipationTestSentinel(app.Environment);
 
         return app;
-    }
-
-    /// <summary>Respostas da API carregam dado privado ou token: nada de cache em navegador ou proxy (spec 8.1).</summary>
-    private static Task PreventCachingOfApiResponses(HttpContext context, Func<Task> next)
-    {
-        if (context.Request.Path.StartsWithSegments("/api", StringComparison.OrdinalIgnoreCase))
-        {
-            context.Response.OnStarting(() =>
-            {
-                context.Response.Headers.CacheControl = "no-store";
-                context.Response.Headers.Pragma = "no-cache";
-                return Task.CompletedTask;
-            });
-        }
-
-        return next();
     }
 }
