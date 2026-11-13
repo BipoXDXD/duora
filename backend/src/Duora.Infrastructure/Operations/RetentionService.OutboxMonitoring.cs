@@ -11,7 +11,7 @@ public sealed partial class RetentionService
         await using var command = Command(connection, """
             with consumers(consumer) as (values
               ('transactional-email'),('media-processing'),('age-verification-provider'),
-              ('selfie-provider'),('selfie-attempts-suspension'),('other')),
+              ('selfie-provider'),('selfie-attempts-suspension'),('waitlist-promotion-notice'),('other')),
             states(state) as (values
               ('ready'),('scheduled'),('awaiting_other_measure'),('in_flight'),('lease_expired'),('failed')),
             classified as (

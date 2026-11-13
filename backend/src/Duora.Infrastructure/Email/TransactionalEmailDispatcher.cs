@@ -155,6 +155,8 @@ public sealed partial class TransactionalEmailDispatcher
             (AccountEmailKind.PasswordResetForUnknownAddress, _) => _emails.PasswordResetForUnknownAddress(to, language),
             // Sem link por regra: com token, o payload é defeito de quem gravou e não sai.
             (AccountEmailKind.PasswordResetUnavailable, null) => _emails.PasswordResetUnavailable(to, language),
+            // Bilíngue e sem link de ação: com token, o payload é defeito de quem gravou e não sai.
+            (AccountEmailKind.WaitlistPromotionNotice, null) => _emails.WaitlistPromotionNotice(to),
             // Aviso nunca leva credencial: com token, o payload é defeito de quem gravou e não sai. O aviso é
             // bilíngue, então o idioma do pedido não conta.
             (_, null) when AccountEmailOutbox.SecurityChangeOf(message.Kind) is { } change =>

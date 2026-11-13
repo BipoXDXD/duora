@@ -55,4 +55,23 @@ public static class EmailServiceCollectionExtensions
 
         return services;
     }
+
+    /// <summary>
+    /// Registra o consumidor dos fatos de promoção da lista de espera (ADR-0056). Desligado por padrão; ligado, o host
+    /// não sobe sem a marca d'água.
+    /// </summary>
+    public static IServiceCollection AddWaitlistPromotionNotices(this IServiceCollection services)
+    {
+        services.AddOptions<WaitlistPromotionNoticeOptions>()
+            .BindConfiguration(WaitlistPromotionNoticeOptions.Section)
+            .Validate(o => o.IsValid(),
+                "Notifications:WaitlistPromotion incoerente: ligado exige NotBefore; BatchSize de 1 a 100 e PollInterval positivo.")
+            .ValidateOnStart();
+        services.AddSingleton(provider => new WaitlistPromotionNoticeScheduler(
+            provider.GetRequiredService<NpgsqlDataSource>(),
+            provider.GetRequiredService<TimeProvider>(),
+            provider.GetRequiredService<IOptions<WaitlistPromotionNoticeOptions>>().Value,
+            provider.GetRequiredService<ILogger<WaitlistPromotionNoticeScheduler>>()));
+        return services;
+    }
 }

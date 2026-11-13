@@ -30,6 +30,12 @@ internal interface IAccountEmailCatalog
     EmailText SecurityNotice(SecurityChange change, string occurredAtUtc, Uri sessionsLink, EmailAddress supportContact);
 
     EmailText PasswordResetUnavailable();
+
+    /// <summary>
+    /// Aviso de saída da lista de espera (ADR-0056). Só o link fixo da lista de eventos: sem nome do evento, horário
+    /// ou identificador, e sem prometer a vaga, que pode ter mudado entre a promoção e a leitura.
+    /// </summary>
+    EmailText WaitlistPromotionNotice(Uri eventsLink);
 }
 
 internal sealed class BrazilianPortugueseAccountEmails : IAccountEmailCatalog
@@ -184,6 +190,20 @@ internal sealed class BrazilianPortugueseAccountEmails : IAccountEmailCatalog
 
             Se você não fez esse pedido, ignore esta mensagem; sua senha continua a mesma.
             """);
+
+    public EmailText WaitlistPromotionNotice(Uri eventsLink) =>
+        new(
+            "Você saiu da lista de espera no Duora",
+            $"""
+            Olá,
+
+            Abriu uma vaga num evento em que você estava na lista de espera, e sua inscrição foi promovida.
+            Confira o estado atual da sua participação no Duora:
+
+            {eventsLink}
+
+            Se não puder mais participar, retire a inscrição pela página do evento para liberar a vaga.
+            """);
 }
 
 internal sealed class EnglishAccountEmails : IAccountEmailCatalog
@@ -337,5 +357,19 @@ internal sealed class EnglishAccountEmails : IAccountEmailCatalog
             yet, so its password cannot be reset by email. Contact whoever runs Duora.
 
             If you did not make this request, ignore this message; your password stays the same.
+            """);
+
+    public EmailText WaitlistPromotionNotice(Uri eventsLink) =>
+        new(
+            "You are off the waitlist on Duora",
+            $"""
+            Hi,
+
+            A spot opened up in an event where you were on the waitlist, and your registration was promoted.
+            Check the current status of your participation on Duora:
+
+            {eventsLink}
+
+            If you can no longer attend, withdraw from the event page to free up the spot.
             """);
 }

@@ -13,6 +13,9 @@ public sealed class AccountEmails
     /// <summary>Página da conta na SPA, onde fica a lista de sessões ativas (API-A09/A10).</summary>
     private const string SessionsPath = "/account";
 
+    /// <summary>Lista de eventos da SPA, onde a pessoa vê o estado atual das inscrições.</summary>
+    private const string EventsPath = "/events";
+
     /// <summary>Separa as duas versões do aviso bilíngue.</summary>
     private const string LanguageSeparator = "\n\n---\n\n";
 
@@ -98,6 +101,19 @@ public sealed class AccountEmails
         Justification = "Mesma forma dos outros e-mails, chamados pela instância injetada no dispatcher; não ter link é a regra, não falta de dado.")]
     public TransactionalEmail PasswordResetUnavailable(EmailAddress to, EmailLanguage language) =>
         Compose(to, CatalogFor(language).PasswordResetUnavailable());
+
+    /// <summary>
+    /// Aviso de saída da lista de espera (ADR-0056). Sai em pt-BR e depois em en, como o aviso de credencial: o fato
+    /// de promoção não carrega idioma, e o texto só remete ao estado atual na lista de eventos.
+    /// </summary>
+    public TransactionalEmail WaitlistPromotionNotice(EmailAddress to)
+    {
+        var eventsLink = _publicOrigin.Resolve(EventsPath);
+        var portuguese = BrazilianPortugueseAccountEmails.Instance.WaitlistPromotionNotice(eventsLink);
+        var english = EnglishAccountEmails.Instance.WaitlistPromotionNotice(eventsLink);
+        return new TransactionalEmail(to, $"{portuguese.Subject} / {english.Subject}",
+            portuguese.Body + LanguageSeparator + english.Body);
+    }
 
     /// <summary>Valor fora do enum (um cast de inteiro) cai no padrão, como uma tag desconhecida.</summary>
     private static IAccountEmailCatalog CatalogFor(EmailLanguage language) => language switch
