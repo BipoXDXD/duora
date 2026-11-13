@@ -117,6 +117,11 @@ class MainTests(unittest.TestCase):
         code, _ = self.run_main("--all", whole, self.write("shard-x.txt"))
         self.assertEqual(1, code)
 
+    def test_a_missing_full_listing_fails_with_a_message_instead_of_a_traceback(self):
+        code, out = self.run_main("--all", str(self.dir / "all.txt"), self.write("shard-x.txt", "a"))
+        self.assertEqual(1, code)
+        self.assertIn("all.txt", out)
+
     def test_no_shard_files_fails(self):
         whole = self.write("all.txt", "a")
         code, _ = self.run_main("--all", whole)
@@ -165,13 +170,16 @@ class WorkflowWiringTests(unittest.TestCase):
         upload = self.step("Preservar a listagem do shard")
         self.assertNotIn("if", upload)
         self.assertNotIn("continue-on-error", upload)
-        self.assertEqual("backend-shard-list-${{ matrix.shard }}-${{ github.run_attempt }}", upload["with"]["name"])
+        # Nome fixo por shard, sem a tentativa: no "Re-run failed jobs" o agregador precisa também das listagens dos
+        # shards que passaram na tentativa anterior (mesmo commit), e o shard que roda de novo substitui a sua.
+        self.assertEqual("backend-shard-list-${{ matrix.shard }}", upload["with"]["name"])
+        self.assertIs(True, upload["with"]["overwrite"])
         self.assertEqual("error", upload["with"]["if-no-files-found"])
 
     def test_the_aggregate_fails_when_the_partition_differs(self):
         steps = self.jobs["backend"]["steps"]
         download = next(item for item in steps if str(item.get("uses", "")).startswith("actions/download-artifact@"))
-        self.assertEqual("backend-shard-list-*-${{ github.run_attempt }}", download["with"]["pattern"])
+        self.assertEqual("backend-shard-list-*", download["with"]["pattern"])
         self.assertTrue(download["with"]["merge-multiple"])
         check = next(item for item in steps if "shard_partition.py" in str(item.get("run", "")))
         self.assertNotIn("continue-on-error", check)

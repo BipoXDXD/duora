@@ -55,6 +55,10 @@ def main(argv: Sequence[str] | None = None, write: Callable[[str], None] = print
     parser.add_argument("shards", nargs="*", type=Path, help="listagem de cada shard")
     args = parser.parse_args(argv)
 
+    missing_files = [str(path) for path in (args.all, *args.shards) if not path.is_file()]
+    if missing_files:
+        write(f"::error::Listagem ausente: {', '.join(missing_files)}; algum shard não gravou a sua.")
+        return 1
     whole = parse_listing(args.all.read_text(encoding="utf-8"))
     if not whole:
         write(f"::error::A listagem inteira ({args.all}) não tem nenhum caso; a conferência dos shards não vale.")

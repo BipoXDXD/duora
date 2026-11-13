@@ -148,13 +148,16 @@ jobs:
           lists="$RUNNER_TEMP/backend-shard-list"
           dotnet test --solution backend/Duora.slnx --no-build --list-tests > "$lists/all.txt"
 
-      # Só nomes de casos, que já estão no código; sem isso o agregador não confere a partição.
+      # Só nomes de casos, que já estão no código; sem isso o agregador não confere a partição. Nome sem a tentativa:
+      # no "Re-run failed jobs" o agregador usa também as listagens dos shards que já passaram (mesmo commit), e o
+      # shard que roda de novo substitui a sua.
       - name: Preservar a listagem do shard
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
-          name: backend-shard-list-${{ matrix.shard }}-${{ github.run_attempt }}
+          name: backend-shard-list-${{ matrix.shard }}
           path: ${{ runner.temp }}/backend-shard-list/
           if-no-files-found: error
+          overwrite: true
           retention-days: 1
 
       # Tempo de parede por classe e testes ainda abertos, em verde também (#507): só nomes de teste e tempos vão
@@ -221,7 +224,7 @@ jobs:
       - name: Baixar as listagens dos shards
         uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
-          pattern: backend-shard-list-*-${{ github.run_attempt }}
+          pattern: backend-shard-list-*
           path: ${{ runner.temp }}/backend-shard-list
           merge-multiple: true
 
