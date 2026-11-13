@@ -189,7 +189,9 @@ class FakeRunner:
     def __init__(self, responses: dict[str, list[str]] | None = None) -> None:
         self.commands: list[list[str]] = []
         self.stdins: list[str | None] = []
-        self.responses = {"count(*) from identity.selfie_verifications": ["1008"], **(responses or {})}
+        self.responses = {"count(*) from identity.selfie_verifications": ["1008"],
+                          "count(*) from media.media_assets": ["4"], "count(*) from media.photo_tombstones": ["2"],
+                          **(responses or {})}
 
     def __call__(self, argv, *, stdin=None, check=True, timeout=0) -> str:
         self.commands.append(list(argv))
@@ -237,13 +239,15 @@ class RestoreRehearsalTests(unittest.TestCase):
 class FixtureCheckFailsOn(FakeRunner):
     """O psql termina com erro (ON_ERROR_STOP) na conferência de número `failing_call`, contando a partir de 1."""
 
-    def __init__(self, failing_call: int, responses: dict[str, list[str]]) -> None:
+    def __init__(self, failing_call: int, responses: dict[str, list[str]],
+                 check_file: Path = shadow.SELFIE_CHECK_FILE) -> None:
         super().__init__(responses)
         self._failing_call = failing_call
         self._checks = 0
+        self._check = check_file.read_text(encoding="utf-8")
 
     def __call__(self, argv, *, stdin=None, check=True, timeout=0) -> str:
-        if stdin == shadow.SELFIE_CHECK_FILE.read_text(encoding="utf-8"):
+        if stdin == self._check:
             self._checks += 1
             if self._checks == self._failing_call:
                 self.commands.append(list(argv))
@@ -281,7 +285,7 @@ class SelfieRestoreFixtureTests(unittest.TestCase):
         runner = FakeRunner()
         shadow.seed(self.layout, 1, runner, events=1)
         fixture = shadow.SELFIE_SEED_FILE.read_text(encoding="utf-8")
-        self.assertEqual(len(runner.stdins), 2)
+        self.assertEqual(len(runner.stdins), 3)
         self.assertEqual(runner.stdins[1], fixture)
         self.assertEqual(runner.commands[1][-2:], ["--set", "ON_ERROR_STOP=1"])
 
@@ -321,6 +325,55 @@ class SelfieRestoreFixtureTests(unittest.TestCase):
     def test_result_reports_the_exact_rows_that_survived(self) -> None:
         result = self._rehearse(FakeRunner(self._responses()))
         self.assertEqual(result["selfie_rows"], 1008)
+
+
+class MediaRestoreFixtureTests(SelfieRestoreFixtureTests):
+    """#69: fotos aprovadas e tombstones conferidos como a selfie, antes da perda e depois da promoção."""
+
+    def _check_positions(self, runner: FakeRunner) -> list[int]:
+        check = shadow.MEDIA_CHECK_FILE.read_text(encoding="utf-8")
+        return [index for index, stdin in enumerate(runner.stdins) if stdin == check]
+
+    def test_seed_applies_the_selfie_fixture_with_errors_stopping_psql(self) -> None:
+        runner = FakeRunner()
+        shadow.seed(self.layout, 1, runner, events=1)
+        self.assertEqual(runner.stdins[2], shadow.MEDIA_SEED_FILE.read_text(encoding="utf-8"))
+        self.assertEqual(runner.commands[2][-2:], ["--set", "ON_ERROR_STOP=1"])
+
+    def test_broken_fixture_before_the_loss_stops_without_killing_the_database(self) -> None:
+        runner = FixtureCheckFailsOn(1, self._responses(), shadow.MEDIA_CHECK_FILE)
+        with self.assertRaises(shadow.ShadowError):
+            self._rehearse(runner)
+        self.assertFalse(any(command[:2] == ["docker", "kill"] for command in runner.commands))
+
+    def test_broken_fixture_after_recovery_keeps_the_app_down_and_saves_no_result(self) -> None:
+        runner = FixtureCheckFailsOn(2, self._responses(), shadow.MEDIA_CHECK_FILE)
+        with self.assertRaises(shadow.ShadowError):
+            self._rehearse(runner)
+        self.assertFalse((self.layout.state / "restore-rehearsal.json").exists())
+        self.assertFalse(any(" ".join(c).endswith("up --detach --wait web worker edge") for c in runner.commands))
+
+    def test_total_rows_lost_in_the_restore_stop_the_rehearsal(self) -> None:
+        for table, counts in (("media_assets", ["4", "3"]), ("photo_tombstones", ["2", "1"])):
+            with self.subTest(table=table):
+                runner = FakeRunner(self._responses() | {f"count(*) from media.{table}": counts})
+                with self.assertRaisesRegex(shadow.ShadowError, f"{table}: {counts[0]} .* {counts[1]} "):
+                    self._rehearse(runner)
+                self.assertFalse(any(" ".join(c).endswith("up --detach --wait web worker edge")
+                                     for c in runner.commands))
+
+    def test_result_reports_the_exact_rows_that_survived(self) -> None:
+        result = self._rehearse(FakeRunner(self._responses()))
+        self.assertEqual(result["media_asset_rows"], 4)
+        self.assertEqual(result["photo_tombstone_rows"], 2)
+
+    def test_check_reads_only_fixture_rows_and_seed_creates_no_worker_obligation(self) -> None:
+        seed = shadow.MEDIA_SEED_FILE.read_text(encoding="utf-8")
+        check = shadow.MEDIA_CHECK_FILE.read_text(encoding="utf-8")
+        for queue in ("original_cleanup", "photo_deletion_cleanup", "review_"):
+            self.assertNotIn(f"insert into media.{queue}", seed)
+        self.assertNotRegex(check.lower(), r"\b(insert|update|delete)\s+(into|from)?\s*media\.")
+        self.assertNotRegex(seed.split("insert into media.uploads", 1)[1], r"'20[0-8][0-9]-")
 
 
 class RehearsalSqlTests(unittest.TestCase):

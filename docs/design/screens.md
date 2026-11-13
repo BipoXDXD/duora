@@ -187,8 +187,11 @@ em [system.md](system.md); critérios de acessibilidade, em [accessibility.md](a
 - **Envio incerto:** além de "Repetir o mesmo pedido", há "Desistir", que descarta chave e bytes e avisa para conferir
   a lista antes de enviar de novo (decisão do dono, 06/11/2026).
 - **Regras de fotos:** seção nesta tela, destino de "Consulte as regras", visível só com o gate aberto e para quem
-  envia. Hoje mostra só o marcador "Regras de fotos em preparação."; não há texto de regra. A redação precisa de
-  aprovação do dono **antes de ligar o upload** (#69).
+  envia. Lista os critérios de P173-1 (ADR-0035): a foto é apresentada como do titular ("A foto deve ser sua.", sem
+  sugerir verificação de identidade, que o ADR nega), sem outras pessoas identificáveis, nudez ou conteúdo sexual
+  explícito, violência gráfica, ódio ou dados de contato à mostra. Não cita revisão humana, por extensão de P4
+  (ADR-0035), que trata só da política de privacidade. A redação precisa de aprovação do dono **antes de ligar o
+  upload** (#69).
 - **Foco:** quando o controle focado some, o foco vai ao painel da exclusão, ao título "Suas fotos" ou ao aviso de
   indisponível.
 - **Saída da página:** com envio em curso ou resultado incerto, o navegador pede confirmação (`beforeunload`).
@@ -227,9 +230,13 @@ em [system.md](system.md); critérios de acessibilidade, em [accessibility.md](a
   "Ir para a sala de espera"); secundária "Cancelar inscrição" quando inscrito.
 - **Cancelar inscrição / Sair da lista (API-E04):** só antes do início, como o servidor. Confirmação em duas etapas
   na própria tela: o foco vai para o aviso "Depois de sair, você não poderá se inscrever de novo neste encontro."
-  (decisão 10 de 24/10/2026), que descreve o botão "Confirmar saída" (`aria-describedby`); "Manter inscrição" desiste
-  e devolve o foco ao botão. Depois da retirada, o foco vai para "Você saiu deste encontro." e somem inscrição e
-  check-in. A tela não promete aviso à pessoa promovida da espera (#320). Hoje vive na lista de eventos
+  (decisão 10 de 24/10/2026), que descreve o botão destrutivo "Sim, cancelar inscrição" ("Sim, sair da lista" na
+  espera) (`aria-describedby`). A ação segura vem primeiro: "Manter inscrição" ("Continuar na lista" na espera) desiste
+  e devolve o foco ao botão. Se o encontro começa com a confirmação aberta, ou o servidor recusa com 404 (no limite do
+  horário, com o evento fora de `Published` ou com a inscrição em outro estado), ela fecha e o foco vai para o aviso
+  neutro "Não é mais possível cancelar a inscrição.", que não afirma o motivo. Depois da
+  retirada, o foco vai para "Você saiu deste encontro." e somem inscrição e check-in. A tela
+  não promete aviso à pessoa promovida da espera (#320). Hoje vive na lista de eventos
   (`EventsPage`), não num detalhe do evento.
 
 ```text
