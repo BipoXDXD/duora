@@ -63,11 +63,12 @@ public sealed class DatabaseContentionResponseTests(EnabledPhotoUploads media)
     }
 
     /// <summary>
-    /// Estados de recurso do servidor tratados como indisponibilidade, fora da contenção: 53200 (sem memória), 53400
-    /// (limite de configuração), 55006 (objeto em uso) e 58030 (erro de E/S). Crus ou embrulhados, a resposta é a
-    /// mesma (#476).
+    /// Estados de recurso do servidor tratados como indisponibilidade, fora da contenção: 53000 (recursos
+    /// insuficientes), 53100 (disco cheio), 53200 (sem memória), 53400 (limite de configuração), 55006 (objeto em uso),
+    /// 57P05 (sessão ociosa encerrada) e 58030 (erro de E/S). Crus ou embrulhados, a resposta é a mesma (#476, #492).
     /// </summary>
-    private static readonly string[] TransientServerStates = ["53200", "53400", "55006", "58030"];
+    private static readonly string[] TransientServerStates =
+        ["53000", "53100", "53200", "53400", "55006", "57P05", "58030"];
 
     public static TheoryData<string, string, string> UnreachableCases()
     {
@@ -131,6 +132,27 @@ public sealed class DatabaseContentionResponseTests(EnabledPhotoUploads media)
             ? $"(-, {nameof(NpgsqlException)})"
             : $"({cause}, {nameof(PostgresException)})";
         Assert.Contains(described, warning.Text, StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// O timeout de comando (57014) é tratado pelos filtros de mídia e revisão de foto, que respondem pela mesma fonte
+    /// do handler global (#493): o mesmo 503 com <c>Retry-After</c> de 2 s, sem o Warning do handler.
+    /// </summary>
+    [Theory]
+    [InlineData("photo-review")]
+    [InlineData("media")]
+    public async Task ACommandTimeoutOnAFilteredRouteAnswersTheShortRetryAfter(string route)
+    {
+        var failure = new PostgresException(_canary, "ERROR", "ERROR", "57014");
+
+        var (whole, logs) = await RespondAsync(route, failure);
+
+        // O filtro monta o 503 sem o handler global, que é quem acrescenta o Expires: compara só o que é da fonte.
+        Assert.Equal(503, whole.Status);
+        Assert.Contains($"Retry-After: {ContentionRetryAfterSeconds}", whole.Headers, StringComparison.Ordinal);
+        Assert.Equal(Expected(ContentionRetryAfterSeconds).Body, whole.Body);
+        AssertNothingLeaks(whole, logs);
+        Assert.DoesNotContain(logs.Entries, entry => entry.Category == typeof(DatabaseUnavailableExceptionHandler).FullName);
     }
 
     private Exception Envelope(PostgresException server, string envelope) => envelope switch

@@ -29,6 +29,12 @@ public sealed class NeutralUnavailabilityResponseTests(NeutralUnavailabilityResp
         + "\"title\":\"Service temporarily unavailable. Try again later.\","
         + "\"type\":\"urn:duora:problem:temporarily-unavailable\"}|Retry-After=" + BusyRetryAfterSeconds;
 
+    private const string ProtocolViolation = "08P01-cru";
+
+    private const string InternalError =
+        "500|{\"code\":\"INTERNAL_ERROR\",\"status\":500,\"title\":\"An unexpected error occurred.\","
+        + "\"type\":\"urn:duora:problem:internal-error\"}|Retry-After=(nenhum)";
+
     /// <summary>O cadastro (API-A02) e o reenvio de sempre: 202 sem corpo e sem <c>Retry-After</c>.</summary>
     private const string NeutralAccepted = "202||Retry-After=(nenhum)";
 
@@ -37,17 +43,20 @@ public sealed class NeutralUnavailabilityResponseTests(NeutralUnavailabilityResp
 
     private static readonly string[] IdentityRoutes = ["login", "register", "email-confirmation-requests"];
 
+    /// <summary>Estados de recurso do servidor tratados como indisponibilidade (#476, #492).</summary>
+    private static readonly string[] ResourceStates = ["53000", "53100", "53200", "53400", "55006", "57P05", "58030"];
+
+    private static readonly string[] Envelopes = ["cru", "npgsql", "npgsql2", "ef"];
+
     private static readonly string[] Causes =
     [
         "busy-fila", "busy-lock", "busy-prazo",
         "53300", "cliente-timeout",
         "40001-cru", "40P01-cru", "55P03-cru",
         "40001-npgsql", "40P01-npgsql", "55P03-npgsql",
-        "53200-cru", "53400-cru", "55006-cru", "58030-cru",
-        "53200-npgsql", "53400-npgsql", "55006-npgsql", "58030-npgsql",
-        "53200-npgsql2", "53400-npgsql2", "55006-npgsql2", "58030-npgsql2",
-        "53200-ef", "53400-ef", "55006-ef", "58030-ef",
+        .. ResourceStates.SelectMany(state => Envelopes.Select(envelope => $"{state}-{envelope}")),
         "57014-cru",
+        ProtocolViolation,
     ];
 
     public static TheoryData<string, string> Cases()
@@ -103,9 +112,14 @@ public sealed class NeutralUnavailabilityResponseTests(NeutralUnavailabilityResp
     }
 
     private static string ExpectedFor(string route, string cause) =>
-        GiveUpOnBusyRoutes.Contains(route) && cause.StartsWith("busy-", StringComparison.Ordinal)
-            ? NeutralAccepted
-            : Expected;
+        cause switch
+        {
+            // Defeito de código ou de proxy (#497), não indisponibilidade: o 500 de sempre, sem Retry-After.
+            ProtocolViolation => InternalError,
+            _ when GiveUpOnBusyRoutes.Contains(route) && cause.StartsWith("busy-", StringComparison.Ordinal) =>
+                NeutralAccepted,
+            _ => Expected,
+        };
 
     private static Exception Failure(string cause) => cause switch
     {
