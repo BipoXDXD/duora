@@ -15,7 +15,10 @@ const AUTHENTICATOR_URI = `otpauth://totp/Duora:admin%2Bqr%40example.test?secret
 async function expectQrContent(page: Page, label: string): Promise<void> {
   const qr = page.getByRole('img', { name: label })
   await expect(qr).toBeVisible()
-  const pixels = await qr.evaluate(async (svg) => {
+  // Os pixels (512 × 512 × 4 bytes) voltam em base64. Como array JSON viravam 1 milhão de valores serializados um a
+  // um pelo protocolo: 4–5 s por chamada sem disputa de CPU e 11–19 s no WebKit da suíte paralela, o que estourava o
+  // tempo do teste logo depois de "Ativar MFA" (#547). Os bytes conferidos pelo jsQR são os mesmos.
+  const encodedPixels = await qr.evaluate(async (svg) => {
     const canvas = document.createElement('canvas')
     canvas.width = 512
     canvas.height = 512
@@ -27,12 +30,19 @@ async function expectQrContent(page: Page, label: string): Promise<void> {
       image.src = url
       await image.decode()
       context.drawImage(image, 0, 0, canvas.width, canvas.height)
-      return Array.from(context.getImageData(0, 0, canvas.width, canvas.height).data)
+      const { data } = context.getImageData(0, 0, canvas.width, canvas.height)
+      // Fatias limitam os argumentos de String.fromCharCode, que estouram a pilha com o buffer inteiro.
+      const sliceLength = 0x8000
+      let binary = ''
+      for (let offset = 0; offset < data.length; offset += sliceLength)
+        binary += String.fromCharCode(...data.subarray(offset, offset + sliceLength))
+      return btoa(binary)
     } finally {
       URL.revokeObjectURL(url)
     }
   })
-  expect(jsQR.default(new Uint8ClampedArray(pixels), 512, 512)?.data).toBe(AUTHENTICATOR_URI)
+  const pixels = new Uint8ClampedArray(Buffer.from(encodedPixels, 'base64'))
+  expect(jsQR.default(pixels, 512, 512)?.data).toBe(AUTHENTICATOR_URI)
   const bounds = await qr.boundingBox()
   expect(bounds?.width).toBeGreaterThanOrEqual(200)
   expect(bounds?.width).toBeLessThanOrEqual(256)

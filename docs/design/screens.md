@@ -228,6 +228,12 @@ em [system.md](system.md); critérios de acessibilidade, em [accessibility.md](a
   convivência, situação da vaga, abertura do check-in.
 - **Ações:** uma primária, que muda com o estado ("Inscrever-me", "Entrar na lista de espera", "Fazer check-in",
   "Ir para a sala de espera"); secundária "Cancelar inscrição" quando inscrito.
+- **Cancelar inscrição / Sair da lista (API-E04):** só antes do início, como o servidor. Confirmação em duas etapas
+  na própria tela: o foco vai para o aviso "Depois de sair, você não poderá se inscrever de novo neste encontro."
+  (decisão 10 de 24/10/2026), que descreve o botão "Confirmar saída" (`aria-describedby`); "Manter inscrição" desiste
+  e devolve o foco ao botão. Depois da retirada, o foco vai para "Você saiu deste encontro." e somem inscrição e
+  check-in. A tela não promete aviso à pessoa promovida da espera (#320). Hoje vive na lista de eventos
+  (`EventsPage`), não num detalhe do evento.
 
 ```text
 ┌──────────────────────────────────────┐

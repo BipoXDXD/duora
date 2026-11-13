@@ -144,7 +144,13 @@ public sealed class SelfieFailureLockoutTests(PostgresFixture postgres)
         try
         {
             await barrier.WaitForEntryAsync(Ct);
-            _time.Advance(TimeSpan.FromSeconds(31));
+
+            // Pelo banco, com o relógio parado: avançar o relógio cortaria a leitura em voo antes de ela responder.
+            Assert.Equal(1, await scenario.ScalarAsync("""
+                update ops.outbox_deliveries set lease_expires_at = lease_expires_at - interval '31 seconds'
+                where consumer = 'selfie-provider' and status = 'InFlight'
+                returning 1
+                """));
             Assert.Equal(1, await SelfieConcurrencyHarness.DispatchAsync(second, Ct));
         }
         finally
@@ -153,7 +159,8 @@ public sealed class SelfieFailureLockoutTests(PostgresFixture postgres)
             await stale;
         }
 
-        Assert.Equal(2, provider.ReadCalls);
+        Assert.Equal((2, 0), (provider.ReadCalls, provider.ScriptedReadsLeft));
+        Assert.Equal(2, await scenario.ScalarAsync("select version from identity.selfie_verifications where user_id = $1", account.UserId));
         Assert.Equal(1, await scenario.ScalarAsync("select count(*) from identity.selfie_failures where user_id = $1", account.UserId));
     }
 

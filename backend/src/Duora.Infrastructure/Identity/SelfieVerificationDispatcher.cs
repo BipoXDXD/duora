@@ -13,6 +13,15 @@ namespace Duora.Infrastructure.Identity;
 public sealed partial class SelfieVerificationDispatcher
 {
     private static readonly TimeSpan Lease = TimeSpan.FromSeconds(30);
+
+    /// <summary>
+    /// Corte de cada chamada ao fornecedor, no relógio injetado. Fica bem abaixo do lease, para a resposta ainda ser
+    /// gravada pelo dono da entrega.
+    /// </summary>
+    private static readonly TimeSpan CallTimeout = TimeSpan.FromSeconds(10);
+
+    private const string AnswerAfterDeadline = "Selfie provider answered after the call deadline.";
+    private const string CallCut = "Selfie provider call cut at the deadline.";
     private static readonly TimeSpan TransientDataRetention = TimeSpan.FromHours(24);
 
     /// <summary>
@@ -30,16 +39,22 @@ public sealed partial class SelfieVerificationDispatcher
     private readonly DuoraDbContext _db;
     private readonly OutboxDeliveryQueue _queue;
     private readonly ISelfieProvider _provider;
+    private readonly SelfieProviderCallSlot _slot;
     private readonly SelfieProviderOptions _options;
     private readonly TimeProvider _time;
     private readonly ILogger<SelfieVerificationDispatcher> _logger;
 
+    /// <summary>Chamada deste lote que o corte abandonou ainda em andamento; ela leva a vaga consigo.</summary>
+    private Task? _abandonedCall;
+
     internal SelfieVerificationDispatcher(DuoraDbContext db, OutboxDeliveryQueue queue, ISelfieProvider provider,
-        IOptions<SelfieProviderOptions> options, TimeProvider time, ILogger<SelfieVerificationDispatcher> logger)
+        SelfieProviderCallSlot slot, IOptions<SelfieProviderOptions> options, TimeProvider time,
+        ILogger<SelfieVerificationDispatcher> logger)
     {
         _db = db;
         _queue = queue;
         _provider = provider;
+        _slot = slot;
         _options = options.Value;
         _time = time;
         _logger = logger;
@@ -55,6 +70,32 @@ public sealed partial class SelfieVerificationDispatcher
             return 0;
         }
 
+        // Sem a vaga, nada é tomado da fila: uma entrega reivindicada sem poder chamar o fornecedor só gastaria tentativa.
+        if (!_slot.TryAcquire(out var firstRefusal))
+        {
+            if (firstRefusal)
+            {
+                LogPreviousCallStillRunning(_logger);
+            }
+
+            return 0;
+        }
+
+        _abandonedCall = null;
+        try
+        {
+            return await DispatchClaimsAsync(now, cancellationToken);
+        }
+        finally
+        {
+            _slot.Release(_abandonedCall);
+        }
+    }
+
+    private async Task<int> DispatchClaimsAsync(DateTimeOffset now, CancellationToken cancellationToken)
+    {
+        // Lote de 1 de propósito: a vaga e _abandonedCall cobrem uma única chamada por lote. Num lote maior, a entrega
+        // seguinte chamaria o fornecedor com a anterior ainda rodando.
         var claims = await _queue.ClaimWithAttemptLimitAsync(SelfieVerificationOutbox.Consumer, 1, now, now + Lease, 40, cancellationToken);
         foreach (var exhausted in claims.Exhausted)
         {
@@ -137,15 +178,14 @@ public sealed partial class SelfieVerificationDispatcher
         SelfieResult? result = null;
         try
         {
-            using var timeout = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
-            timeout.CancelAfter(TimeSpan.FromSeconds(10));
-            if (row.ProviderReference is null)
+            var reference = row.ProviderReference;
+            if (reference is null)
             {
-                session = await _provider.StartAsync(row.Id, timeout.Token);
+                session = await CallProviderAsync(token => _provider.StartAsync(row.Id, token), cancellationToken);
             }
             else
             {
-                result = await _provider.ReadAsync(row.ProviderReference, timeout.Token);
+                result = await CallProviderAsync(token => _provider.ReadAsync(reference, token), cancellationToken);
             }
         }
         catch (Exception exception) when (IsTransientProviderFailure(exception))
@@ -173,6 +213,58 @@ public sealed partial class SelfieVerificationDispatcher
         }
     }
 
+    /// <summary>
+    /// O corte em duas camadas, no relógio injetado, as duas presas a um único timer armado antes da chamada: o prazo
+    /// fica fixo quando a chamada sai, e um salto do relógio enquanto a espera é montada não o adia. O timer cancela o
+    /// token no prazo mesmo que a chamada ainda não tenha devolvido a tarefa (o SDK da AWS lê o corpo da resposta de
+    /// forma síncrona). A espera pelo mesmo token devolve o controle mesmo que o fornecedor ignore o cancelamento. A
+    /// chamada que segue rodando fica abandonada: ninguém lê a resposta dela, e ela leva a vaga até terminar. Um
+    /// bloqueio síncrono que também ignore o token não é interrompido: a espera só age sobre a tarefa devolvida, e a
+    /// recebe pronta mesmo depois do prazo. Por isso a resposta que volta depois do prazo é recusada aqui, com o mesmo
+    /// efeito do corte.
+    /// </summary>
+    private async Task<T> CallProviderAsync<T>(Func<CancellationToken, Task<T>> call, CancellationToken cancellationToken)
+    {
+        var deadline = _time.GetUtcNow() + CallTimeout;
+        using var cut = new CancellationTokenSource(CallTimeout, _time);
+        using var linked = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, cut.Token);
+        var pending = call(linked.Token);
+        try
+        {
+            var answer = await WaitWithinTheCutAsync(pending, linked.Token, cancellationToken);
+            return _time.GetUtcNow() < deadline ? answer : throw new TimeoutException(AnswerAfterDeadline);
+        }
+        finally
+        {
+            if (!pending.IsCompleted)
+            {
+                // A espera pode vencer o cancelamento do fornecedor: sem cancelar aqui, o token seria descartado sem
+                // avisar o fornecedor. A vaga vem antes, para uma exceção em callback do token não a devolver com a
+                // chamada viva; se o cancelamento encerrar a chamada, a vaga trata a tarefa concluída.
+                _abandonedCall = pending;
+                await linked.CancelAsync();
+            }
+        }
+    }
+
+    /// <summary>
+    /// Quem chama vê o mesmo de antes: o desfecho do próprio fornecedor quando ele terminou, a
+    /// <see cref="TimeoutException"/> quando o corte encerrou a espera com a chamada ainda viva, e o cancelamento do
+    /// worker como cancelamento.
+    /// </summary>
+    private static async Task<T> WaitWithinTheCutAsync<T>(Task<T> pending, CancellationToken cutOrShutdown,
+        CancellationToken shutdown)
+    {
+        try
+        {
+            return await pending.WaitAsync(cutOrShutdown);
+        }
+        catch (OperationCanceledException) when (!shutdown.IsCancellationRequested)
+        {
+            return pending.IsCompleted ? await pending : throw new TimeoutException(CallCut);
+        }
+    }
+
     private async Task ExpireAsync(SelfieVerificationRecord row, ClaimedDelivery delivery, string? feedbackCode,
         CancellationToken cancellationToken)
     {
@@ -184,13 +276,16 @@ public sealed partial class SelfieVerificationDispatcher
     [LoggerMessage(Level = LogLevel.Warning, Message = "Selfie provider unavailable ({Cause}); the delivery was rescheduled.")]
     private static partial void LogProviderUnavailable(ILogger logger, string cause);
 
+    [LoggerMessage(Level = LogLevel.Warning, Message = "A selfie provider call cut by the timeout is still running; this worker makes no new call until it ends.")]
+    private static partial void LogPreviousCallStillRunning(ILogger logger);
+
     [LoggerMessage(Level = LogLevel.Information, Message = "Selfie attempt expired before opening a session: too little time left to capture.")]
     private static partial void LogNoTimeToCapture(ILogger logger);
 
     /// <summary>
     /// Falhas da chamada ao fornecedor que reagendam a entrega, sem mudar o estado da tentativa nem contar reprovação. O SDK da
     /// AWS entrega o reset de conexão como <see cref="IOException"/> e o timeout do HttpClient como
-    /// <see cref="TimeoutException"/>. Qualquer outra exceção é defeito: sobe ao loop do worker e o lease devolve a entrega.
+    /// <see cref="TimeoutException"/>, a mesma exceção do corte deste dispatcher. Qualquer outra exceção é defeito: sobe ao loop do worker e o lease devolve a entrega.
     /// </summary>
     private static bool IsTransientProviderFailure(Exception exception) =>
         exception is Amazon.Runtime.AmazonServiceException or HttpRequestException or IOException or TimeoutException

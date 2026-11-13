@@ -291,3 +291,14 @@ Staging e nomes desconhecidos continuam recusados. A allowlist `PRODUCTION_MEDIA
 desligado em produção até a #69 e seus gates. A revisão de fotos não tem recurso nem segundo revisor (o dono do
 projeto é o único revisor); foto recusada se resolve com novo envio, dentro das cotas 3/100 do item 8. Os demais
 itens e adendos deste ADR continuam vigentes.
+
+## Adendo (2026-11-12): timeout do upload com corpo completo é falha do storage (#505)
+
+O item 5 dizia que um timeout do PUT na quarentena com o corpo ainda incompleto conta como falha do cliente. Na
+implementação, porém, o timeout com o corpo já inteiro entregue também era atribuído ao cliente (`400
+UPLOAD_INCOMPLETE`), o que escondia uma lentidão do storage como erro do usuário e das métricas de cliente (#505).
+Passa a valer: o timeout com o corpo incompleto e o aborto do próprio cliente continuam sendo falha do cliente
+(`400 UPLOAD_INCOMPLETE`); o timeout com o corpo inteiro já entregue é falha do storage (`503 STORAGE_UNAVAILABLE`
+com `Retry-After`, a mesma fonte única do 503 já existente). A compensação é a mesma nos dois casos: a reserva
+`Pending` é descartada e a vaga do limite é liberada. Só o 400 -> 503 desse caso muda no contrato; os demais itens
+e adendos deste ADR continuam vigentes.
