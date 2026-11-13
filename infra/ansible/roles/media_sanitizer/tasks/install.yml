@@ -2,6 +2,14 @@
 # Instalação idempotente e INATIVA. Não toca no daemon Docker do sistema, em /etc/docker, nos serviços da aplicação,
 # em /var/lib/duora-media (fotos) nem no sysctl kernel.apparmor_restrict_unprivileged_userns.
 
+- name: Recusar partida no boot sem imagem fixada e sem o runtime do ensaio
+  ansible.builtin.assert:
+    that:
+      - media_sanitizer_image | length > 0
+      - media_sanitizer_runtime_started | bool
+    fail_msg: media_sanitizer_start_on_boot exige media_sanitizer_image por digest e media_sanitizer_runtime_started.
+  when: media_sanitizer_start_on_boot | bool
+
 - name: Exigir host suportado (amd64/arm64 com cgroup v2)
   ansible.builtin.assert:
     that:
@@ -268,6 +276,62 @@
     mode: "0644"
   notify: Recarregar systemd
 
+# Opt-in (media_sanitizer_start_on_boot): links feitos à mão, porque o template não tem [Install] e continua sem.
+- name: Criar os diretórios de partida no boot
+  ansible.builtin.file:
+    path: "{{ item.path }}"
+    state: directory
+    owner: "{{ item.owner }}"
+    group: "{{ item.owner }}"
+    mode: "{{ item.mode }}"
+  loop:
+    - { path: /etc/systemd/system/duora-media-launcher.service.d, owner: root, mode: "0755" }
+    - path: "{{ media_sanitizer_home }}/.config/systemd/user/default.target.wants"
+      owner: "{{ media_sanitizer_user }}"
+      mode: "0700"
+  when: media_sanitizer_start_on_boot | bool
+
+- name: Ordenar o launcher depois do gerenciador da conta no boot
+  ansible.builtin.template:
+    src: launcher-boot.conf.j2
+    dest: /etc/systemd/system/duora-media-launcher.service.d/50-boot.conf
+    owner: root
+    group: root
+    mode: "0644"
+  when: media_sanitizer_start_on_boot | bool
+  notify: Recarregar systemd
+
+- name: Ligar o launcher ao multi-user.target
+  ansible.builtin.file:
+    path: /etc/systemd/system/multi-user.target.wants/duora-media-launcher.service
+    src: /etc/systemd/system/duora-media-launcher.service
+    state: link
+  when: media_sanitizer_start_on_boot | bool
+  notify: Recarregar systemd
+
+- name: Ligar o daemon rootless ao default.target da conta
+  ansible.builtin.file:
+    path: "{{ media_sanitizer_home }}/.config/systemd/user/default.target.wants/docker.service"
+    src: "{{ media_sanitizer_home }}/.config/systemd/user/docker.service"
+    state: link
+    owner: "{{ media_sanitizer_user }}"
+    group: "{{ media_sanitizer_user }}"
+  when: media_sanitizer_start_on_boot | bool
+  notify: Recarregar o gerenciador de usuário do sanitizador
+
+- name: Remover a partida no boot quando a opção está desligada
+  ansible.builtin.file:
+    path: "{{ item }}"
+    state: absent
+  loop:
+    - /etc/systemd/system/multi-user.target.wants/duora-media-launcher.service
+    - /etc/systemd/system/duora-media-launcher.service.d/50-boot.conf
+    - "{{ media_sanitizer_home }}/.config/systemd/user/default.target.wants/docker.service"
+  when: not (media_sanitizer_start_on_boot | bool)
+  notify:
+    - Recarregar systemd
+    - Recarregar o gerenciador de usuário do sanitizador
+
 - name: Criar o diretório de autoridade e o journal do launcher (fora de /var/lib/duora-media)
   ansible.builtin.file:
     path: "{{ item }}"
@@ -343,6 +407,7 @@
       - media_sanitizer_launcher_state.status.UnitFileState == 'static'
       - media_sanitizer_launcher_state.status.ActiveState == 'inactive'
     fail_msg: O launcher precisa ficar parado (static/inactive) até a ativação autorizada.
+  when: not (media_sanitizer_start_on_boot | bool)
 
 - name: Ler os tetos efetivos do slice da conta
   ansible.builtin.slurp:
@@ -373,4 +438,5 @@
       subid: "{{ media_sanitizer_subid_start }}+{{ media_sanitizer_subid_count }}"
       daemon: "{{ 'iniciado' if (media_sanitizer_runtime_started | bool) else 'parado' }}"
       launcher: "{{ media_sanitizer_launcher_state.status.UnitFileState }}/{{ media_sanitizer_launcher_state.status.ActiveState }}"
+      boot: "{{ 'ligado' if (media_sanitizer_start_on_boot | bool) else 'desligado' }}"
       profile_sha256: "{{ media_sanitizer_profile_pin.stdout | default('sem perfil (imagem não fixada)') }}"

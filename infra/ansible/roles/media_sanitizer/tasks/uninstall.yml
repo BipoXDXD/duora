@@ -60,6 +60,8 @@
   loop:
     - "{{ media_sanitizer_profile_path }}"
     - /etc/systemd/system/duora-media-launcher.service
+    - /etc/systemd/system/multi-user.target.wants/duora-media-launcher.service
+    - /etc/systemd/system/duora-media-launcher.service.d
     - "{{ media_sanitizer_code_dir }}"
     - /usr/local/sbin/duora-media-subid-range
     - "{{ media_sanitizer_authority_dir }}"
