@@ -1,4 +1,4 @@
-"""Resiliência a falhas de infraestrutura nos passos de CI (#549); estrutura lida dos YAML, sem rodar jobs."""
+"""Resiliência a falhas de infraestrutura nos passos de CI (#549, #500); estrutura lida dos YAML, sem rodar jobs."""
 from __future__ import annotations
 
 from pathlib import Path
@@ -9,6 +9,7 @@ import yaml
 
 ROOT = Path(__file__).resolve().parents[2]
 ACTION = ROOT / ".github/actions/postgres-component/action.yml"
+MEDIA_RELEASE = ROOT / ".github/workflows/media-release.yml"
 EDGE_DOCKERFILE = ROOT / "infra/images/edge/Dockerfile"
 DOWNLOAD_ARTIFACT = "actions/download-artifact@"
 
@@ -42,6 +43,18 @@ class PostgresComponentResilienceTests(unittest.TestCase):
         wait = self.steps[index + 1]
         self.assertEqual("${{ steps.%s.outcome == 'failure' }}" % first["id"], wait.get("if"))
         self.assertRegex(wait["run"], r"(?m)^sleep \d+$")
+
+
+class MediaReleaseAptTests(unittest.TestCase):
+    def test_native_prerequisites_use_the_apt_retry_helper(self):
+        jobs = yaml.safe_load(MEDIA_RELEASE.read_text())["jobs"]
+        step = next(item for item in jobs["native"]["steps"]
+                    if item.get("name") == "Native architecture and dedicated rootless prerequisites")
+        script = step["run"]
+        self.assertIn('source "$GITHUB_WORKSPACE/scripts/ci/apt-retry.sh"', script)
+        self.assertIn('apt_retry "${apt_options[@]}" update -qq', script)
+        self.assertRegex(script, r'apt_retry "\$\{apt_options\[@\]\}" install -y ')
+        self.assertNotRegex(script, r"(?m)^\s*sudo apt-get ")
 
 
 class EdgeImageResilienceTests(unittest.TestCase):
