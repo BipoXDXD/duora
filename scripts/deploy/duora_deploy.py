@@ -3087,9 +3087,9 @@ def recovery_administrative_locks(paths: Paths, *, ingress: Path = Path("/var/li
                     raise DeployError("Administrative lock is not the protected existing regular file")
                 fcntl.flock(handle, fcntl.LOCK_EX | fcntl.LOCK_NB)
                 descriptors.append(descriptor)
-            yield RecoveryAdministrativeLease(descriptors[-1])
         except OSError as error:
             raise DeployError("Administrative release window is busy, missing or unsafe; no lock was created") from error
+        yield RecoveryAdministrativeLease(descriptors[-1])
 
 def _swap_arguments_error(args: argparse.Namespace, mode: str | None) -> str | None:
     if mode != "swap":

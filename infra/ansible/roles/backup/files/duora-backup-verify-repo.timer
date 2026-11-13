@@ -6,8 +6,7 @@
 Description=Duora: verificação diária da cadeia de WAL e do backup mais novo
 
 [Timer]
-OnCalendar=*-*-* 05:00:00 UTC
-RandomizedDelaySec=15min
+OnCalendar=*-*-* 03:45:00 UTC
 Persistent=true
 Unit=duora-backup@verify-repo.service
 

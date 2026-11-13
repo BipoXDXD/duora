@@ -154,6 +154,7 @@ public static partial class StorageAuthorityRuntimeChecks
             await RunClientProcessAsync(root, "legacy-denied", cancellationToken);
             Console.WriteLine("PASS unbound private legacy reads/deletes fail closed with original files intact");
             await VerifyControlAndReferenceFailuresAsync(root, referenceDatabase.Name, admin, cancellationToken);
+            await VerifyUnexpectedFailureIsRecordedAsync(root, authority, cancellationToken);
         }
         finally
         {
@@ -250,7 +251,8 @@ public static partial class StorageAuthorityRuntimeChecks
         using var container = Services(root, domain).BuildServiceProvider();
         var objectStore = container.GetRequiredService<IObjectStore>();
         var privateStore = Assert.IsAssignableFrom<IPrivateGenerationStore>(objectStore);
-        if (mode is "create-open" or "write-denied" or "read-denied" or "seal-only" or "finish-open")
+        if (mode is "create-open" or "write-denied" or "read-denied" or "read-unexpected-failure" or "seal-only"
+            or "finish-open")
         {
             await RunControlFaultClientAsync(parameters, app, objectStore, privateStore, mode, cancellationToken);
             return;
@@ -501,8 +503,23 @@ public static partial class StorageAuthorityRuntimeChecks
 
     private sealed class AuthorityProcess(Process process) : IAsyncDisposable
     {
+        private readonly TaskCompletionSource<string> _unexpectedFailure =
+            new(TaskCreationOptions.RunContinuationsAsynchronously);
         private int _stopped;
         internal Process Process => process;
+        internal Task<string> UnexpectedFailure => _unexpectedFailure.Task;
+
+        private async Task WatchErrorsAsync(CancellationToken cancellationToken)
+        {
+            while (await process.StandardError.ReadLineAsync(cancellationToken) is { } line)
+            {
+                if (line.StartsWith("STORAGE_OPERATION_FAILED ", StringComparison.Ordinal))
+                {
+                    _unexpectedFailure.TrySetResult(line);
+                }
+            }
+        }
+
         internal static async Task<AuthorityProcess> StartAsync(string root, bool expectReady,
             CancellationToken cancellationToken)
         {
@@ -532,7 +549,7 @@ public static partial class StorageAuthorityRuntimeChecks
                     throw new InvalidOperationException("Authority did not admit its fixture: " + error);
                 }
                 _ = child.Process.StandardOutput.ReadToEndAsync(cancellationToken);
-                _ = child.Process.StandardError.ReadToEndAsync(cancellationToken);
+                _ = child.WatchErrorsAsync(cancellationToken);
             }
             else
             {

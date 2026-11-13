@@ -6,6 +6,8 @@ O porquê de cada diretiva e de cada feature está em docs/operations/deploy.md 
 
 from __future__ import annotations
 
+import difflib
+import hashlib
 import shutil
 import subprocess
 from collections.abc import Callable, Iterable
@@ -82,6 +84,100 @@ EXPECTED_PERMISSIONS_POLICY = {feature: "(self)" for feature in ALLOWED_FEATURES
 
 # A selfie é a única página que liga a câmera, só para a própria origem.
 EXPECTED_SELFIE_PERMISSIONS_POLICY = EXPECTED_PERMISSIONS_POLICY | {"camera": "(self)"}
+
+
+# O que a variante da borda atrás do Traefik (o Caddyfile do host em produção) muda neste Caddyfile. Só o teste a monta:
+# o arquivo do repositório fica como está, e a fixture falha se ele deixar de ter a forma esperada.
+SITE_WITH_TLS = "{$DUORA_DOMAIN} {\n\ttls {$DUORA_TLS}\n"
+PLAIN_HTTP_SITE = "http://{$DUORA_DOMAIN} {\n"
+GLOBAL_BLOCK_OPENING = "{\n\tlog default {\n"
+PROXY_WITHOUT_BLOCK = "\t\treverse_proxy duora-web:8080\n"
+PROXY_WITH_BLOCK = "\t\treverse_proxy duora-web:8080 {\n"
+PROXY_ROUTES_WITHOUT_BLOCK = 2
+FORWARDED_HEADER_UPS = "\t\t\theader_up X-Forwarded-For {client_ip}\n\t\t\theader_up X-Forwarded-Proto https\n"
+
+
+def caddyfile_behind_traefik(source: str, trusted_proxy: str, *, rewrite_forwarded_for: bool = True) -> str:
+    """Caddyfile da opção B: confia só em trusted_proxy, lê o cliente de Cf-Connecting-IP e o entrega em X-Forwarded-For.
+
+    rewrite_forwarded_for=False é o controle: sem o header_up, o reverse_proxy monta o X-Forwarded-For pelo par da
+    conexão e o client_ip_headers não alcança o web.
+    """
+    servers = (f"{{\n\tservers {{\n\t\ttrusted_proxies static {trusted_proxy}\n"
+               "\t\tclient_ip_headers Cf-Connecting-IP\n\t\ttrusted_proxies_strict\n\t}\n\tlog default {\n")
+    config = _replace_exactly(source, GLOBAL_BLOCK_OPENING, servers, 1)
+    config = _replace_exactly(config, SITE_WITH_TLS, PLAIN_HTTP_SITE, 1)
+    if not rewrite_forwarded_for:
+        return config
+    config = _replace_exactly(config, PROXY_WITH_BLOCK, PROXY_WITH_BLOCK + FORWARDED_HEADER_UPS, 1)
+    block = f"{PROXY_WITH_BLOCK}{FORWARDED_HEADER_UPS}\t\t}}\n"
+    return _replace_exactly(config, PROXY_WITHOUT_BLOCK, block, PROXY_ROUTES_WITHOUT_BLOCK)
+
+
+def _replace_exactly(text: str, old: str, new: str, count: int) -> str:
+    found = text.count(old)
+    if found != count:
+        raise ValueError(f"esperava {count} ocorrência(s) de {old!r} no Caddyfile; achei {found}")
+    return text.replace(old, new)
+
+
+# Cópia byte a byte de /opt/duora/Caddyfile.duora-web.coolify e o hash dela, conferido na janela contra o
+# caddy_sha256 do pin. Só a janela do dono gera os dois e troca o marcador (docs/operations/deploy.md).
+HOST_COPY = REPO / "scripts" / "deploy" / "fixtures" / "caddy-host" / "Caddyfile.duora-web.coolify"
+HOST_COPY_DIGEST = HOST_COPY.with_name(HOST_COPY.name + ".sha256")
+HOST_COPY_PENDING = True
+HOST_COPY_MISSING = ("cópia do host ausente, gerar na janela (docs/operations/deploy.md, "
+                     "\"Cópia versionada do Caddyfile do host\", issue #396)")
+HOST_COMMENT_LINE = "# Generated for Coolify TLS termination; trust only verified proxy IP.\n"
+# IP fixo do coolify-proxy na rede coolify. A janela confere; outro valor no host aparece como divergência.
+HOST_TRAEFIK_PEER = "172.16.1.6"
+# Controles e separadores de linha aparecem escapados no diff; o tab do Caddyfile fica como está.
+_INVISIBLE = {code: f"\\x{code:02x}" for code in (*range(32), 0x7f, 0x85, 0x2028, 0x2029) if code != ord("\t")}
+
+
+class HostCopyPending(Exception):
+    """A janela do dono ainda não gerou a cópia: nada foi comparado."""
+
+
+class HostCopyMismatch(AssertionError):
+    """A cópia existe, ou deveria existir, e não prova que a fixture é o arquivo do host."""
+
+
+def expected_host_caddyfile(source: str) -> str:
+    """O arquivo do host com a Fase 4 opção B e este Caddyfile aplicados: a fixture, o peer real e o comentário."""
+    return HOST_COMMENT_LINE + caddyfile_behind_traefik(source, HOST_TRAEFIK_PEER)
+
+
+def host_copy_differences(copy: str, source: str) -> list[str]:
+    """Diff unificado entre o esperado e a cópia; vazio só quando os dois são iguais."""
+    return list(difflib.unified_diff(_visible_lines(expected_host_caddyfile(source)), _visible_lines(copy),
+                                     "fixture", "cópia do host", lineterm=""))
+
+
+def _visible_lines(text: str) -> list[str]:
+    """Corta só em \\n, porque splitlines() igualaria CRLF, CR, VT, NEL e a falta do \\n final."""
+    return [line.translate(_INVISIBLE) for line in text.split("\n")]
+
+
+def verify_host_copy(copy: Path, digest: Path, source: str, *, pending: bool) -> None:
+    """Termina sem erro só com cópia, hash e fixture coerentes.
+
+    O marcador é versionado para que apagar a cópia não vire pulo: pendente sem cópia é HostCopyPending; os demais
+    desencontros entre marcador e arquivos são HostCopyMismatch.
+    """
+    if pending:
+        if copy.exists() or digest.exists():
+            raise HostCopyMismatch("a cópia do host existe e HOST_COPY_PENDING continua True: desligue o marcador")
+        raise HostCopyPending(HOST_COPY_MISSING)
+    if not copy.exists() or not digest.exists():
+        raise HostCopyMismatch(HOST_COPY_MISSING)
+    content = copy.read_bytes()
+    recorded = digest.read_text(encoding="utf-8").strip()
+    if hashlib.sha256(content).hexdigest() != recorded:
+        raise HostCopyMismatch(f"sha256 de {copy.name} difere do registrado na janela ({recorded})")
+    if content != expected_host_caddyfile(source).encode("utf-8"):
+        differences = host_copy_differences(content.decode("utf-8", errors="replace"), source)
+        raise HostCopyMismatch("a cópia do host difere byte a byte da fixture:\n" + "\n".join(differences))
 
 
 def docker_available() -> bool:

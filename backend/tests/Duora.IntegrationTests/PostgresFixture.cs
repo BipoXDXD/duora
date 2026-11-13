@@ -1,5 +1,6 @@
 using System.Collections.Concurrent;
 using DotNet.Testcontainers.Configurations;
+using DotNet.Testcontainers.Containers;
 using DotNet.Testcontainers.Networks;
 using Duora.Infrastructure.Persistence;
 using Microsoft.EntityFrameworkCore;
@@ -35,6 +36,10 @@ public sealed class PostgresFixture : IAsyncLifetime
     // Cópia do banco recém-criado pelo initdb, antes das migrations: os bancos avulsos nascem dela com os mesmos
     // default privileges, sem repetir o SQL do initdb. Ninguém conecta nela (CREATE DATABASE ... TEMPLATE exige).
     private const string PristineTemplate = "duora_pristine";
+
+    // Cópia do banco principal logo depois de migrado, antes de qualquer teste: os bancos avulsos migrados nascem dela
+    // sem repetir as migrations. Não pode ser o próprio banco principal, onde os testes ficam conectados e gravam.
+    internal const string MigratedTemplate = "duora_migrated";
 
     private const UnixFileModes Executable = UnixFileModes.UserRead | UnixFileModes.UserWrite |
         UnixFileModes.UserExecute | UnixFileModes.GroupRead | UnixFileModes.GroupExecute | UnixFileModes.OtherRead |
@@ -96,6 +101,10 @@ public sealed class PostgresFixture : IAsyncLifetime
 
     internal string ContainerId => _container.Id;
 
+    /// <summary>Comando dentro do container descartável do teste, como root; nunca alcança outro servidor.</summary>
+    internal Task<ExecResult> ExecuteInContainerAsync(IList<string> command, CancellationToken cancellationToken) =>
+        _container.ExecAsync(command, cancellationToken);
+
     /// <summary>Disposable test-only admin connection for scratch role membership regressions; never logged.</summary>
     internal string ScratchSuperuserConnectionString(ScratchDatabase database)
     {
@@ -117,14 +126,20 @@ public sealed class PostgresFixture : IAsyncLifetime
     public async ValueTask InitializeAsync()
     {
         await _container.StartAsync(TestContext.Current.CancellationToken);
-        await ExecuteAsSuperuserAsync(
-            $"create database {PristineTemplate} template {DatabaseName} owner duora_migrator",
-            TestContext.Current.CancellationToken);
-        await ExecuteAsSuperuserAsync(
-            $"alter database {PristineTemplate} with is_template true allow_connections false; " +
-            $"revoke all on database {PristineTemplate} from public",
-            TestContext.Current.CancellationToken);
+        await CopyMainDatabaseToSealedTemplateAsync(PristineTemplate, TestContext.Current.CancellationToken);
         await MigrateAsync(DatabaseName, TestContext.Current.CancellationToken);
+        await CopyMainDatabaseToSealedTemplateAsync(MigratedTemplate, TestContext.Current.CancellationToken);
+    }
+
+    // Selado desde a criação: sem conexões aceitas, nada impede um clone, e não há sessão de terceiro a encerrar.
+    private async Task CopyMainDatabaseToSealedTemplateAsync(string template, CancellationToken cancellationToken)
+    {
+        await ExecuteAsSuperuserAsync(
+            $"create database {template} template {DatabaseName} owner duora_migrator", cancellationToken);
+        await ExecuteAsSuperuserAsync(
+            $"alter database {template} with is_template true allow_connections false; " +
+            $"revoke all on database {template} from public",
+            cancellationToken);
     }
 
     public async ValueTask DisposeAsync()
@@ -166,7 +181,7 @@ public sealed class PostgresFixture : IAsyncLifetime
 
     /// <summary>Retain and dispose this handle after all consumers of the test's isolated database finish.</summary>
     public Task<ScratchDatabase> CreateMigratedScratchDatabaseAsync(CancellationToken cancellationToken) =>
-        CreateInitializedScratchDatabaseAsync((database, token) => MigrateAsync(database.Name, token), cancellationToken);
+        CreateScratchDatabaseAsync("migrated", MigratedTemplate, cancellationToken);
 
     internal async Task<ScratchDatabase> CreateInitializedScratchDatabaseAsync(
         Func<ScratchDatabase, CancellationToken, Task> initialize, CancellationToken cancellationToken)
@@ -195,14 +210,19 @@ public sealed class PostgresFixture : IAsyncLifetime
     /// <summary>
     /// Cria um banco vazio, sem migrations, no mesmo servidor, com os papéis e default privileges do initdb.
     /// </summary>
-    public async Task<ScratchDatabase> CreateEmptyDatabaseAsync(CancellationToken cancellationToken)
+    public Task<ScratchDatabase> CreateEmptyDatabaseAsync(CancellationToken cancellationToken) =>
+        CreateScratchDatabaseAsync("empty", PristineTemplate, cancellationToken);
+
+    private async Task<ScratchDatabase> CreateScratchDatabaseAsync(string prefix, string template,
+        CancellationToken cancellationToken)
     {
-        var name = $"empty_{Guid.NewGuid():N}";
+        var name = $"{prefix}_{Guid.NewGuid():N}";
         // Identificador gerado aqui (prefixo + hex), não vem de fora; CREATE DATABASE e GRANT não aceitam parâmetro.
         // O ACL do banco não vem do template; repete o do initdb, e
-        // AppRolePrivilegesTests.ScratchDatabasesGetTheSameDatabaseAclAsTheMainOne pega a divergência.
+        // AppRolePrivilegesTests.ScratchDatabasesGetTheSameDatabaseAclAsTheMainOne e
+        // ScratchDatabaseTemplateTests pegam a divergência.
         await ExecuteAsSuperuserAsync(
-            $"create database {name} template {PristineTemplate} owner duora_migrator", cancellationToken);
+            $"create database {name} template {template} owner duora_migrator", cancellationToken);
         var database = new ScratchDatabase(
             name,
             ConnectAs("duora_app", _appPassword, name),
@@ -263,7 +283,7 @@ public sealed class PostgresFixture : IAsyncLifetime
         return await command.ExecuteScalarAsync(cancellationToken) is long oid ? oid : null;
     }
 
-    private async Task MigrateAsync(string database, CancellationToken cancellationToken)
+    internal async Task MigrateAsync(string database, CancellationToken cancellationToken)
     {
         await using (var dbContext = CreateDbContext(ConnectAs("duora_migrator", _migratorPassword, database)))
         {

@@ -117,8 +117,104 @@ Repetir o procedimento com o arquivo já ligado gera os mesmos bytes e o mesmo h
 
 **Caddyfile.** O edge de produção monta `/opt/duora/Caddyfile.duora-web.coolify` (fixado por `caddy_sha256` no pin),
 não o Caddyfile da imagem: o CSP de `/account/selfie` só chega aplicando ao arquivo do host o mesmo diff do
-`infra/caddy/Caddyfile` (o arquivo do host difere só no TLS atrás do Traefik e nos `trusted_proxies`), validando com
-`caddy validate` e atualizando `caddy_sha256`. O Caddyfile não entra no baseline do executor.
+`infra/caddy/Caddyfile` (o arquivo do host difere no TLS atrás do Traefik, no `trusted_proxies` com
+`trusted_proxies_strict` e, em cada `reverse_proxy`, no `header_up X-Forwarded-For {client_ip}` e no
+`header_up X-Forwarded-Proto https`; a forma que a fixture `caddyfile_behind_traefik`, em
+`scripts/deploy/caddy_test_support.py`, monta para o teste `scripts/deploy/test_caddy_client_ip.py` reproduz essas
+diferenças e, em relação ao arquivo do host, só acrescenta o `client_ip_headers Cf-Connecting-IP` da Fase 4),
+validando com `caddy validate` e atualizando `caddy_sha256`. O Caddyfile não entra no baseline do executor, mas o
+instalador do executor o amarra por hash desde a inspeção (`scripts/deploy/EXECUTOR_BUNDLE.md`): trocar o Caddyfile
+entre a inspeção e o `--apply` faz o instalador recusar.
+
+**Trocar o arquivo do host é mudança de produção.** Só numa janela administrativa do dono, sob a trava do deploy
+(`/var/lib/duora/.deploy.lock`), com cópia `.pre-<motivo>` do arquivo e do pin. A troca exige ressela do pin: gravar em
+`caddy_sha256` o hash do arquivo novo, depois do `caddy validate`. Se a mesma janela trocar também o compose (a Fase 4
+troca as labels do Traefik), vale ainda a ressela do executor descrita abaixo.
+
+Em detalhe, o arquivo do host difere do `infra/caddy/Caddyfile` em cinco pontos (estado atual, segundo o pacote da
+Fase 4 opção B, que fica fora do repositório; o arquivo da VPS não foi relido ao escrever este trecho):
+
+- **Comentário na linha 1:** `# Generated for Coolify TLS termination; trust only verified proxy IP.`, sem efeito na
+  configuração.
+- **TLS:** o site é `http://{$DUORA_DOMAIN}` e não tem `tls`, porque o Traefik termina o TLS.
+- **Proxy confiável:** o bloco global tem `servers { trusted_proxies static 172.16.1.6` e `trusted_proxies_strict }`.
+  `172.16.1.6` é o IP fixo de hoje do `coolify-proxy` (o Traefik) na rede `coolify`, lido no pacote e não no host:
+  confira com `docker inspect -f '{{.NetworkSettings.Networks.coolify.IPAddress}}' coolify-proxy` antes de copiar.
+  Não confunda com a rede `edge` (`172.30.10.0/24`) da tabela de redes abaixo, de onde o web aceita o Caddy como proxy.
+- **`header_up X-Forwarded-For {client_ip}`** em cada `reverse_proxy` (`/api/*`, `/webhooks/*`, `/hubs/*`). Essa
+  linha é necessária, mas pode não bastar: segundo o pacote da Fase 4, não verificado no host, o registro passa pela
+  Cloudflare em modo proxied, e então o web recebe o endereço da borda da Cloudflare e o rate limit por IP se espalha
+  entre as bordas até a Fase 4. Se o registro é proxied segue a confirmar (`docs/product/spec.md`, seção 2.3, e
+  `docs/privacy/data-map.md`, linha da Cloudflare). Sem ela, o web não recebe o cliente que o Caddy resolveu, seja o
+  registro proxied ou não: no `scripts/deploy/test_caddy_client_ip.py` o web recebeu a cadeia de `X-Forwarded-For`
+  como veio, com o peer no fim, e com `ForwardLimit=1` o web enxerga o peer. `client_ip_headers` sozinho não substitui
+  esse `header_up` (controle `ForwardedForRewriteControlTests`).
+- **`header_up X-Forwarded-Proto https`** nos mesmos três `reverse_proxy`.
+
+Ao copiar o diff do repositório para o arquivo do host, preserve essas cinco diferenças; o `infra/caddy/Caddyfile` não
+tem nenhuma delas.
+
+**Previsto, Fase 4 opção B (ainda não aplicada):** acrescenta `client_ip_headers Cf-Connecting-IP` ao bloco `servers`,
+entre `trusted_proxies` e `trusted_proxies_strict`. É a única linha que a Fase 4 muda no arquivo do host
+(`Caddyfile.diff` do pacote). Enquanto a fase não for aplicada, o arquivo do host não tem essa linha. A cadeia de IP
+com ela está provada em `scripts/deploy/test_caddy_client_ip.py` e `ForwardedHeadersTests`, sobre uma reconstrução do
+arquivo do host que o próprio teste monta a partir do `infra/caddy/Caddyfile`, não sobre o arquivo da VPS; a
+`ipAllowList` do Traefik e o comportamento da Cloudflare não estão provados, e a opção B depende deles.
+
+**Não aplique `client_ip_headers` sem as labels `ipAllowList` do Traefik.** Sem a `ipAllowList`, quem acessa a origem
+direto forja `Cf-Connecting-IP`. Caddyfile e labels entram e saem juntos.
+
+**Cópia versionada do Caddyfile do host (#396).** Nada compara a fixture `caddyfile_behind_traefik` com o arquivo real
+até esta cópia existir. `test_caddy_host_copy.py` sai como `skipped`, com "cópia do host ausente, gerar na janela", e
+isso quer dizer que nada foi provado. A cópia só é gerada numa janela administrativa do dono e só bate com a Fase 4
+opção B aplicada e ressalada **e** com o `infra/caddy/Caddyfile` da `main` já aplicado ao arquivo do host. Sem a Fase
+4, falta o `client_ip_headers`; com o host atrás da `main`, a comparação acusa o diff que faltou aplicar.
+
+1. No host, só leitura, confira o peer e o hash fixado. O peer tem de ser `172.16.1.6`, o `HOST_TRAEFIK_PEER` de
+   `scripts/deploy/caddy_test_support.py`; outro valor é decisão do dono, não ajuste da cópia.
+
+   ```sh
+   docker inspect -f '{{.NetworkSettings.Networks.coolify.IPAddress}}' coolify-proxy
+   python3 -I -c 'import json; print(json.load(open("/etc/duora/coolify-deploy.json"))["caddy_sha256"])'
+   sha256sum /opt/duora/Caddyfile.duora-web.coolify
+   ```
+
+   Os dois hashes têm de ser iguais. Diferentes: pare, porque o arquivo em uso não é o selado.
+
+2. Na máquina do operador, num worktree a partir da `main`, traga o arquivo byte a byte e confira o hash contra o
+   `caddy_sha256` lido no passo 1:
+
+   ```sh
+   D=scripts/deploy/fixtures/caddy-host
+   mkdir -p "$D"
+   ssh <host-da-janela> cat /opt/duora/Caddyfile.duora-web.coolify > "$D/Caddyfile.duora-web.coolify"
+   CADDY_SHA256=<valor de caddy_sha256 do passo 1>
+   [ "$(shasum -a 256 "$D/Caddyfile.duora-web.coolify" | cut -d' ' -f1)" = "$CADDY_SHA256" ] && echo COPIA_OK
+   printf '%s\n' "$CADDY_SHA256" > "$D/Caddyfile.duora-web.coolify.sha256"
+   ```
+
+   Sem `COPIA_OK`, apague os dois arquivos e pare.
+
+3. Troque `HOST_COPY_PENDING` para `False` em `scripts/deploy/caddy_test_support.py` e rode, ainda sem commit:
+
+   ```sh
+   python3 -m unittest discover -s scripts/deploy -p 'test_caddy_host_copy.py' -v
+   ```
+
+   O teste `test_the_fixture_matches_the_copy_of_the_host_file` tem de sair `ok`, não `skipped`. A comparação é byte a
+   byte: fim de linha e `\n` final contam. Com diff, registre o achado fora do repositório, apague os dois arquivos e
+   volte o marcador para `True`, sem ajustar a cópia nem o teste:
+
+   ```sh
+   rm "$D/Caddyfile.duora-web.coolify" "$D/Caddyfile.duora-web.coolify.sha256"
+   git checkout -- scripts/deploy/caddy_test_support.py
+   ```
+
+   O arquivo só tem as variáveis `{$...}` que a fixture já publica: é o diff vazio que garante isso, e por essa razão
+   nada vai para o repositório antes dele.
+
+4. Abra o PR com a cópia, o `.sha256` e o marcador. Depois dele, mudar o `infra/caddy/Caddyfile` deixa o teste vermelho
+   até a cópia nova entrar no mesmo PR, gerada numa janela que aplique o mesmo diff no host.
 
 **Ressela.** O baseline do executor (`/var/lib/duora/executor-runtime-baseline.json`) fixa o hash do Compose
 (`context.composeSha256`). Sem selar de novo, o `duora-deploy` recusa a release com "Database/backup runtime changed".
@@ -519,9 +615,37 @@ antigo como alvo. Ela gera outra release e exige reverter o lock na main; fora d
 para frente ou restore, por decisão do dono. R''→R' é rollback normal. R'→R segue recusado de propósito, porque R fixa o
 digest antigo.
 
-**Sem prova de laboratório nesta versão.** Os testes de protocolo usam Docker simulado. Falta exercitar `initdb`
-descartável, recriação real com `up --wait`, ressela real, PITR atravessando a troca e `docker load` do receiver sobre
-imagem já puxada. O laboratório vem em PR separado, e a primeira execução real é o ensaio no sombra.
+**O que a CI prova a cada PR.** `continuity_lab.py`, no job `images`, termina cada rodada trocando pelo comando real
+para um digest diferente do que está rodando, escolhido em `scripts/deploy/fixtures/postgres-swap-target.json`: sentinela,
+troca, ressela real pelo instalador, forward, rollback, lock antigo recusado e troca reversa. `restore_drill.py` faz backup
+no digest do lock, troca, escritas e PITR com o digest novo, com `verify-repo` sem lacuna; no Actions essa etapa não pode
+ser pulada. Com o lock já no alvo, o drill troca de volta para a origem da fixture, e falha se ela não tiver digest
+diferente. O lab não acompanha o lock: ele sai sempre do digest legado de `runtime_guard.py` para o alvo da fixture, então
+o PITR no sentido contrário só o drill cobre.
+
+**O que é prova manual, fora de qualquer gate.** `postgres_swap_bench.py --mode matrix` e `--mode unhealthy` não rodam em
+workflow nenhum. Última execução em arm64, em `docker:dind` isolado com o marcador de host descartável, sobre
+`feat/postgres-swap-lab`: `matrix` em 06/11/2026, commit `df2e343f`, 18 de 18; `unhealthy` em 06/11/2026, commit `5ac88df1`,
+exit 0, com o `--abort` de volta ao digest antigo e deploy seguinte aceito:
+
+```bash
+hostname > /etc/duora-swap-disposable-host   # só num host que existe para isso
+python3 scripts/deploy/postgres_swap_bench.py --mode unhealthy
+python3 scripts/deploy/postgres_swap_bench.py --mode matrix      # 40 min
+```
+
+A matriz mata o comando com SIGKILL em 18 pontos, com filho vivo: as 7 fases até o commit, cada uma resolvida por `--resume`
+e por `--abort`, mais `awaiting-reseal`, `closing`, `aborted-awaiting-reseal` e `aborting`. Os três de fechamento morrem
+dentro de `_swap_close` e `_swap_finish`. Cada desfecho só passa com um deploy real seguinte aceito e nada pendente. A
+bancada assume os caminhos fixos de produção: fora de runner hospedado ou de host com o marcador, ela recusa sem criar nem
+remover nada. `--mode cleanup` remove o que uma execução morta reivindicou e recusa enquanto o PID do claim estiver vivo;
+de um claim truncado por versão anterior, remove só o arquivo do claim. A imagem do runner hospedado traz `/opt` em
+0777, que o leitor protegido do executor recusa: a bancada tira a escrita de grupo e de outros dos ancestrais só durante a
+prova, restaura no fim e, antes da primeira troca, confere cada caminho com o próprio leitor, nomeando o que falhar.
+
+Em banco pequeno, sem Coolify real, a queda medida foi de 6 a 7 s no banco e cerca de 14 s na aplicação; `--abort` soma
+outro tanto. Tempo com volume real só no sombra. Continuam sem prova até a janela: observer e Coolify reais, B2, GHCR a
+partir da VPS, cron de prune e `docker load` do receiver sobre imagem já puxada.
 
 ### Primeira configuração do host
 

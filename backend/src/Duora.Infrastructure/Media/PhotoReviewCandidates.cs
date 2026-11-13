@@ -28,6 +28,33 @@ internal sealed class PhotoReviewCandidates(
 
     private sealed record StoredVariant(string ObjectKey, long SizeBytes, byte[] Sha256);
 
+    /// <summary>
+    /// One staging try. The flags tell the caller's finally block whether a prepared generation was left without a
+    /// commit, and whether a PUT may still be in flight for it.
+    /// </summary>
+    private sealed class StageAttempt(
+        Upload upload, Guid generation, DateTimeOffset leaseExpiresAt, SanitizeOutcome.Sanitized sanitized, Variant[] variants)
+    {
+        internal Upload Upload { get; } = upload;
+
+        internal Guid Generation { get; } = generation;
+
+        internal DateTimeOffset LeaseExpiresAt { get; } = leaseExpiresAt;
+
+        internal SanitizeOutcome.Sanitized Sanitized { get; } = sanitized;
+
+        internal Variant[] Variants { get; } = variants;
+
+        internal bool Prepared { get; set; }
+
+        // No request issued yet; changed before each PUT can reach storage.
+        internal bool WriterSettled { get; set; } = true;
+
+        internal bool Committed { get; set; }
+
+        internal bool NeedsCleanup => Prepared && !Committed;
+    }
+
     internal async Task<ReviewCandidateStageResult> StageAsync(
         Guid uploadId,
         long expectedVersion,
@@ -36,10 +63,7 @@ internal sealed class PhotoReviewCandidates(
         CancellationToken cancellationToken)
     {
         cancellationToken.ThrowIfCancellationRequested();
-        if (db.Database.CurrentTransaction is not null)
-        {
-            throw new InvalidOperationException("Storage preparation cannot run inside a caller's transaction.");
-        }
+        EnsureOutsideCallerTransaction();
 
         if (await ConfirmedCaseAsync(uploadId, expectedVersion, cancellationToken) is { } existing)
         {
@@ -47,89 +71,134 @@ internal sealed class PhotoReviewCandidates(
         }
 
         var now = time.GetUtcNow();
-        if (expectedVersion is < 1 or long.MaxValue || leaseExpiresAt <= now || leaseExpiresAt > now + options.LeaseDuration)
+        if (!IsLeaseWindowOpen(expectedVersion, leaseExpiresAt, now))
         {
             return new ReviewCandidateStageResult.LeaseLost();
         }
 
-        var upload = await db.Set<Upload>().AsNoTracking().SingleOrDefaultAsync(row => row.Id == uploadId, cancellationToken);
-        if (upload is null || upload.State != UploadState.Processing || upload.Version != expectedVersion
-            || upload.Fingerprint() is not { } fingerprint || fingerprint.Format != sanitized.Detected)
+        if (await FindProcessingUploadAsync(uploadId, expectedVersion, sanitized, cancellationToken) is not { } upload)
         {
             return new ReviewCandidateStageResult.LeaseLost();
         }
 
         var generation = Guid.NewGuid();
-        var variants = ValidateAndFreeze(generation, sanitized);
+        var attempt = new StageAttempt(upload, generation, leaseExpiresAt, sanitized, ValidateAndFreeze(generation, sanitized));
         using var deadline = new CancellationTokenSource(leaseExpiresAt - now, time);
         using var budget = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, deadline.Token);
-        var prepared = false;
-        var writerSettled = true; // No request issued yet; changed before each PUT can reach storage.
-        var committed = false;
         try
         {
-            prepared = await PrepareAsync(upload, generation, leaseExpiresAt, sanitized, variants, budget.Token);
-            if (!prepared)
-            {
-                return await ConfirmedCaseAsync(uploadId, expectedVersion, cancellationToken) is { } winner
-                    ? new ReviewCandidateStageResult.Staged(winner)
-                    : new ReviewCandidateStageResult.LeaseLost();
-            }
-
-            var privateManifest = PrivateGenerationMetadata.Manifest(store, PrivateGenerationArea.Candidate,
-                generation, variants.Select(v => new PrivateGenerationVariant(v.Kind, v.Content.LongLength,
-                    Convert.ToHexStringLower(v.Sha256))));
-            if (privateManifest is not null)
-            {
-                await ((IPrivateGenerationStore)store).RegisterAsync(privateManifest, budget.Token);
-            }
-            foreach (var variant in variants)
-            {
-                budget.Token.ThrowIfCancellationRequested();
-                writerSettled = false;
-                await using var content = new MemoryStream(variant.Content, writable: false);
-                if (privateManifest is not null)
-                {
-                    await ((IPrivateGenerationStore)store).PutVariantAsync(
-                        privateManifest, variant.Kind, content, budget.Token);
-                }
-                else
-                {
-                    await store.PutAsync(variant.Key, content, variant.Content.LongLength,
-                        IPhotoSanitizer.VariantContentType, budget.Token);
-                }
-                writerSettled = true;
-            }
-
-            if (privateManifest is not null)
-            {
-                await ((IPrivateGenerationStore)store).SealAsync(privateManifest, budget.Token);
-            }
-            // No further PUT is issued here, including after a late successful response outlives the budget.
-            await SettleWriterAsync(generation);
-            budget.Token.ThrowIfCancellationRequested();
-            var caseId = await ConfirmAsync(upload, generation, leaseExpiresAt, budget.Token);
-            if (caseId is null)
-            {
-                return new ReviewCandidateStageResult.LeaseLost();
-            }
-
-            committed = true;
-            await DeleteOriginalQuietlyAsync(upload);
-            return new ReviewCandidateStageResult.Staged(caseId.Value);
+            return await RunAttemptAsync(attempt, cancellationToken, budget.Token);
         }
-        catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested && deadline.IsCancellationRequested)
+        catch (OperationCanceledException) when (LeaseDeadlineExpired(deadline, cancellationToken))
         {
             return new ReviewCandidateStageResult.LeaseLost();
         }
         finally
         {
-            if (prepared && !committed)
+            if (attempt.NeedsCleanup)
             {
-                await RetainCleanupAsync(generation, writerSettled);
+                await RetainCleanupAsync(attempt.Generation, attempt.WriterSettled);
             }
         }
     }
+
+    private void EnsureOutsideCallerTransaction()
+    {
+        if (db.Database.CurrentTransaction is not null)
+        {
+            throw new InvalidOperationException("Storage preparation cannot run inside a caller's transaction.");
+        }
+    }
+
+    private bool IsLeaseWindowOpen(long expectedVersion, DateTimeOffset leaseExpiresAt, DateTimeOffset now) =>
+        expectedVersion is >= 1 and < long.MaxValue && leaseExpiresAt > now && leaseExpiresAt <= now + options.LeaseDuration;
+
+    /// <summary>The upload still leased for processing at <paramref name="expectedVersion"/>, holding the detected format.</summary>
+    private async Task<Upload?> FindProcessingUploadAsync(
+        Guid uploadId, long expectedVersion, SanitizeOutcome.Sanitized sanitized, CancellationToken cancellationToken)
+    {
+        var upload = await db.Set<Upload>().AsNoTracking().SingleOrDefaultAsync(row => row.Id == uploadId, cancellationToken);
+        return upload is { State: UploadState.Processing } && upload.Version == expectedVersion
+            && upload.Fingerprint() is { } fingerprint && fingerprint.Format == sanitized.Detected
+                ? upload
+                : null;
+    }
+
+    private async Task<ReviewCandidateStageResult> RunAttemptAsync(
+        StageAttempt attempt, CancellationToken cancellationToken, CancellationToken budgetToken)
+    {
+        attempt.Prepared = await PrepareAsync(
+            attempt.Upload, attempt.Generation, attempt.LeaseExpiresAt, attempt.Sanitized, attempt.Variants, budgetToken);
+        if (!attempt.Prepared)
+        {
+            return await WinnerOrLeaseLostAsync(attempt.Upload, cancellationToken);
+        }
+
+        await WriteVariantsAsync(attempt, budgetToken);
+        // No further PUT is issued here, including after a late successful response outlives the budget.
+        await SettleWriterAsync(attempt.Generation);
+        budgetToken.ThrowIfCancellationRequested();
+        var caseId = await ConfirmAsync(attempt.Upload, attempt.Generation, attempt.LeaseExpiresAt, budgetToken);
+        if (caseId is null)
+        {
+            return new ReviewCandidateStageResult.LeaseLost();
+        }
+
+        attempt.Committed = true;
+        await DeleteOriginalQuietlyAsync(attempt.Upload);
+        return new ReviewCandidateStageResult.Staged(caseId.Value);
+    }
+
+    private async Task<ReviewCandidateStageResult> WinnerOrLeaseLostAsync(Upload upload, CancellationToken cancellationToken)
+    {
+        if (await ConfirmedCaseAsync(upload.Id, upload.Version, cancellationToken) is { } winner)
+        {
+            return new ReviewCandidateStageResult.Staged(winner);
+        }
+
+        return new ReviewCandidateStageResult.LeaseLost();
+    }
+
+    private async Task WriteVariantsAsync(StageAttempt attempt, CancellationToken budgetToken)
+    {
+        var privateManifest = PrivateGenerationMetadata.Manifest(store, PrivateGenerationArea.Candidate,
+            attempt.Generation, attempt.Variants.Select(v => new PrivateGenerationVariant(v.Kind, v.Content.LongLength,
+                Convert.ToHexStringLower(v.Sha256))));
+        if (privateManifest is not null)
+        {
+            await ((IPrivateGenerationStore)store).RegisterAsync(privateManifest, budgetToken);
+        }
+
+        foreach (var variant in attempt.Variants)
+        {
+            budgetToken.ThrowIfCancellationRequested();
+            attempt.WriterSettled = false;
+            await PutVariantAsync(variant, privateManifest, budgetToken);
+            attempt.WriterSettled = true;
+        }
+
+        if (privateManifest is not null)
+        {
+            await ((IPrivateGenerationStore)store).SealAsync(privateManifest, budgetToken);
+        }
+    }
+
+    private async Task PutVariantAsync(Variant variant, PrivateGenerationManifest? privateManifest, CancellationToken budgetToken)
+    {
+        await using var content = new MemoryStream(variant.Content, writable: false);
+        if (privateManifest is not null)
+        {
+            await ((IPrivateGenerationStore)store).PutVariantAsync(privateManifest, variant.Kind, content, budgetToken);
+        }
+        else
+        {
+            await store.PutAsync(variant.Key, content, variant.Content.LongLength,
+                IPhotoSanitizer.VariantContentType, budgetToken);
+        }
+    }
+
+    private static bool LeaseDeadlineExpired(CancellationTokenSource deadline, CancellationToken callerToken) =>
+        !callerToken.IsCancellationRequested && deadline.IsCancellationRequested;
 
     private static Variant[] ValidateAndFreeze(Guid generation, SanitizeOutcome.Sanitized sanitized)
     {

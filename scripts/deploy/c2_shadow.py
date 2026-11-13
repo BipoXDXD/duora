@@ -47,6 +47,8 @@ REPO_ROOT = Path(__file__).resolve().parents[2]
 COMPOSE_FILE = REPO_ROOT / "infra" / "compose" / "compose.prod.yml"
 DRILL_FILE = REPO_ROOT / "scripts" / "backup" / "compose.drill.yml"
 OVERLAY_FILE = REPO_ROOT / "scripts" / "deploy" / "c2" / "compose.c2.yml"
+SELFIE_SEED_FILE = REPO_ROOT / "scripts" / "deploy" / "c2" / "selfie-restore-seed.sql"
+SELFIE_CHECK_FILE = REPO_ROOT / "scripts" / "deploy" / "c2" / "selfie-restore-check.sql"
 BACKUP_SCRIPT = REPO_ROOT / "scripts" / "deploy" / "duora_backup.py"
 HBA_SOURCE = REPO_ROOT / "infra" / "images" / "postgres" / "pg_hba.duora.conf"
 REPO_CONF_SOURCE = REPO_ROOT / "infra" / "images" / "postgres" / "pgbackrest-repo.conf"
@@ -369,6 +371,7 @@ def seed(layout: Layout, accounts: int, run: Runner = default_runner, *, events:
                            events=events, interval_minutes=interval_minutes)
     run([*compose_command(layout), "exec", "--no-TTY", "postgres", "psql", "--username", "postgres", "--dbname",
          "duora", "--quiet"], stdin=sql)
+    _psql_file(run, compose_command(layout), SELFIE_SEED_FILE)
     accounts_file = layout.state / "accounts.json"
     accounts_file.write_text(json.dumps({"schema": "duora.c2-accounts/v1", "domain": ACCOUNT_DOMAIN,
                                          "accounts": [{"email": email, "password": password} for email in emails]},
@@ -406,13 +409,28 @@ def _sql(run: Runner, compose: list[str], statement: str) -> str:
                 "--quiet", "--tuples-only", "--no-align", "--command", statement]).strip()
 
 
+def _psql_file(run: Runner, compose: list[str], script: Path) -> None:
+    run([*compose, "exec", "--no-TTY", "postgres", "psql", "--username", "postgres", "--dbname", "duora", "--quiet",
+         "--set", "ON_ERROR_STOP=1"], stdin=script.read_text(encoding="utf-8"))
+
+
+def _checked_selfie_rows(run: Runner, compose: list[str]) -> int:
+    """Confere a fixture sintética (o psql termina com erro se ela divergir) e devolve o total da tabela."""
+    _psql_file(run, compose, SELFIE_CHECK_FILE)
+    return int(_sql(run, compose, "select count(*) from identity.selfie_verifications"))
+
+
 def restore_rehearsal(layout: Layout, run: Runner = default_runner, clock: Callable[[], float] = time.time,
                       sleep: Callable[[float], None] = time.sleep, *, final_full: bool = True) -> dict[str, float]:
     """Escreve marcadores por 90 s, mata o postgres (perda do host), apaga o volume, restaura até o fim do WAL do
     repositório e mede: RPO = último marcador confirmado - último restaurado; RTO = perda até web/worker de pé.
+    As tentativas de selfie são conferidas antes da perda e depois da promoção, com web e worker ainda parados: a
+    conferência vê o que o restore entregou, antes de qualquer limpeza do worker. Com a selfie desligada no sombra,
+    nada escreve na tabela, então o total restaurado é igual ao de antes.
     `final_full` refaz a cadeia de backup depois do restore; na janela de 3 h o sombra é derrubado em seguida e o
     FULL novo só gastaria tempo, sem entrar no RPO/RTO."""
     compose = compose_command(layout)
+    selfie_rows = _checked_selfie_rows(run, compose)
     last_ack = 0.0
     started = clock()
     while clock() - started < OUTAGE_AFTER_SECONDS:
@@ -433,10 +451,15 @@ def restore_rehearsal(layout: Layout, run: Runner = default_runner, clock: Calla
             raise ShadowError("banco restaurado não saiu de recovery")
         sleep(2)
     restored = float(_sql(run, compose, "select coalesce(extract(epoch from max(at)), 0) from c2.markers"))
+    restored_selfie_rows = _checked_selfie_rows(run, compose)
+    if restored_selfie_rows != selfie_rows:
+        raise ShadowError(f"selfie_verifications: {selfie_rows} linhas antes da perda, {restored_selfie_rows} "
+                          "depois do restore")
     run([*compose, "up", "--detach", "--wait", "web", "worker", "edge"])
     ready_at = clock()
     result = {"last_ack_at": last_ack, "restored_max_at": restored, "outage_at": outage_at, "ready_at": ready_at,
-              "rpo_seconds": round(last_ack - restored, 1), "rto_seconds": round(ready_at - outage_at, 1)}
+              "rpo_seconds": round(last_ack - restored, 1), "rto_seconds": round(ready_at - outage_at, 1),
+              "selfie_rows": restored_selfie_rows}
     (layout.state / "restore-rehearsal.json").write_text(json.dumps(result, indent=2) + "\n", encoding="utf-8")
     if final_full:
         backup(layout, "full", run)
