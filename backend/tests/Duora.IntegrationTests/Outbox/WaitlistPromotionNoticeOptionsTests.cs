@@ -2,7 +2,9 @@ using Duora.Infrastructure.Email;
 
 namespace Duora.IntegrationTests.Outbox;
 
-/// <summary>Regras da opção do consumidor de avisos de promoção (ADR-0056): bordas do lote, intervalo e marca d'água.</summary>
+/// <summary>
+/// Regras da opção do consumidor de avisos de promoção (ADR-0056): bordas do lote, intervalo e marca d'água.
+/// </summary>
 public sealed class WaitlistPromotionNoticeOptionsTests
 {
     [Theory]
