@@ -243,7 +243,12 @@ ou de outros.
 ## Retenção: janela recuperável de 14 dias
 
 Agenda (timers do host, UTC, em horário fixo, sem jitter): **full aos domingos 03:00**, **diferencial de segunda a
-sábado 03:00**, WAL contínuo (`archive_timeout=60`). Retenção no `pgbackrest-repo.conf`:
+sábado 03:00**, WAL contínuo (`archive_timeout=60`). O reinício automático do `unattended-upgrades` fica às **05:40**
+(`duora_unattended_reboot_time`, role `base`), 95 min depois do último timer longo (`verify-repo-full` de quarta e
+`media-check` de quinta, 04:05) e entre dois `verify` de 15 min: o `Persistent=true` não refaz um disparo já contado,
+então um reinício no meio de um timer perderia a execução da semana. `test_automatic_reboot_*` (em
+`scripts/deploy/test_duora_backup.py`) falha se um timer novo ou movido começar a menos de 60 min do reinício.
+Retenção no `pgbackrest-repo.conf`:
 
 - `repo1-retention-full-type=time` + `repo1-retention-full=14`: depois de cada backup o `expire` só remove um full
   se **outro full mais novo já tiver pelo menos 14 dias**;
@@ -500,7 +505,7 @@ com `restic`, para o prefixo `media/` do mesmo bucket B2 com File Lock. A quaren
 | Chave | `duora-media-backup`, presa a `media/`, sem `deleteFiles` ([backblaze-setup.md](backblaze-setup.md#3-chaves)) |
 | Retenção | 14 dias de snapshots (`forget --keep-within 14d --prune`) + 21 dias de lock + 30 dias do lifecycle: uma foto apagada some da VPS na hora e da cópia externa em até ~65 dias |
 | Diário 03:10 UTC | `media-backup`: `restic backup` dos derivados e `forget --prune` |
-| Diário 03:55 UTC | `media-verify`: bucket e chave provados como no verify do banco (prefixo `media/`), snapshot mais novo com no máximo 26 h e `restic check` da estrutura |
+| Diário 03:55 UTC | `media-verify`: bucket e chave provados como no verify do banco (prefixo `media/`), snapshot mais novo com no máximo 24 h 30 min (um dia perdido dá 24 h 45 min e reprova) e `restic check` da estrutura |
 | Semanal (quinta 04:05 UTC) | `media-check`: `restic check --read-data`, baixa e confere todos os pacotes |
 
 Segredos, gravados pelo `duora-secrets write-media-backup-repo` (root, 0400, em `/etc/duora/secrets`):

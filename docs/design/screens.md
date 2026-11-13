@@ -187,8 +187,11 @@ em [system.md](system.md); critérios de acessibilidade, em [accessibility.md](a
 - **Envio incerto:** além de "Repetir o mesmo pedido", há "Desistir", que descarta chave e bytes e avisa para conferir
   a lista antes de enviar de novo (decisão do dono, 06/11/2026).
 - **Regras de fotos:** seção nesta tela, destino de "Consulte as regras", visível só com o gate aberto e para quem
-  envia. Hoje mostra só o marcador "Regras de fotos em preparação."; não há texto de regra. A redação precisa de
-  aprovação do dono **antes de ligar o upload** (#69).
+  envia. Lista os critérios de P173-1 (ADR-0035): a foto é apresentada como do titular ("A foto deve ser sua.", sem
+  sugerir verificação de identidade, que o ADR nega), sem outras pessoas identificáveis, nudez ou conteúdo sexual
+  explícito, violência gráfica, ódio ou dados de contato à mostra. Não cita revisão humana, por extensão de P4
+  (ADR-0035), que trata só da política de privacidade. A redação precisa de aprovação do dono **antes de ligar o
+  upload** (#69).
 - **Foco:** quando o controle focado some, o foco vai ao painel da exclusão, ao título "Suas fotos" ou ao aviso de
   indisponível.
 - **Saída da página:** com envio em curso ou resultado incerto, o navegador pede confirmação (`beforeunload`).
@@ -227,9 +230,13 @@ em [system.md](system.md); critérios de acessibilidade, em [accessibility.md](a
   "Ir para a sala de espera"); secundária "Cancelar inscrição" quando inscrito.
 - **Cancelar inscrição / Sair da lista (API-E04):** só antes do início, como o servidor. Confirmação em duas etapas
   na própria tela: o foco vai para o aviso "Depois de sair, você não poderá se inscrever de novo neste encontro."
-  (decisão 10 de 24/10/2026), que descreve o botão "Confirmar saída" (`aria-describedby`); "Manter inscrição" desiste
-  e devolve o foco ao botão. Depois da retirada, o foco vai para "Você saiu deste encontro." e somem inscrição e
-  check-in. A tela não promete aviso à pessoa promovida da espera (#320). Hoje vive na lista de eventos
+  (decisão 10 de 24/10/2026), que descreve o botão destrutivo "Sim, cancelar inscrição" ("Sim, sair da lista" na
+  espera) (`aria-describedby`). A ação segura vem primeiro: "Manter inscrição" ("Continuar na lista" na espera) desiste
+  e devolve o foco ao botão. Se o encontro começa com a confirmação aberta, ou o servidor recusa com 404 (no limite do
+  horário, com o evento fora de `Published` ou com a inscrição em outro estado), ela fecha e o foco vai para o aviso
+  neutro "Não é mais possível cancelar a inscrição.", que não afirma o motivo. Depois da
+  retirada, o foco vai para "Você saiu deste encontro." e somem inscrição e check-in. A tela
+  não promete aviso à pessoa promovida da espera (#320). Hoje vive na lista de eventos
   (`EventsPage`), não num detalhe do evento.
 
 ```text
@@ -461,6 +468,35 @@ bloqueio pede confirmação própria com a primária destrutiva "Bloquear pessoa
 | Prazo encerrado | "A janela de decisão terminou." — nunca "não houve interesse" (spec 4.3) |
 | Conexão formada | "Vocês dois têm interesse. A conversa está em Conversas." + "Abrir conversa"; alteração dá lugar a "Encerrar conexão" em Conversas |
 | `loading` / `error` / `offline` | Conforme as convenções; `error` preserva a escolha não salva na tela |
+
+## Foto da outra pessoa (proposta)
+
+> **Proposta pendente de aceite do [ADR-0050](../architecture/adr/0050-foto-de-perfil-para-outra-pessoa-api-p04.md),
+> rascunho da #370.** O ADR continua `Proposed`: nada desta seção é requisito de implementação, não autoriza rota,
+> migração, flag nem upload (#69) e pode mudar ou sair no aceite. Vale como texto a emendar se o dono aceitar o
+> contrato e a migração, o risco residual R e a cobertura da política de privacidade (conflito 3 do ADR).
+
+- **Propósito:** mostrar à pessoa pareada a foto de perfil escolhida pela outra, só no contexto que autoriza a
+  leitura (D1 e D2 do ADR, escolhas do dono de 06/11/2026).
+- **Onde aparece:** na [Experiência](#experiência-rotas-improváveis), com a sala `Active`, ao lado do nome de
+  exibição da outra pessoa no cabeçalho do chat; e na [Decisão privada](#decisão-privada), acima da pergunta,
+  enquanto a janela de 24 h da sala `Completed` estiver aberta. Em nenhum outro lugar: sem diretório, lista de
+  eventos, sala de espera ou convite. Conexão é acréscimo futuro, quando o módulo Connections existir.
+- **Conteúdo:** a foto na posição 1 do perfil da outra pessoa (até 6 escolhidas por ela, D5), em contêiner de
+  tamanho fixo, com `alt` "Foto de perfil de Bia". Sem faixa etária e sem rótulo "18+" (D3). Sem idade, região ou
+  qualquer campo além do que a projeção do P04 permitir.
+- **Ações:** nenhuma. Sem baixar, ampliar em nova aba, copiar endereço ou "ver todas"; o menu "Denunciar" da sala
+  continua o caminho para foto imprópria.
+- **Regras:** a tela não guarda a imagem (resposta `no-store`, TM-25) e relê a cada abertura. Quando a leitura
+  deixa de ser autorizada (bloqueio, exclusão ou rejeição da foto, fim da janela), a foto some na próxima leitura.
+
+| Estado | Apresentação |
+|---|---|
+| Com foto | A imagem no contêiner fixo, com o `alt` |
+| Sem foto | Iniciais do nome de exibição no mesmo contêiner, sem texto que explique a ausência |
+| Recusada (404) | Igual a "Sem foto": a tela não distingue sem relação, bloqueio, foto excluída ou fim da janela (TM-24) |
+| `loading` | Contêiner em skeleton; o resto da tela não espera a foto |
+| `error` / `offline` | Iniciais, sem mensagem própria; a sala ou a decisão seguem funcionando sem a foto |
 
 ## Conversas
 
