@@ -79,6 +79,57 @@ public sealed class ConfirmationAbuseTests(PostgresFixture postgres)
         }
     }
 
+    [Theory]
+    [InlineData(false, 4, true)]
+    [InlineData(false, 5, false)]
+    [InlineData(true, 4, true)]
+    [InlineData(true, 5, false)]
+    public async Task TheFifthWrongProofKillsTheLinkAndTheFourthDoesNot(bool wrongCode, int failures, bool linkSurvives)
+    {
+        await using var factory = new DuoraWebFactory(postgres.ConnectionString);
+        var scenario = new IdentityScenario(postgres, factory);
+        var email = IdentityScenario.NewEmail();
+        using var browser = new Browser(factory);
+        using var registration = await IdentityScenario.RegisterAsync(browser, email, OwnerPassword);
+        var link = await scenario.ReadLatestLinkAsync(email, "EmailConfirmation");
+        const string StampSql = "select security_stamp from identity.users where id = $1";
+        var stampBefore = await scenario.ScalarTextAsync(StampSql, link.UserId);
+        var invalidCode = link.Token == "00000000" ? "00000001" : "00000000";
+
+        for (var i = 0; i < failures; i++)
+        {
+            using var wrong = await browser.PostJsonAsync("/api/v1/auth/confirm-email", new
+            {
+                userId = link.UserId,
+                token = wrongCode ? invalidCode : link.Token,
+                password = wrongCode ? OwnerPassword : $"palpite errado {i}",
+            });
+            await ProblemAssert.IsProblemAsync(wrong, HttpStatusCode.BadRequest, "INVALID_TOKEN");
+        }
+
+        var failuresRecorded = await scenario.ScalarAsync(
+            "select access_failed_count from identity.users where id = $1", link.UserId);
+        var stampAfter = await scenario.ScalarTextAsync(StampSql, link.UserId);
+        using var correct = await ConfirmAsync(browser, link, OwnerPassword);
+
+        if (linkSurvives)
+        {
+            Assert.Equal(failures, failuresRecorded);
+            Assert.Equal(stampBefore, stampAfter);
+            Assert.Equal(HttpStatusCode.NoContent, correct.StatusCode);
+            Assert.Equal(1, await scenario.ScalarAsync(
+                "select count(*) from identity.users where id = $1 and email_confirmed", link.UserId));
+        }
+        else
+        {
+            Assert.Equal(0, failuresRecorded);
+            Assert.NotEqual(stampBefore, stampAfter);
+            await ProblemAssert.IsProblemAsync(correct, HttpStatusCode.BadRequest, "INVALID_TOKEN");
+            Assert.Equal(0, await scenario.ScalarAsync(
+                "select count(*) from identity.users where id = $1 and email_confirmed", link.UserId));
+        }
+    }
+
     [Fact]
     public async Task ConfirmationLosingARaceWithARegistrationIsAnInvalidTokenNotAServerError()
     {
