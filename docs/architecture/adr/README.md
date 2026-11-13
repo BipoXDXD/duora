@@ -64,6 +64,7 @@ da spec. A partir do 0016, os ADRs resolvem lacunas encontradas na spec.
 | [0053](0053-retirada-voluntaria-da-inscricao.md) | Retirada voluntária da inscrição (API-E04) com histórico, ampliando `ck_registrations_withdrawal` | Proposed | Retirada com evento em andamento, nova origem de retirada ou aviso de promoção (#320) |
 | [0054](0054-acao-depois-do-prazo-de-jogo-responde-404.md) | Ação nova depois do prazo de jogo responde `404`, igual à sala `Expired`, antes e depois do job; sala `Completed` incluída depois do prazo pela emenda do #463 | Accepted (2026-11-10); emendado (#463) | Sala `Expired` deixar de responder `404` nas rotas de ação, ou o replay idempotente mudar de regra |
 | [0055](0055-teto-curto-e-hash-sempre-no-cadastro.md) | Teto curto de trava (`Identity:RegistrationLockTimeout`, 5 ms) e os dois hashes em todo caminho do cadastro, contra o canal de tempo (TM-06, #466) | Accepted (2026-11-12), aceito pelo dono em 12/11; proposto pela coordenação, 10/11: (iv-a) | Desistências frequentes no log, segunda réplica web, mudança no cadastro pelo Google ou resíduo acima do ruído em produção |
+| [0056](0056-avisos-de-promocao-da-lista-de-espera.md) | Avisos de promoção da lista de espera pela outbox de e-mail, desligados por padrão, com marca d'água, revalidação e marca única por fato (#320) | Proposed (2026-11-13) | Aprovação de canal e textos, preferências de notificação, fato v2 ou volume que peça outro lote |
 
 ## Regras
 
