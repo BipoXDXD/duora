@@ -14,6 +14,7 @@ public sealed partial class ParticipationService
 {
     private static readonly JsonSerializerOptions Json = new(JsonSerializerDefaults.Web);
     private ExperienceEngine<ConstellationContent, ConstellationState, ConstellationAction, ConstellationView> Engine => new(new ConstellationRules(), new PreciseClock(time));
+    private static ExperienceEngine<ConstellationContent, ConstellationState, ConstellationAction, ConstellationView> EngineAt(DateTimeOffset now) => new(new ConstellationRules(), new FrozenClock(now));
     private sealed record RoomRow(Guid Id, Guid PairingId, Guid RoundId, Guid EventId, Guid Low, Guid High,
         Guid ContentId, string State, long Version, DateTimeOffset Expires, DateTimeOffset RoundStart,
         string Language, int Policy, string Locale, string? Public, string? Control, string Kind, DateTimeOffset? StartedAt, DateTimeOffset? Deadline);
@@ -220,9 +221,9 @@ public sealed partial class ParticipationService
             return ParticipationOutcome.Conflict;
         }
 
-        // Ação nova depois do prazo recebe a mesma 404 da sala expirada, antes e depois do job. Replay e actionId reutilizado
-        // são decididos acima pelo motor, como antes do prazo: na sala Active, até o job expirá-la; na sala Completed, para
-        // sempre, porque o job não muda a sala.
+        // Ação nova depois do prazo recebe a mesma 404 da sala expirada, antes e depois do job. Replay e actionId
+        // reutilizado são decididos acima pelo motor, como antes do prazo: na sala Active, até o job expirá-la; na sala
+        // Completed, para sempre, porque o job não muda a sala.
         if (IsAtOrAfterTheDeadline(result, session.Schedule))
         {
             return ParticipationOutcome.Unavailable;
@@ -246,15 +247,17 @@ public sealed partial class ParticipationService
 
     /// <summary>
     /// O motor checa o fim da sessão antes do prazo: numa sala <c>Completed</c>, a ação nova depois do prazo chega como
-    /// <c>SessionFinished</c>, e recebe a mesma 404 da sala ainda <c>Active</c> (#463, ADR-0054). Quem chama já tratou o
-    /// replay e o <c>actionId</c> reutilizado (<c>AlreadyApplied</c> e <c>ActionIdReused</c> vêm antes no motor), então aqui
-    /// só chega ação nova.
+    /// <c>SessionFinished</c>, e recebe a mesma 404 da sala ainda <c>Active</c> (#463, ADR-0054). Quem chama já tratou
+    /// o replay e o <c>actionId</c> reutilizado (<c>AlreadyApplied</c> e <c>ActionIdReused</c> vêm antes no motor),
+    /// então aqui só chega ação nova.
     /// </summary>
-    private bool IsAtOrAfterTheDeadline<TState, TAction>(ActionValidation<TState, TAction> result, GameSchedule schedule)
+    private bool IsAtOrAfterTheDeadline<TState, TAction>(
+        ActionValidation<TState, TAction> result, GameSchedule schedule)
         where TState : class
         where TAction : class, IGameAction =>
         result is ActionValidation<TState, TAction>.Rejected { Reason: RejectionReason.DeadlineReached }
-        || (result is ActionValidation<TState, TAction>.Rejected { Reason: RejectionReason.SessionFinished } && schedule.IsDue(Now));
+        || (result is ActionValidation<TState, TAction>.Rejected { Reason: RejectionReason.SessionFinished }
+            && schedule.IsDue(Now));
 
     public async Task<ParticipationOutcome> ExitAsync(Guid room, Guid user, CancellationToken ct)
     {

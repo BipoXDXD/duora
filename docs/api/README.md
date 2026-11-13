@@ -228,6 +228,15 @@ segue a regra de replay acima (`204` ou `400`); depois, `404`. Na sala `Complete
 reenvio segue a regra de replay (`204` sem gravar de novo, ou `400` com outro corpo) mesmo depois do prazo e do job. Só
 o autor vê isso, e só sobre a própria ação.
 
+Status declarados no OpenAPI: `actions` e `routes-actions` listam `204`, `400`, `401`, `403`, `404`, `409` e
+`503`; `exit`, `accept`, `reject`, `PUT` e `DELETE /events/{eventId}/registration` e
+`POST /events/{eventId}/check-in` listam `204`, `401`, `403`, `404` e `503` (sem corpo nem versão, não têm `400` nem
+`409`). O `503` `TEMPORARILY_UNAVAILABLE` com `Retry-After` vem da contenção de lock (ou, na inscrição, na
+desistência e no check-in, do teto de retentativas quando o plano de locks muda). Antes, as rotas de sala, o
+`PUT` da inscrição e o check-in declaravam só `401` e `403`, e o `DELETE /events/{eventId}/registration`
+declarava `204`, `401`, `403` e `404`; acrescentar respostas é mudança aditiva, sem breaking change no
+`oasdiff`.
+
 ## Idioma do documento aceito (issue #103)
 
 API-A02 (`POST /api/v1/auth/register`) aceita `acceptedTermsLocale` e `acceptedPrivacyLocale`,

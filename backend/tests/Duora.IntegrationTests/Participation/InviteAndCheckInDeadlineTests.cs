@@ -5,13 +5,13 @@ using Duora.IntegrationTests.Identity;
 using Microsoft.Extensions.Time.Testing;
 using Npgsql;
 using static Duora.Infrastructure.Participation.ParticipationSql;
+using static Duora.IntegrationTests.TestTime;
 
 namespace Duora.IntegrationTests.Participation;
 
 /// <summary>Os prazos de API-R01 e API-E05 pelo HTTP e pelo PostgreSQL reais, com relógio falso.</summary>
 public sealed class InviteAndCheckInDeadlineTests(PostgresFixture postgres)
 {
-    private static readonly TimeSpan OneTick = TimeSpan.FromTicks(1);
     private static readonly TimeSpan CheckInWindow = TimeSpan.FromMinutes(10);
 
     [Fact]
@@ -189,6 +189,67 @@ public sealed class InviteAndCheckInDeadlineTests(PostgresFixture postgres)
         Assert.True(await scene.Service.CompleteJobAsync(onTime, ct));
         Assert.NotNull((await scene.Service.StatusAsync(eventId, scene.Seed.Alice, ct))!.RoomId);
         Assert.Equal(("Done", 1, starts), await ReadJobAsync(scene, "build-round", round, ct));
+    }
+
+    /// <summary>
+    /// O relógio do processo recua para antes do prazo logo depois da leitura que decide concluir o <c>expire-invite</c>.
+    /// A conclusão usa o instante dessa decisão: expira o convite em vez de virar <c>Done</c> sem efeito.
+    /// </summary>
+    [Fact]
+    public async Task AnExpireInviteJobDecidedAtTheDeadlineExpiresTheRoomEvenIfTheClockRewindsBeforeItDuringCompletion()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        await using var scene = await SceneAsync(ct);
+        var room = await InvitedRoomAsync(scene, ct);
+        var deadline = await ReadInviteDeadlineAsync(scene, room, ct);
+
+        scene.Clock.SetUtcNow(deadline);
+        await PostponeOtherPendingJobsAsync(scene, room, ct);
+        var job = await ClaimTheExpireInviteJobAsync(scene, ct);
+        var rewinding = new ParticipationService(scene.Source, new RewindingClock(scene.Clock, deadline - OneTick));
+
+        Assert.True(await rewinding.CompleteJobAsync(job, ct));
+
+        Assert.Equal(new RoomFacts("Expired", AliceAccepted: false, BobAccepted: false, ActiveReservations: 0, HasGame: false, GameDeadlineJobs: 0),
+            await ReadRoomFactsAsync(scene, room, ct));
+        Assert.Equal(("Done", 1, deadline), await ReadExpireInviteJobAsync(scene, room, ct));
+        Assert.Equal(deadline, await JobRows.CompletedAtAsync(scene.Source, "expire-invite", room, ct));
+    }
+
+    /// <summary>
+    /// O relógio do processo recua para antes do início logo depois da leitura que decide concluir o <c>build-round</c>.
+    /// A conclusão usa o instante dessa decisão: forma os pares em vez de virar <c>Done</c> sem efeito.
+    /// </summary>
+    [Fact]
+    public async Task ABuildRoundJobDecidedAtTheStartPairsEvenIfTheClockRewindsBeforeItDuringCompletion()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        await using var scene = await SceneAsync(ct);
+        var eventId = scene.Seed.Events[0];
+        var round = scene.Seed.Rounds[0];
+        foreach (var user in new[] { scene.Seed.Alice, scene.Seed.Bob })
+        {
+            Assert.Equal(ParticipationOutcome.Done, await scene.Service.RegisterAsync(eventId, user, false, ct));
+            Assert.Equal(ParticipationOutcome.Done, await scene.Service.RegisterAsync(eventId, user, true, ct));
+        }
+
+        var starts = await ReadInstantAsync(scene, "select starts_at from events.rounds where id=$1", round, ct);
+        scene.Clock.SetUtcNow(starts);
+        await using (var connection = await scene.Source.OpenConnectionAsync(ct))
+        {
+            await Execute(connection, "update ops.jobs set available_at=$2+interval '10 years' where status='Pending' and not (kind='build-round' and aggregate_id=$1)", ct, round, scene.Clock.GetUtcNow());
+        }
+
+        var job = await scene.Service.ClaimJobAsync(ct);
+        Assert.NotNull(job);
+        Assert.Equal(("build-round", round), (job.Kind, job.AggregateId));
+        var rewinding = new ParticipationService(scene.Source, new RewindingClock(scene.Clock, starts - OneTick));
+
+        Assert.True(await rewinding.CompleteJobAsync(job, ct));
+
+        Assert.NotNull((await scene.Service.StatusAsync(eventId, scene.Seed.Alice, ct))!.RoomId);
+        Assert.Equal(("Done", 1, starts), await ReadJobAsync(scene, "build-round", round, ct));
+        Assert.Equal(starts, await JobRows.CompletedAtAsync(scene.Source, "build-round", round, ct));
     }
 
     [Fact]
