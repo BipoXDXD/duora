@@ -78,6 +78,9 @@ projeto sombra e do restic) e grava o motivo. CPU > 85% por 5 min e throttling >
 - Repositório do pgBackRest no MinIO local e restic num repositório local: o upload ao B2 (rede) não é medido; CPU,
   memória e I/O de leitura/compressão/cifra são. O restic roda na slice transitória `duora-c2-media.slice`, com os
   mesmos limites da `duora-media.slice`, para não dividir o teto com o restic da produção.
+- MinIO (`s3`) com teto de 768 MiB e 0,5 CPU no overlay (`compose.c2.yml`), ausente nas janelas anteriores. Como ele é
+  o repositório do pgBackRest, pode alongar FULL, DIFF, archive e restore: ao comparar com janelas anteriores, tratar
+  diferença de tempo nessas fases como possível efeito do teto, não como regressão do Postgres.
 - TLS interno do Caddy e carga pelo túnel SSH (o `sshd` da VPS entra na conta). A latência inclui o RTT do túnel;
   o relatório traz `rtt_floor_ms` (menor `GET /auth/csrf`) para separar aproximadamente app de rede.
 - Dataset: 1.000 contas e 48 eventos sintéticos (um a cada 15 min). As 100.000 mensagens do protocolo não existem
@@ -163,3 +166,134 @@ Reportar na #86: commit, digests da release, `c1-before`/`c1-after` sanitizados,
 
 Mensagens/SignalR (não existem), saturação acima de 100 e reinício de processos durante carga (capacity.md exige
 host isolado), upload real ao B2, corpus18 do sanitizador e a qualificação do Worker/launcher da #174.
+
+## Ensaio da troca de digest do PostgreSQL
+
+`c2_shadow.py swap-rehearsal` responde só duas perguntas: quanto dura, com volume de dados, parar e recriar o PostgreSQL no
+digest alvo e voltar ao de origem, e se a imagem puxa do GHCR a partir da VPS. **Nada aqui é resultado medido.** Executar
+só em janela autorizada pelo responsável, com `prepare` e `up` feitos como no roteiro acima.
+
+```sh
+cd /opt/duora-c2/src
+sudo systemd-run --unit=duora-c2-swap --collect --service-type=exec --working-directory="$PWD" \
+  --property=KillMode=mixed --property=TimeoutStopSec=900 \
+  python3 scripts/deploy/c2_shadow.py swap-rehearsal \
+  --target ghcr.io/bipoxdxd/duora-postgres@sha256:cd9e980845df574a23e9d92accc18c88cbcdabd8110537336f848fa9d4554cb6 \
+  --fill-mib 256
+sudo journalctl --unit=duora-c2-swap --follow
+sudo systemctl stop duora-c2-swap                       # interrompe e volta sozinho à origem
+
+# só se o processo tiver morrido sem voltar
+sudo systemd-run --unit=duora-c2-swap-abort --collect --service-type=exec --working-directory="$PWD" \
+  --property=KillMode=mixed --property=TimeoutStopSec=900 \
+  python3 scripts/deploy/c2_shadow.py swap-abort
+sudo journalctl --unit=duora-c2-swap-abort --follow
+
+sudo python3 scripts/deploy/c2_shadow.py down           # ao fim da janela, depois de copiar as evidências
+```
+
+O `systemd-run` desliga o ensaio e o abort da sessão SSH: uma queda do túnel não interrompe a troca nem a volta, e por isso o
+abort também vai por ele. Sem ele, um terminal morto só perde o log, e o resultado segue nos JSON de `state/`. O digest alvo é o amd64 da
+imagem construída na run 43372869832 do GitHub Actions. O `TimeoutStopSec` dá 15 min para a volta depois de um `stop`.
+
+Em ordem: pull do alvo, dados sintéticos em `c2.swap_ballast`, espera do arquivamento, parada de worker e web, foto e
+`pgbackrest check`. Depois recria com o alvo, confere digest, foto, volume e `check`, repete de volta para o digest de origem
+e religa a aplicação. A foto junta `SWAP_PHOTO_SQL` e `SWAP_COMPATIBILITY_SQL`, as mesmas consultas do executor, com a contagem
+e o md5 do lastro; ela aceita mudança de versão menor, mas não de major, catálogo, colação ou conteúdo. O resultado fica em
+`/var/lib/duora-c2/state/swap-rehearsal.json`.
+
+**O que cada tempo mede.** Nenhum deles é a indisponibilidade da produção.
+
+| Campo | Mede | Não inclui |
+| --- | --- | --- |
+| `databaseDownSeconds` (em `forward` e `back`) | Do pedido de parada do postgres ao fim do `up --wait`, com a parada e a subida do backup e a espera do healthcheck | Parada da aplicação, conferências, `verify` e reabertura |
+| `stopApplicationSeconds` | Parada de worker e web | |
+| `reopenApplicationSeconds` | Subida de web, worker e edge até o healthcheck | |
+| `applicationDownSeconds` | Da parada de web e worker à reabertura, com **ida e volta** e conferências | A espera e o `verify` da operação real |
+
+Para estimar a queda de uma troca só, some `stopApplicationSeconds`, os tempos de `forward` e
+`reopenApplicationSeconds`. O WAL do fast shutdown vai ao MinIO local, não ao B2, e o volume de buffers sujos depende do tempo
+de arquivamento; um `stopPostgresSeconds` perto de 60 s sugere SIGKILL, e não parada limpa.
+
+**Falhas.** Até a primeira parada, uma falha deixa o sombra de pé na origem, com `aborted` e o erro no JSON; o que ficou de
+lastro é trocado pelo próximo preenchimento. Depois dela, um erro, `OSError`, SIGHUP, SIGTERM ou SIGINT volta ao digest de
+origem no mesmo volume, com os sinais blindados durante a volta. O SIGKILL não volta: use `swap-abort`, que recria, confere
+digest, foto (se houver `state/swap-baseline.json`) e `check`, só então religa a aplicação e registra tudo em
+`state/swap-abort.json`. Se a conferência falhar, a aplicação fica parada de propósito. Repetir o ensaio fora da origem é
+recusado com o pedido de `swap-abort`. Nunca há `down` nem remoção de volume no ensaio.
+
+**Guardas, antes de qualquer efeito.** Só o digest alvo revisado no código, só com o sombra no digest de origem (`d32f8c44`),
+projeto validado por `c2_probe.validate_project`, raiz com nome `duora-c2`. O `docker compose config` precisa resolver para o
+projeto e o volume do sombra, com a imagem de origem em postgres e backup, todo bind mount e todo segredo dentro da raiz e toda
+porta em loopback. Os containers precisam estar de fato na origem, conferidos pelo id da imagem. Os comandos rodam com ambiente
+mínimo, sem herdar `DUORA_*`, `DOCKER_HOST`, `DOCKER_CONTEXT` nem `COMPOSE_*` do root, e um lock em `/var/lib/.duora-c2.lock`,
+ao lado da raiz para o `down` não depender de `state/`, faz os subcomandos se excluírem. O comando não usa o executor, o receiver, `/etc/duora` nem `/var/lib/duora`.
+
+**Guarda de recursos.** O início exige ao menos 1 GiB de `MemAvailable` e uso de disco abaixo de 85% contando a reserva, com o
+`DockerRootDir` no mesmo filesystem da raiz. A mesma conta se repete entre lotes, a cada 10 s da espera do arquivamento e antes de
+cada sentido, com piso de 512 MiB. Antes da primeira parada, ela para sem parar serviços. Depois, volta à origem. A volta em si
+não passa pelo guarda, de propósito: parar no meio dela seria pior que terminar.
+
+| Parada | Regra |
+| --- | --- |
+| Sonda `ready` | `docker exec duora-edge-1 wget --quiet --spider --timeout=5 http://duora-web:8080/health/ready`, a sonda do deploy. A linha de base é a mediana de 5 leituras no preflight, e falha nelas recusa. Para com 2 leituras ruins seguidas, sejam falha ou acima de `max(3 × base, base + 500 ms)` |
+| CPU do host | Delta de `/proc/stat` desde a leitura anterior: para se idle + iowait ficar abaixo de 10% |
+| Por container | `cpu.pressure` de todo container fora do sombra, em `/sys/fs/cgroup/system.slice/docker-<id>.scope`, só leitura, com teto 40 do `OTHER_APPS_PSI`, exceto o painel do Coolify: nome exatamente `coolify` e dono `coolify` em `capacity_inventory.classify_container`. `coolify-proxy` (Traefik de todos os sites), `coolify-realtime`, `coolify-db` e os apps que o Coolify implanta continuam protegidos. Entre a ida e a volta, o estouro só é registrado (ver abaixo) |
+| Containers do início | Todo container visto no preflight, mais web, worker e postgres, vira obrigatório. Sem ele, sem o cgroup ou com arquivo ilegível, para. `docker ps` tem 10 s de timeout |
+| OOM | Qualquer aumento de `oom_kill` em `/proc/vmstat` |
+| Memória e IO | PSI `some avg10` acima de 40 |
+
+O sombra fica fora da leitura por container, porque o preenchimento o pressiona de propósito. O JSON registra `readyBaselineMs`,
+`readyMaxMs`, `cpuIdleMinPercent`, `containerCpuPressureMax`, `hostCpuPressureMax` e `containerCpuPressureOverflowsBetweenDirections`.
+
+**Entre a ida e a volta, PSI por container só registra.** No guarda que roda depois da ida e antes da volta, um container acima de
+40 entra na lista `containerCpuPressureOverflowsBetweenDirections` do JSON (nome e valor) e numa linha do log, mas não para o
+ensaio: abortar ali faria a mesma volta, sem segurança a mais, e perderia a medição. Os demais guardas desse ponto continuam
+parando (memória, disco, PSI de memória e IO, idle, `ready`, OOM, container ilegível ou ausente). Antes da ida, o estouro por
+container continua abortando.
+
+**PSI de CPU global não decide.** No ensaio de 06/11 às 16:13 UTC, ele foi a 71,79 por causa de cgroups do OpenClaw presos na
+própria cota, com a CPU 91% ociosa, enquanto `duora-web-1` marcava no máximo 0,83 e o `ready` respondia em 10 ms. Medido localmente,
+um único cgroup preso levou o global a 92,79 com o alvo em 0,00, então nenhum teto alto serve de rede: quem cumpre esse papel é o
+idle de CPU, que também vale para o que não é container (sshd, receiver, gateway).
+
+**O teto por container não basta.** A revisão adversarial mediu um alvo leve com p99 22 vezes maior, PSI do alvo em 22,54 e global
+em 46,86, sem o guarda parar. A sonda `ready` entrou por isso. A medição abaixo foi feita antes dela, em Docker Desktop, kernel
+`7.0.14-linuxkit`, 10 CPUs e cgroup v2, com a versão anterior do guarda lendo arquivos reais, por 40 s cada:
+
+| Cenário | `cpu.pressure` do alvo | PSI de CPU global | Por container |
+| --- | --- | --- | --- |
+| Alvo com `--cpus 0.1` e 4 loops | 31,81 a 95,12 | 37,75 a 94,31 | Para aos 10 s, em 59,42 |
+| Outro cgroup com `--cpus 0.1` e 4 loops, alvo leve | 0,00 | 61,86 a 92,79 | Não dispara |
+| Outro cgroup sem cota com 30 loops, alvo leve | 0,00 a 0,35 | 57,47 a 83,41 | Não dispara |
+| Outro cgroup sem cota com 30 loops, alvo com 4 loops | 2,18 a 9,68 | 45,47 a 65,79 | Não dispara |
+
+**Limites do guarda.** A sonda é uma requisição por leitura e o piso é de 500 ms sobre a base: uma piora abaixo disso, ou que afete
+só parte das requisições, não para o ensaio. Ela cobre só o `duora-web-1`. Durante cada sentido da troca não há leitura, e o
+intervalo entre leituras no preenchimento é o tempo de um lote. Um container efêmero visto no preflight que termine depois para o
+ensaio. As sondas externas dos apps vizinhos continuam com o operador. É uma medição de Docker Desktop, não da VPS de 2 vCPU.
+
+O preenchimento roda com `--cpus 0.5` e `--cpu-shares 256`, com um intervalo de 1 s entre lotes, e devolve os limites definidos no
+Compose ao terminar. O MinIO tem teto de 768 MiB e meia CPU no overlay.
+
+**Dados.** O banco sombra nasce pequeno, e copiar a produção é proibido. `--fill-mib` grava dados sintéticos sem compressão
+até 2048 MiB, em lotes de 64 MiB, reservando três vezes esse tamanho mais 4 GiB, e troca o lastro de um ensaio anterior. O
+resultado traz o tamanho real em `databaseSizeMib`. O recomendado é `--fill-mib 256`: em 06/11 a produção tinha 117 MB em
+`/var/lib/postgresql`.
+
+**Reserva (estimativa, não medida).** Fora o `prepare` e o `up`, de 10 a 15 min: pull de 1 a 3, preenchimento de 256 MiB de 1 a
+2, arquivamento até 10 no pior caso, cada sentido de 1 a 2, e `down`. Reserve 45 min. Com a CPU reduzida, o preenchimento pode
+passar disso. Para fazer também o `restore-rehearsal` na mesma janela, rode um `full` antes dele: o ensaio da troca não grava
+backup.
+
+**Memória e disco.** Os limites do sombra somam 5,1 GiB (postgres 2 GiB, web 1,5, worker 1, backup 0,5, edge 0,1), mais 0,75 do
+MinIO. Worker e web ficam parados durante a troca, com uso esperado de 2 a 3 GiB, mas o pico é no preenchimento, com tudo de pé.
+Disco: 4,8 GiB reservados para `--fill-mib 256`, com a imagem alvo, de que boa parte das camadas já está no host. Vale a regra de um comando
+pesado por vez da janela. Os demais guardas da janela C2 (por exemplo os alertas externos) continuam sendo acompanhados pelo
+responsável: este comando só aplica os de memória, disco e PSI listados acima.
+
+**O que não prova.** O protocolo do executor (journal, fence, commit, ressela e `--resume`), que o laboratório cobre; o
+receiver, Coolify e observer; o B2, porque o repositório é o MinIO local; a aplicação rodando no digest alvo, já que web e
+worker ficam parados entre os dois sentidos; o `docker load` do receiver sobre a imagem puxada; o cron de prune. O dado é
+sintético e sem carga: a parada mede o checkpoint desse volume, não o da produção sob tráfego. O PITR atravessando a troca
+também não, que é do `restore_drill.py`.

@@ -1,11 +1,11 @@
 {
   "schema": 1,
-  "runUrl": "https://github.com/BipoXDXD/duora/actions/runs/42073873377",
-  "candidateCommit": "a45f0c80",
-  "proofRetainedUntil": "2027-02-03",
+  "runUrl": "https://github.com/BipoXDXD/duora/actions/runs/43372869832",
+  "candidateCommit": "a7c1f9f1",
+  "proofRetainedUntil": "2027-02-11",
   "images": {
-    "amd64": "ghcr.io/bipoxdxd/duora-postgres@sha256:b5103bfd8ac7832915eed8170ffd0bcb94d9bca834cbd659114fa25606f0434e",
-    "arm64": "ghcr.io/bipoxdxd/duora-postgres@sha256:fa94a32e8c70257f67505bad12a9da878a4df7f33cd52ba9e6319a4c91025d4f"
+    "amd64": "ghcr.io/bipoxdxd/duora-postgres@sha256:cd9e980845df574a23e9d92accc18c88cbcdabd8110537336f848fa9d4554cb6",
+    "arm64": "ghcr.io/bipoxdxd/duora-postgres@sha256:40c9c2e3ab84854d00de9f1c9f90630b3c42fe416bbeef8b8b31400f8ee23a01"
   },
   "origin": {
     "amd64": "ghcr.io/bipoxdxd/duora-postgres@sha256:d32f8c4408e804bf8b57583c6fdfb8935380e6326bcc7ccb7397b1f386ada06c",
