@@ -14,6 +14,8 @@ import yaml
 import duora_deploy as deploy
 
 ROOT = Path(__file__).resolve().parents[2]
+# PATH fixo que run_command entrega ao docker, para o shell não injetar outro binário.
+DOCKER_COMMAND_PATH = "/usr/bin:/bin"
 
 
 class ProductionMediaComposeTests(unittest.TestCase):
@@ -102,10 +104,13 @@ class ProductionMediaComposeTests(unittest.TestCase):
                        "COMPOSE_ENV_FILES": "override.env"}
         with patch.dict(os.environ, environment, clear=True), patch.object(subprocess, "run") as run:
             deploy.run_command(["docker", "compose", "config"])
-            self.assertEqual({"PATH": "/usr/bin:/bin", "LC_ALL": "C"}, run.call_args.kwargs["env"])
+            self.assertEqual({"PATH": DOCKER_COMMAND_PATH, "LC_ALL": "C"}, run.call_args.kwargs["env"])
 
 
-@unittest.skipUnless(shutil.which("docker"), "Docker Compose não instalado")
+# Procura o docker no mesmo PATH fixo do run_command: o PATH do shell acha o binário em /usr/local/bin (macOS,
+# Docker Desktop), mas o comando real só enxerga /usr/bin:/bin. No ubuntu-24.04 do CI o docker fica em /usr/bin.
+@unittest.skipUnless(shutil.which("docker", path=DOCKER_COMMAND_PATH),
+                     f"docker ausente de {DOCKER_COMMAND_PATH}, o único PATH que run_command usa")
 class RenderedMediaComposeTests(unittest.TestCase):
     def test_rendered_configuration_tracks_host_switch_even_with_a_poisoned_shell(self) -> None:
         with TemporaryDirectory() as temporary:
