@@ -10,6 +10,9 @@ import yaml
 ROOT = Path(__file__).resolve().parents[2]
 ACTION = ROOT / ".github/actions/postgres-component/action.yml"
 MEDIA_RELEASE = ROOT / ".github/workflows/media-release.yml"
+PUBLISH_IMAGES = ROOT / ".github/workflows/publish-images.yml"
+CI = ROOT / ".github/workflows/ci.yml"
+HELPER_SOURCE = 'source "$GITHUB_WORKSPACE/scripts/ci/apt-retry.sh"'
 EDGE_DOCKERFILE = ROOT / "infra/images/edge/Dockerfile"
 DOWNLOAD_ARTIFACT = "actions/download-artifact@"
 JOB_TIMEOUT_SECONDS = 30 * 60  # timeout-minutes do job images em ci.yml
@@ -87,6 +90,53 @@ class EdgeImageResilienceTests(unittest.TestCase):
         instruction = self.instruction("xcaddy build")
         self.assertIn('if [ "$attempt" -lt 3 ]; then sleep', instruction)
         self.assertNotRegex(instruction, r"(?m)^\s*sleep ")
+
+
+def _worst_case_seconds(env: dict) -> int:
+    """Tentativas × teto por tentativa + esperas entre elas, como o retry_with_backoff conta."""
+    delays = [int(value) for value in str(env.get("CI_RETRY_DELAYS", "15 45")).split()]
+    return (len(delays) + 1) * int(env["CI_RETRY_ATTEMPT_TIMEOUT"]) + sum(delays)
+
+
+class PublishImagesPushRetryTests(unittest.TestCase):
+    """O GHCR já devolveu `unknown blob` depois de camadas enviadas (release 60bfe14d, arm64); o amd64 passou."""
+
+    def setUp(self):
+        job = yaml.safe_load(PUBLISH_IMAGES.read_text())["jobs"]["images"]
+        self.job_seconds = job["timeout-minutes"] * 60
+        self.step = next(item for item in job["steps"] if item.get("name") == "Publish scanned images by digest")
+
+    def test_push_goes_through_the_retry_helper(self):
+        script = self.step["run"]
+        self.assertIn(HELPER_SOURCE, script)
+        self.assertIn('retry_with_backoff docker push "$reference"', script)
+        self.assertNotRegex(script, r"(?m)^\s*docker push ")
+
+    def test_retries_have_a_per_attempt_deadline_that_fits_the_job(self):
+        env = self.step["env"]
+        self.assertIn("CI_RETRY_ATTEMPT_TIMEOUT", env)
+        # O build e o scan gastam a maior parte do prazo do job; uma imagem presa no push não pode levá-lo inteiro.
+        self.assertLessEqual(_worst_case_seconds(env), self.job_seconds // 3)
+
+
+class OpsGalaxyRetryTests(unittest.TestCase):
+    """O Galaxy já respondeu `HTTP Error 502` ao baixar community.general no job ops (run 43460194889)."""
+
+    def setUp(self):
+        job = yaml.safe_load(CI.read_text())["jobs"]["ops"]
+        self.job_seconds = job["timeout-minutes"] * 60
+        self.step = next(item for item in job["steps"] if item.get("name") == "ansible-lint e syntax-check")
+
+    def test_collection_install_retries_and_drops_the_galaxy_cache_between_attempts(self):
+        script = self.step["run"]
+        self.assertIn(HELPER_SOURCE, script)
+        self.assertIn("CI_RETRY_RECOVER=galaxy_clear_cache retry_with_backoff "
+                      "ansible-galaxy collection install -r requirements.yml", script)
+        self.assertNotRegex(script, r"(?m)^\s*ansible-galaxy ")
+
+    def test_retries_fit_well_inside_the_ops_job_deadline(self):
+        # lint, syntax-check, testes e pyright dividem os mesmos minutos do job.
+        self.assertLessEqual(_worst_case_seconds(self.step["env"]), self.job_seconds // 2)
 
 
 if __name__ == "__main__":
