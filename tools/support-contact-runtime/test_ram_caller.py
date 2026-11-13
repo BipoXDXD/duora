@@ -130,7 +130,8 @@ class CallerTests(unittest.TestCase):
             os.close(read_fd)
             if write_fd is not None: os.close(write_fd)
 
-    @unittest.skipUnless(__import__("os").name == "posix", "controlled POSIX process-group fixture")
+    # bounded_supplier usa os.pipe2 (O_CLOEXEC atômico), que só existe no Linux, o sistema do runner hospedado.
+    @unittest.skipUnless(hasattr(__import__("os"), "pipe2"), "bounded_supplier exige os.pipe2, só do Linux")
     def test_supplier_timeout_or_leader_exit_cannot_leave_descendant_alive(self):
         m = load("ram_caller")
         import os

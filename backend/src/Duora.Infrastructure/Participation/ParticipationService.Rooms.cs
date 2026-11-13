@@ -14,6 +14,7 @@ public sealed partial class ParticipationService
 {
     private static readonly JsonSerializerOptions Json = new(JsonSerializerDefaults.Web);
     private ExperienceEngine<ConstellationContent, ConstellationState, ConstellationAction, ConstellationView> Engine => new(new ConstellationRules(), new PreciseClock(time));
+    private static ExperienceEngine<ConstellationContent, ConstellationState, ConstellationAction, ConstellationView> EngineAt(DateTimeOffset now) => new(new ConstellationRules(), new FrozenClock(now));
     private sealed record RoomRow(Guid Id, Guid PairingId, Guid RoundId, Guid EventId, Guid Low, Guid High,
         Guid ContentId, string State, long Version, DateTimeOffset Expires, DateTimeOffset RoundStart,
         string Language, int Policy, string Locale, string? Public, string? Control, string Kind, DateTimeOffset? StartedAt, DateTimeOffset? Deadline);

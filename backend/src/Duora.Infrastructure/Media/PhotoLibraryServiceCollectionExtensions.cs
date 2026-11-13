@@ -31,10 +31,13 @@ public static class PhotoLibraryServiceCollectionExtensions
             provider.GetRequiredService<TimeProvider>(),
             provider.GetRequiredService<IOptions<PhotoDeletionOptions>>(),
             provider.GetRequiredService<ILogger<PhotoDeletions>>()));
+        // Um orçamento por processo: as leituras de todos os pedidos dividem o mesmo teto de memória.
+        services.AddSingleton(new OwnerMediaReadBudget(OwnerMediaReadBudget.DefaultCapacityBytes));
         services.AddScoped(provider => new OwnerMediaReads(
             provider.GetRequiredService<IDbContextFactory<DuoraDbContext>>(),
             provider.GetRequiredService<IObjectStore>(),
             provider.GetRequiredService<TimeProvider>(),
+            provider.GetRequiredService<OwnerMediaReadBudget>(),
             provider.GetRequiredService<ILogger<OwnerMediaReads>>()));
         return services;
     }

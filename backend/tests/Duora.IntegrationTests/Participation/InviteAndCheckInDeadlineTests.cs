@@ -5,13 +5,13 @@ using Duora.IntegrationTests.Identity;
 using Microsoft.Extensions.Time.Testing;
 using Npgsql;
 using static Duora.Infrastructure.Participation.ParticipationSql;
+using static Duora.IntegrationTests.TestTime;
 
 namespace Duora.IntegrationTests.Participation;
 
 /// <summary>Os prazos de API-R01 e API-E05 pelo HTTP e pelo PostgreSQL reais, com relógio falso.</summary>
 public sealed class InviteAndCheckInDeadlineTests(PostgresFixture postgres)
 {
-    private static readonly TimeSpan OneTick = TimeSpan.FromTicks(1);
     private static readonly TimeSpan CheckInWindow = TimeSpan.FromMinutes(10);
 
     [Fact]
@@ -88,22 +88,141 @@ public sealed class InviteAndCheckInDeadlineTests(PostgresFixture postgres)
             await ReadRoomFactsAsync(scene, room, ct));
     }
 
+    /// <summary>
+    /// Entregue um tick antes do prazo, o job não é consumido: volta à fila no próprio prazo, sem gastar tentativa, e expira o
+    /// convite quando o relógio chega lá.
+    /// </summary>
     [Fact]
-    public async Task TheExpireInviteJobLeavesTheRoomInvitedOneTickBeforeTheDeadline()
+    public async Task AnExpireInviteJobDeliveredOneTickEarlyReturnsToTheQueueAndExpiresTheRoomAtTheDeadline()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        await using var scene = await SceneAsync(ct);
+        var room = await InvitedRoomAsync(scene, ct);
+        var deadline = await ReadInviteDeadlineAsync(scene, room, ct);
+        var invited = new RoomFacts("Invited", AliceAccepted: false, BobAccepted: false, ActiveReservations: 2, HasGame: false, GameDeadlineJobs: 0);
+
+        scene.Clock.SetUtcNow(deadline - OneTick);
+        await PostponeOtherPendingJobsAsync(scene, room, ct);
+        await AnticipateTheExpireInviteJobAsync(scene, room, ct);
+        var early = await ClaimTheExpireInviteJobAsync(scene, ct);
+
+        Assert.False(await scene.Service.CompleteJobAsync(early, ct));
+        Assert.Equal(invited, await ReadRoomFactsAsync(scene, room, ct));
+        Assert.Equal(("Pending", 0, deadline), await ReadExpireInviteJobAsync(scene, room, ct));
+        Assert.Null(await scene.Service.ClaimJobAsync(ct));
+
+        scene.Clock.SetUtcNow(deadline);
+        var onTime = await ClaimTheExpireInviteJobAsync(scene, ct);
+
+        Assert.Equal(early.Id, onTime.Id);
+        Assert.True(await scene.Service.CompleteJobAsync(onTime, ct));
+        Assert.Equal(invited with { State = "Expired", ActiveReservations = 0 }, await ReadRoomFactsAsync(scene, room, ct));
+        Assert.Equal(("Done", 1, deadline), await ReadExpireInviteJobAsync(scene, room, ct));
+    }
+
+    /// <summary>
+    /// O <c>build-round</c> adiantado à mão e entregue um tick antes do início da rodada não é consumido: volta à fila no
+    /// início, sem gastar tentativa, e forma os pares quando o relógio chega lá.
+    /// </summary>
+    [Fact]
+    public async Task ABuildRoundJobDeliveredOneTickEarlyReturnsToTheQueueAndPairsAtTheStart()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        await using var scene = await SceneAsync(ct);
+        var eventId = scene.Seed.Events[0];
+        var round = scene.Seed.Rounds[0];
+        foreach (var user in new[] { scene.Seed.Alice, scene.Seed.Bob })
+        {
+            Assert.Equal(ParticipationOutcome.Done, await scene.Service.RegisterAsync(eventId, user, false, ct));
+            Assert.Equal(ParticipationOutcome.Done, await scene.Service.RegisterAsync(eventId, user, true, ct));
+        }
+
+        var starts = await ReadInstantAsync(scene, "select starts_at from events.rounds where id=$1", round, ct);
+        scene.Clock.SetUtcNow(starts - OneTick);
+        await using (var connection = await scene.Source.OpenConnectionAsync(ct))
+        {
+            await Execute(connection, "update ops.jobs set available_at=$2+interval '10 years' where status='Pending' and not (kind='build-round' and aggregate_id=$1)", ct, round, scene.Clock.GetUtcNow());
+            Assert.Equal(1, await Execute(connection, "update ops.jobs set available_at=$2 where kind='build-round' and aggregate_id=$1", ct, round, scene.Clock.GetUtcNow()));
+        }
+
+        var early = await scene.Service.ClaimJobAsync(ct);
+
+        Assert.NotNull(early);
+        Assert.Equal(("build-round", round), (early.Kind, early.AggregateId));
+        Assert.False(await scene.Service.CompleteJobAsync(early, ct));
+        Assert.Null((await scene.Service.StatusAsync(eventId, scene.Seed.Alice, ct))!.RoomId);
+        Assert.Equal(("Pending", 0, starts), await ReadJobAsync(scene, "build-round", round, ct));
+        Assert.Null(await scene.Service.ClaimJobAsync(ct));
+
+        scene.Clock.SetUtcNow(starts);
+        var onTime = await scene.Service.ClaimJobAsync(ct);
+
+        Assert.NotNull(onTime);
+        Assert.Equal(early.Id, onTime.Id);
+        Assert.True(await scene.Service.CompleteJobAsync(onTime, ct));
+        Assert.NotNull((await scene.Service.StatusAsync(eventId, scene.Seed.Alice, ct))!.RoomId);
+        Assert.Equal(("Done", 1, starts), await ReadJobAsync(scene, "build-round", round, ct));
+    }
+
+    /// <summary>
+    /// O relógio do processo recua para antes do prazo logo depois da leitura que decide concluir o <c>expire-invite</c>.
+    /// A conclusão usa o instante dessa decisão: expira o convite em vez de virar <c>Done</c> sem efeito.
+    /// </summary>
+    [Fact]
+    public async Task AnExpireInviteJobDecidedAtTheDeadlineExpiresTheRoomEvenIfTheClockRewindsBeforeItDuringCompletion()
     {
         var ct = TestContext.Current.CancellationToken;
         await using var scene = await SceneAsync(ct);
         var room = await InvitedRoomAsync(scene, ct);
         var deadline = await ReadInviteDeadlineAsync(scene, room, ct);
 
-        scene.Clock.SetUtcNow(deadline - OneTick);
+        scene.Clock.SetUtcNow(deadline);
         await PostponeOtherPendingJobsAsync(scene, room, ct);
-        await AnticipateTheExpireInviteJobAsync(scene, room, ct);
         var job = await ClaimTheExpireInviteJobAsync(scene, ct);
+        var rewinding = new ParticipationService(scene.Source, new RewindingClock(scene.Clock, deadline - OneTick));
 
-        Assert.True(await scene.Service.CompleteJobAsync(job, ct));
-        Assert.Equal(new RoomFacts("Invited", AliceAccepted: false, BobAccepted: false, ActiveReservations: 2, HasGame: false, GameDeadlineJobs: 0),
+        Assert.True(await rewinding.CompleteJobAsync(job, ct));
+
+        Assert.Equal(new RoomFacts("Expired", AliceAccepted: false, BobAccepted: false, ActiveReservations: 0, HasGame: false, GameDeadlineJobs: 0),
             await ReadRoomFactsAsync(scene, room, ct));
+        Assert.Equal(("Done", 1, deadline), await ReadExpireInviteJobAsync(scene, room, ct));
+        Assert.Equal(deadline, await JobRows.CompletedAtAsync(scene.Source, "expire-invite", room, ct));
+    }
+
+    /// <summary>
+    /// O relógio do processo recua para antes do início logo depois da leitura que decide concluir o <c>build-round</c>.
+    /// A conclusão usa o instante dessa decisão: forma os pares em vez de virar <c>Done</c> sem efeito.
+    /// </summary>
+    [Fact]
+    public async Task ABuildRoundJobDecidedAtTheStartPairsEvenIfTheClockRewindsBeforeItDuringCompletion()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        await using var scene = await SceneAsync(ct);
+        var eventId = scene.Seed.Events[0];
+        var round = scene.Seed.Rounds[0];
+        foreach (var user in new[] { scene.Seed.Alice, scene.Seed.Bob })
+        {
+            Assert.Equal(ParticipationOutcome.Done, await scene.Service.RegisterAsync(eventId, user, false, ct));
+            Assert.Equal(ParticipationOutcome.Done, await scene.Service.RegisterAsync(eventId, user, true, ct));
+        }
+
+        var starts = await ReadInstantAsync(scene, "select starts_at from events.rounds where id=$1", round, ct);
+        scene.Clock.SetUtcNow(starts);
+        await using (var connection = await scene.Source.OpenConnectionAsync(ct))
+        {
+            await Execute(connection, "update ops.jobs set available_at=$2+interval '10 years' where status='Pending' and not (kind='build-round' and aggregate_id=$1)", ct, round, scene.Clock.GetUtcNow());
+        }
+
+        var job = await scene.Service.ClaimJobAsync(ct);
+        Assert.NotNull(job);
+        Assert.Equal(("build-round", round), (job.Kind, job.AggregateId));
+        var rewinding = new ParticipationService(scene.Source, new RewindingClock(scene.Clock, starts - OneTick));
+
+        Assert.True(await rewinding.CompleteJobAsync(job, ct));
+
+        Assert.NotNull((await scene.Service.StatusAsync(eventId, scene.Seed.Alice, ct))!.RoomId);
+        Assert.Equal(("Done", 1, starts), await ReadJobAsync(scene, "build-round", round, ct));
+        Assert.Equal(starts, await JobRows.CompletedAtAsync(scene.Source, "build-round", round, ct));
     }
 
     [Fact]
@@ -188,6 +307,18 @@ public sealed class InviteAndCheckInDeadlineTests(PostgresFixture postgres)
         Assert.NotNull(job);
         Assert.Equal("expire-invite", job.Kind);
         return job;
+    }
+
+    private static Task<(string Status, int Attempts, DateTimeOffset AvailableAt)> ReadExpireInviteJobAsync(Scene scene, Guid room, CancellationToken ct) =>
+        ReadJobAsync(scene, "expire-invite", room, ct);
+
+    private static async Task<(string Status, int Attempts, DateTimeOffset AvailableAt)> ReadJobAsync(Scene scene, string kind, Guid aggregate, CancellationToken ct)
+    {
+        await using var connection = await scene.Source.OpenConnectionAsync(ct);
+        await using var query = Command(connection, "select status,attempts,available_at from ops.jobs where kind=$1 and aggregate_id=$2", kind, aggregate);
+        await using var reader = await query.ExecuteReaderAsync(ct);
+        Assert.True(await reader.ReadAsync(ct));
+        return (reader.GetString(0), reader.GetInt32(1), reader.GetFieldValue<DateTimeOffset>(2));
     }
 
     private static Task<DateTimeOffset> ReadInviteDeadlineAsync(Scene scene, Guid room, CancellationToken ct) =>
