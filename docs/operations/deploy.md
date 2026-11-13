@@ -554,8 +554,13 @@ backups, `verify-repo` nem o prune diário. Plano e apply na mesma janela: o pru
 
 **Ordem segura.** Troca, ressela e só então a release com o lock novo: o PR do lock entra depois da troca. Em sequência:
 freeze e revisor, `duora-backup full`, troca, ressela, `troca --resume`, conferência, merge só do lock (`gh pr merge
---merge --match-head-commit`), CI e `images` verdes, aprovar a primeira release com o lock novo (R''), `healthy`, remover
-o revisor, fim do freeze. O CI do PR do lock pode ficar verde antes da janela; só o merge espera. Merge do lock antes
+--merge --match-head-commit`), CI e `images` verdes, rejeitar toda release pendente anterior ao lock novo e conferir que
+nenhuma sobrou, aprovar a primeira release com o lock novo (R''), `healthy`, remover o revisor, fim do freeze. A
+rejeição vem antes de tudo o que segue: o `Coolify release` roda em fila única (`concurrency: coolify-production`, sem
+cancelar, `queue: max`), e cada CI verde na main durante o freeze enfileira uma release com o lock antigo, parada no
+`deploy`. Ela segura a fila, e R'' só anda quando ela for decidida. Aprovada depois da troca, ela leva o digest antigo a
+um host já trocado: recusa no preflight e `pending` travando tudo, o mesmo incidente de 13/11. O revisor só sai depois
+que nenhuma release antiga estiver pendente, porque sem ele a primeira da fila seguiria sozinha. O CI do PR do lock pode ficar verde antes da janela; só o merge espera. Merge do lock antes
 da troca só com o revisor já ativo: sem ele, a release automática do merge chega ao host com o digest novo, é recusada
 e o `pending` trava todos os projetos (registro de 13/11/2026, abaixo). Se a troca abortar com o lock já na main, toda
 release recusa: nova janela em até 7 dias; passado isso, PR de reversão do lock (abaixo).
@@ -643,7 +648,9 @@ git fetch origin && git show origin/main:infra/images/postgres-component-lock.js
   | python3 -I -c 'import json,sys;print(json.load(sys.stdin)["images"]["amd64"])'
 ```
 
-Com o lock ainda fora da main (ordem segura), troque `origin/main` pelo head revisado do PR do lock.
+Na troca de 14/11/2026 o lock já está na main (#353), então o `ALVO` vem de `origin/main` como acima, e a ordem segura
+vale das próximas trocas em diante. Nelas, com o lock ainda fora da main, troque `origin/main` pelo head revisado do PR
+do lock.
 
 **O que revisar no plano.** O `--preflight-only` escreve uma linha JSON no journal da unit, com `planSha256` e `plan`
 (`postgres_swap.py`, `_swap_plan`). Salve a linha, confira que o hash é o do plano e compare os campos antes de aprovar:
@@ -666,7 +673,7 @@ sha256sum /var/lib/duora/executor-runtime-baseline.json /etc/duora/coolify-deplo
 | `facts.sourceImageId`, `facts.targetImageId` | Diferentes entre si. Anote o segundo: volta na conferência depois da troca |
 | `facts.postgres`, `facts.pgbackrest` | Mesma major do banco que roda e a mesma versão do pgBackRest. O comando já recusa o contrário; aqui você confere o valor |
 | `facts.compatibility`, `facts.collationVersion` | Controle, catálogo, encoding, provider, collate, ctype, locale e versão da colação lidos do banco que roda |
-| `stateSha256` | Os cinco hashes do `sha256sum`, na ordem `baseline`, `pin`, `current`, `compose` e `hostEnvironment` |
+| `stateSha256` | Os cinco hashes do `sha256sum`, comparados pelo nome, não pela posição: o JSON sai com as chaves em ordem alfabética. `baseline` = `executor-runtime-baseline.json`, `pin` = `coolify-deploy.json`, `current` = `current.json`, `compose` = o arquivo do `compose` do pin, `hostEnvironment` = `duora.env` |
 
 Campo diferente do esperado: não aprove. O apply refaz o plano e recusa se o hash mudou ("Plano difere do revisado").
 
@@ -755,8 +762,34 @@ Esperado: uma linha só por serviço; `.Config.Image` igual a `$ALVO`; `.Image` 
 `runtime_guard.py` compara. O `CUR` começa com `pgswap-` e os 12 primeiros hex do digest alvo, e o manifesto de R'
 aponta `$ALVO`. Journal ou fence ainda presente: a troca não fechou, volte ao `troca --resume`.
 
+Antes de R'', rejeite as releases antigas. Na sua máquina, com o `gh` do dono e `L` = o primeiro commit da main que já
+tem o lock novo (o merge do PR do lock; em 14/11/2026, o merge do #353, `1deb186b`). Toda run do `Coolify release` cujo
+commit não descende de `L` carrega o lock antigo: rejeite a que espera aprovação no `deploy` e cancele as que ainda estão
+na fila. Repita a listagem até sair vazia:
+
+```bash
+ENV=$(gh api repos/BipoXDXD/duora/environments/production --jq .id)
+git fetch origin
+for s in waiting pending queued requested; do
+  gh run list --workflow coolify.yml --status "$s" --json databaseId,headSha,status \
+    --jq '.[] | "\(.databaseId) \(.headSha) \(.status)"'
+done | while read -r run sha status; do
+  git merge-base --is-ancestor <L> "$sha" && continue   # já tem o lock novo
+  if [ "$status" = waiting ]; then
+    gh api -X POST "repos/BipoXDXD/duora/actions/runs/$run/pending_deployments" -F "environment_ids[]=$ENV" \
+      -f state=rejected -f comment="Lock antigo; o host já trocou o PostgreSQL."
+  else
+    gh run cancel "$run"
+  fi
+done
+```
+
+Só uma run fica em `waiting` por vez, porque a fila é única. As outras seguem `pending`. Rode o bloco de novo até
+nenhuma linha anterior a `L` aparecer. O `headSha` de uma run disparada à mão é o da main no momento do disparo, não o
+`-f commit`. Por isso, confira no resumo da run (`gh run view <id>`) antes de aprovar.
+
 Depois, a primeira release com o lock novo (R''). Com o lock já na main, dispare o `Coolify release` do commit atual da
-main e aprove o job `deploy` no environment `production`:
+main e aprove o job `deploy` no environment `production`, conferindo que a run aprovada é a do commit que você disparou:
 
 ```bash
 gh workflow run coolify.yml --ref main -f commit=<SHA completo da main>
