@@ -77,7 +77,8 @@ class EdgeImageResilienceTests(unittest.TestCase):
         instruction = self.instruction("xcaddy build")
         self.assertRegex(instruction, r"for attempt in 1 2 3; do")
         deadline = re.search(r"timeout (\d+) xcaddy build", instruction)
-        self.assertIsNotNone(deadline)
+        if deadline is None:
+            self.fail("o xcaddy build precisa de um prazo por tentativa (timeout N)")
         # 3 tentativas precisam caber, com folga para o resto do build, no timeout-minutes: 30 do job images.
         self.assertLessEqual(3 * int(deadline.group(1)), JOB_TIMEOUT_SECONDS // 2)
         self.assertRegex(instruction, r"exit 1$")
