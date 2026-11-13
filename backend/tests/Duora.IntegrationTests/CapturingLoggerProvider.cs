@@ -3,7 +3,13 @@ using Microsoft.Extensions.Logging;
 
 namespace Duora.IntegrationTests;
 
-public sealed record CapturedLog(string Category, LogLevel Level, string Text, Exception? Exception);
+public sealed record CapturedLog(string Category, LogLevel Level, string Text, Exception? Exception)
+{
+    public EventId EventId { get; init; }
+
+    /// <summary>Os campos estruturados do log (nome do placeholder → valor), sem o modelo da mensagem.</summary>
+    public IReadOnlyDictionary<string, object?> Fields { get; init; } = new Dictionary<string, object?>();
+}
 
 /// <summary>Guarda tudo o que a aplicação loga, com a mensagem formatada e a exceção, para os testes inspecionarem.</summary>
 public sealed class CapturingLoggerProvider : ILoggerProvider
@@ -42,6 +48,8 @@ public sealed class CapturingLoggerProvider : ILoggerProvider
 
     private sealed class CapturingLogger(string category, CapturingLoggerProvider provider) : ILogger
     {
+        private const string MessageTemplate = "{OriginalFormat}";
+
         public IDisposable? BeginScope<TState>(TState state)
             where TState : notnull => null;
 
@@ -55,7 +63,16 @@ public sealed class CapturingLoggerProvider : ILoggerProvider
             Func<TState, Exception?, string> formatter)
         {
             var text = formatter(state, exception) + Environment.NewLine + exception;
-            provider.Add(new CapturedLog(category, logLevel, text, exception));
+            provider.Add(new CapturedLog(category, logLevel, text, exception)
+            {
+                EventId = eventId,
+                Fields = FieldsOf(state),
+            });
         }
+
+        private static Dictionary<string, object?> FieldsOf<TState>(TState state) =>
+            state is IEnumerable<KeyValuePair<string, object?>> pairs
+                ? pairs.Where(pair => pair.Key != MessageTemplate).ToDictionary(pair => pair.Key, pair => pair.Value)
+                : [];
     }
 }

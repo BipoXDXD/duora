@@ -14,6 +14,18 @@ public sealed class KeyRingCertificateTests : IDisposable
     private const string PreviousCertificates = "DataProtection:PreviousCertificates";
     private const string RequireCertificate = "DataProtection:RequireCertificate";
 
+    private const string DefaultKeyResolverCategory =
+        "Microsoft.AspNetCore.DataProtection.KeyManagement.DefaultKeyResolver";
+
+    // Ids de LoggerMessage do Data Protection (LoggingExtensions.cs, ASP.NET Core v10.0.14).
+    private const int KeyIneligibleBecauseMethodFailed = 12;
+    private const int RetryingKeyAfterFailure = 73;
+
+    // Na primeira resolução, a chave preferida que não decifra e ainda está na KeyPropagationWindow (2 dias)
+    // é avaliada duas vezes: como candidata e de novo na busca de fallback. A do teste acabou de nascer; com mais
+    // de 2 dias seria avaliada uma vez só. A resolução seguinte já prefere a chave nova e nem avalia a retirada.
+    private const int EvaluationsOfARecentPreferredKey = 2;
+
     private static readonly TimeSpan DefaultKeyLifetime = TimeSpan.FromDays(90);
 
     private readonly PostgresFixture _postgres;
@@ -61,6 +73,31 @@ public sealed class KeyRingCertificateTests : IDisposable
         using var response = await GetMeAsync(otherCertificate, cookie);
 
         await ProblemAssert.IsProblemAsync(response, HttpStatusCode.Unauthorized, "UNAUTHENTICATED");
+    }
+
+    /// <summary>
+    /// Sem o certificado a falha de decifrar a chave é definitiva. O resolvedor do Data Protection só repete a
+    /// tentativa com <c>Thread.Sleep</c> (10 × 200 ms por resolução do key ring), o que prende uma thread do pool por
+    /// cerca de 2 s e atrasa as continuações das outras requisições do processo de testes. Aqui o teste prova que o
+    /// host sem o certificado desiste na primeira falha e continua respondendo 401 limpo.
+    /// </summary>
+    [Fact]
+    public async Task KeyThatCannotBeDecryptedIsNotRetriedWithBlockingSleeps()
+    {
+        var cookie = await _hosts.SignInOnAFreshHostAsync(_volume, With(_first));
+        var logs = new CapturingLoggerProvider();
+
+        await using var withoutCertificate = _hosts.HostOn(_volume, logs: logs);
+        using var response = await GetMeAsync(withoutCertificate, cookie);
+
+        await ProblemAssert.IsProblemAsync(response, HttpStatusCode.Unauthorized, "UNAUTHENTICATED");
+        var failures = logs.Entries
+            .Where(log => log.Category == DefaultKeyResolverCategory
+                && log.EventId.Name == "KeyIsIneligibleToBeTheDefaultKeyBecauseItsMethodFailed")
+            .ToList();
+        Assert.NotEmpty(failures);
+        // Com retries o resolvedor agrega uma exceção por tentativa (11); sem retries loga a primeira e única falha.
+        Assert.All(failures, failure => Assert.Equal(1, AttemptsOf(failure.Exception)));
     }
 
     [Fact]
@@ -133,6 +170,37 @@ public sealed class KeyRingCertificateTests : IDisposable
         await ProblemAssert.IsProblemAsync(confirmation, HttpStatusCode.BadRequest, "INVALID_TOKEN");
     }
 
+    /// <summary>
+    /// Chave cifrada por um certificado ausente nunca se decifra: esperar não traz o certificado de volta. O
+    /// resolvedor padrão tentaria de novo 10 vezes, com Thread.Sleep de 200 ms antes de cada tentativa, dentro da
+    /// trava do KeyRingProvider (na partida a frio e no refresh forçado) ou numa thread do pool, fora da trava (no
+    /// refresh periódico, quando o anel vence sem que ninguém force).
+    /// </summary>
+    [Fact]
+    public async Task KeyFromARetiredCertificateIsSkippedWithoutRetrying()
+    {
+        await _hosts.SignInOnAFreshHostAsync(_volume, With(_first));
+        var retiredKeyFile = Assert.Single(_volume.GetFiles("key-*.xml"));
+        var retiredKeyId = Path.GetFileNameWithoutExtension(retiredKeyFile.Name)["key-".Length..];
+        var logs = new CapturingLoggerProvider();
+        var settings = With(_second);
+        settings["Logging:LogLevel:Microsoft.AspNetCore.DataProtection"] = "Debug";
+        await using var retired = new DuoraWebFactory(_postgres.ConnectionString, logs)
+        {
+            SharedKeyRing = _volume,
+            Settings = settings,
+        };
+
+        using var browser = new Browser(retired);
+        await browser.FetchCsrfTokenAsync();
+
+        var resolver = logs.Entries.Where(entry => entry.Category == DefaultKeyResolverCategory).ToList();
+        Assert.DoesNotContain(resolver, entry => entry.EventId.Id == RetryingKeyAfterFailure);
+        var ineligible = resolver.Where(entry => entry.EventId.Id == KeyIneligibleBecauseMethodFailed).ToList();
+        Assert.Equal(EvaluationsOfARecentPreferredKey, ineligible.Count);
+        Assert.All(ineligible, entry => Assert.Contains(retiredKeyId, entry.Text, StringComparison.Ordinal));
+    }
+
     [Fact]
     public async Task PreviousCertificatesMayHoldMoreThanOneCertificate()
     {
@@ -149,6 +217,9 @@ public sealed class KeyRingCertificateTests : IDisposable
 
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);
     }
+
+    private static int AttemptsOf(Exception? failure) =>
+        failure is AggregateException aggregate ? aggregate.InnerExceptions.Count : 1;
 
     private static Dictionary<string, string?> With(TestCertificate current, TestCertificate? previous = null) =>
         new()
