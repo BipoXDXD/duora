@@ -20,7 +20,7 @@ Uma geração é identificada por `(domain, epoch, layout, incarnation, area, ge
 
 | Papel | Quem | Pode |
 |---|---|---|
-| Cliente | Web/Worker, via socket Unix com `SO_PEERCRED` nos dois sentidos | `register`, `put`, `seal`, `read`, e `close`/`sweep` só pelos coletores |
+| Cliente | Web/Worker, via socket Unix com `SO_PEERCRED` nos dois sentidos | `register`, `put`, `seal`, `read`, `delete`, `close` e `sweep`. A autoridade não distingue quem chama entre os UIDs cliente: restringir `close`/`sweep` aos coletores é convenção do chamador; o que a autoridade exige é `CanClose`, revisão e token |
 | Autoridade | `Duora.StorageAuthority`, processo único por domínio (`domain.lock`) | I/O real, journal local, transições na referência |
 | Referência | PostgreSQL próprio, schema `storage_control` (`scripts/storage-authority/reference.sql`) | Guardar estado e revisão; `attach` e `transition` via `security definer` |
 | Coletor | Os cinco dispatchers de limpeza, com token e lease SQL | Pedir `close` → `sweep` e gravar `deleted_at` com prova |
@@ -51,7 +51,7 @@ stateDiagram-v2
     Closed --> [*]: sweep + ACK do coletor (deleted_at)
 ```
 
-Transições aceitas pelo journal (`PrivateGenerationJournal.cs`, validação ao ler e `Persist`):
+Transições aceitas pelo journal (`PrivateGenerationJournal.cs`, validadas na leitura):
 
 | Destino | Estado anterior aceito |
 |---|---|
@@ -60,22 +60,28 @@ Transições aceitas pelo journal (`PrivateGenerationJournal.cs`, validação ao
 | `Closing` | ausente, `Open`, `Sealed` ou `Closing` |
 | `Closed` | `Closing`, ou `Closed` com a mesma revisão |
 
-`Closed` é irreversível: qualquer outro destino, ou `Closed` com revisão diferente, lança
-`InvalidDataException`. Cada transição na referência consome um novo valor de `storage_control.revisions`,
-exceto `Closed`, que conserva a revisão de `Closing`. Repetir o estado atual não muda a revisão.
+`Persist` só barra a regressão de `Closed`: qualquer outro destino, ou `Closed` com revisão diferente, lança
+`InvalidDataException`. Outra transição inválida é gravada e envenena o journal, que passa a ser recusado na
+leitura seguinte (fail-closed, mas sem rejeição na escrita).
+
+Cada transição na referência consome um novo valor de `storage_control.revisions`, exceto `Closed`, que conserva
+a revisão de `Closing`. Repetir o estado atual não muda a revisão.
 
 ## 3. Comandos
 
-Cada operação roda sob o gate da autoridade, um `SemaphoreSlim(1, 1)` obtido sem espera. Ele cobre validação,
-consulta à referência e todo o I/O, inclusive EOF, cópia, dispose, rename e fsync, até a resposta. Gate
-ocupado responde `busy`, e o cliente trata `busy`, `denied` e EOF como falha, nunca como confirmação
-(`PrivateGenerationWire.cs`).
+A admissão inicial (versão, UID/GID do peer, tamanho e operação) roda antes do gate. Depois dela, cada operação
+roda sob o gate da autoridade, um `SemaphoreSlim(1, 1)` obtido sem espera, que cobre validação de layout e
+manifesto, consulta à referência e todo o I/O, inclusive EOF, cópia, dispose, rename e fsync. A resposta final é
+enviada depois de liberar o gate (`StorageOperationBoundary.cs`); não há I/O de armazenamento após a liberação.
+Cada operação tem prazo de 30 s (`OperationBudget`), que cancela a própria operação; o gate só é liberado
+quando o I/O retorna. Gate ocupado responde `busy`, e o cliente trata `busy`, `denied` e EOF como falha, nunca
+como confirmação (`PrivateGenerationWire.cs`).
 
 | Comando | Pré-condição | Efeito, em ordem |
 |---|---|---|
 | `register` | Registro de negócio gravável e domínio igual ao enrolled | Referência `Open` (insere ou no-op; outro estado recusa "cannot be readmitted"), depois journal `Open` com fsync |
 | `put` | Gravável; referência **e** journal em `Open`; tamanho declarado confere | Responde "admitted", lê o corpo, confere SHA-256, grava pelo adaptador FileSystem, `chmod 0600`, fsync do arquivo e do diretório. Não muda estado |
-| `seal` | Referência em `Open` ou `Sealed` | Re-hash e fsync das três variantes e do diretório, depois referência `Sealed` e journal `Sealed` |
+| `seal` | Gravável (`RequireWritable`); referência em `Open` ou `Sealed` | Re-hash e fsync das três variantes e do diretório, depois referência `Sealed` e journal `Sealed` |
 | `close` | Registro de negócio elegível (`CanClose`) | Referência `Closing`, depois journal `Closing` (omitido se já `Closed`), journal `Closed` e referência `Closed`. As revisões têm de coincidir |
 | `sweep` | `CanClose`; referência `Closed` com a revisão do recibo; journal `Closed` na mesma revisão; token não vazio | Sync do journal, DELETE das três chaves e dos temporários com sufixo exato `.<32 hex>.partial`, sync do diretório e `record_private_generation_sweep` |
 | `read` | Referência e journal idênticos em estado e revisão; journal sincronizado | `Closing`/`Closed` respondem `missing`. Senão, abre o arquivo conferindo dono, `nlink = 1` e tipo, depois tamanho e SHA |
@@ -91,8 +97,9 @@ A revogação passa a valer para escritores quando **commita a transação que l
 qualquer `put` ou `seal` lê um estado diferente de `Open` na referência e falha.
 
 Esse ponto é seguro contra I/O já admitido porque o gate é o mesmo do `put`. Enquanto um corpo admitido não
-termina (EOF, rename, fsync e resposta), `close` recebe `busy` e não avança. Nenhum prazo, PID ou lease
-rompe o gate.
+termina (EOF, cópia, rename e fsync), `close` recebe `busy` e não avança. O prazo de 30 s cancela a
+operação admitida, mas o gate só é liberado quando o I/O retorna; um cliente pausado no meio do corpo atrasa o
+`close` por no máximo cerca de 30 s. PID ou lease não rompem o gate.
 
 O ACK de fechamento (`Closed` na referência) só vem depois do journal local `Closed` sincronizado. Ele atesta
 que todo I/O admitido terminou, mas ainda não é remoção.
@@ -110,7 +117,7 @@ O trigger `media.guard_private_generation_removal` exige, para geração com bin
 binding, com o token **antigo** (`OLD.cleanup_token`), com lease vivo e com `swept_at <= statement_timestamp()`.
 Depois de gravados, `deleted_at` e `storage_proof_id` são imutáveis. INSERT já removido é recusado.
 
-Propriedade de segurança:
+Propriedade de segurança, **sob a premissa de custódia** abaixo:
 
 ```text
 deleted_at(g) != null  e  binding(g) existe
@@ -118,6 +125,13 @@ deleted_at(g) != null  e  binding(g) existe
      e  sweep completo iniciado depois do Closed removeu finais e temporários atribuíveis
      e  a prova foi gravada com token e lease válidos no relógio do PostgreSQL
 ```
+
+**Premissa de custódia.** O banco não verifica que a referência está `Closed` nem que `closed_revision`
+corresponde a um fechamento real: `record_private_generation_sweep` confere apenas token, lease e binding. A
+implicação acima vale porque o EXECUTE dessa função fica restrito ao papel `duora_storage_verifier`, que só a
+autoridade pode usar, e porque a autoridade confere referência e journal `Closed` na mesma revisão antes de
+varrer. Se essa credencial sair da autoridade, a garantia deixa de valer; a migration não cria o papel nem
+segredo, e a custódia operacional continua pendente.
 
 Sem binding, o caminho legado permanece conservador: o coletor tenta o DELETE genérico, que a autoridade
 recusa no modo gerenciado, e a obrigação segue em retry. A relação com `writer_settled_at` não muda aqui: a
@@ -128,13 +142,14 @@ houver binding. O redesenho dessa evidência é decisão de design separada (se�
 
 | Falha | Comportamento |
 |---|---|
-| Morte da autoridade antes do commit `Closing` | Nada foi revogado; retry de `close` começa de novo |
-| Morte entre referência `Closing` e journal `Closed` | Retry: a referência devolve `Closing` com a mesma revisão, o journal repete ou sincroniza, e a referência vai a `Closed` |
-| Resposta de `close` perdida | Retry idempotente devolve `Closed` com a mesma revisão; a geração nunca reabre |
+| Morte da autoridade antes do commit `Closing` | Nada foi revogado. A recuperação **não é automática**: a autoridade não volta na mesma época (`attach` exige `session` nula e não há detach; o boot sai com código 2). O custodiante cria nova época; só então o `close` da geração, agora de época aposentada, é aceito e começa de novo |
+| Morte entre referência `Closing` e journal `Closed` | A revogação já vale. A retomada exige o custodiante criar nova época, como na linha anterior. Na nova época, o `close` da geração aposentada recebe `Closing` com a mesma revisão, o journal repete ou sincroniza e a referência vai a `Closed` |
+| Resposta de `close` perdida, autoridade viva | Retry idempotente devolve `Closed` com a mesma revisão; a geração nunca reabre |
 | Falha durante `sweep` ou ACK perdido | O coletor limpa token e lease e recua exponencialmente até 900 s; a próxima posse refaz `close` e um `sweep` **completo** com novo token |
-| Prova surgida durante um DELETE antigo | Não torna terminal aquela passada; é preciso outra varredura completa após `Closed` |
+| Assentamento do escritor (`writer_settled_at`) surgido durante um DELETE antigo | O coletor usa o assentamento capturado no claim; o que surge durante a passada não a torna terminal. É preciso outra varredura completa após `Closed` |
 | Restart da autoridade na mesma época | `attach` exige `session` nula; uma sessão nova é recusada (`STORAGE_AUTHORITY_STARTUP_DENIED`, saída 2). Só o custodiante cria nova época |
-| Journal ausente, truncado, com cadeia quebrada, encarnação diferente ou estado regredido | `InvalidDataException`; nega leitura, escrita e varredura. Nunca inicializa `Open` |
+| Journal ausente | `FileNotFoundException`; mesmo efeito: nega a operação e, no boot, saída 2. Nunca cria o controle |
+| Journal truncado, com cadeia quebrada, encarnação diferente ou estado regredido | `InvalidDataException`; nega leitura, escrita e varredura. Nunca inicializa `Open` |
 | Geração desconhecida na referência | Só aceita `Open` ou `Closing`; o resto falha com `23514` |
 
 Busy, timeout, cancelamento, heartbeat ausente, PID ausente ou HEAD/GET sem objeto **não** são prova de
