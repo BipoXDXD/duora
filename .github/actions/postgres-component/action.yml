@@ -81,32 +81,11 @@ runs:
         pathlib.Path(sys.argv[1]).write_text(json.dumps(config))
         PY
         sudo install -m 0644 "$RUNNER_TEMP/component-daemon.json" /etc/docker/daemon.json
-        # Se o daemon não subir, o job mostra o porquê em vez de só "Job for docker.service failed".
-        # O restart logo depois do upgrade do docker-ce às vezes falha com o limite de partidas do systemd
-        # (runs 42739401041 e 42746167683; o PR #444 reproduziu com start-limit-hit). Na falha, registra o
-        # diagnóstico, limpa o estado de falha, espera o containerd ativo e tenta uma única vez mais.
-        # Se a segunda falhar, o job falha com o diagnóstico.
-        show_docker_diagnostics() {
-          echo "::group::docker.service não reiniciou: diagnóstico"
-          sudo systemctl status docker docker.socket containerd --no-pager --lines=50 || true
-          sudo journalctl -u docker -u docker.socket -u containerd --no-pager --since '5 min ago' | tail -n 200 || true
-          echo "::endgroup::"
-        }
-        if ! sudo systemctl restart docker; then
-          show_docker_diagnostics
-          echo "::warning title=Restart do Docker falhou; tentando uma segunda vez::diagnóstico no grupo acima; se a segunda tentativa falhar, o job falha"
-          sudo systemctl reset-failed docker.service docker.socket
-          containerd_deadline=$((SECONDS + 60))
-          until systemctl is-active --quiet containerd && sudo test -S /run/containerd/containerd.sock; do
-            if [ "$SECONDS" -ge "$containerd_deadline" ]; then echo "containerd não ficou ativo em 60 s"; exit 1; fi
-            sleep 2
-          done
-          echo "Segunda e última tentativa de reiniciar o docker"
-          if ! sudo systemctl restart docker; then
-            show_docker_diagnostics
-            exit 1
-          fi
-        fi
+        # O postinst do docker-ce já reiniciou o serviço; o restart explícito estourava o limite de partidas do
+        # systemd (start-limit-hit, #549). O helper zera o contador antes, espera o daemon com teto, mostra o
+        # diagnóstico na falha e tenta uma única vez mais; a segunda falha é fatal.
+        source "$GITHUB_WORKSPACE/scripts/ci/docker-restart.sh"
+        docker_restart_after_upgrade
         test "$(readlink -f "$(command -v docker)")" = /usr/bin/docker
         docker version --format '{{json .}}' > "$RUNNER_TEMP/postgres-component/docker-runtime-after.json"
         after_status=$(curl --silent --show-error --unix-socket /var/run/docker.sock \
@@ -160,7 +139,31 @@ runs:
           --inventory-json "$RUNNER_TEMP/postgres-component/artifacts.json")
         echo "artifact_id=$artifact_id" >> "$GITHUB_OUTPUT"
 
+    # Uma falha transitória da API de artifacts derrubou o job (#549): uma segunda tentativa, e só uma, com o mesmo
+    # artifact id e a mesma conferência de digest. Se ela também falhar, o job falha.
     - name: Download the exact retained native publication
+      id: download-native
+      continue-on-error: true
+      uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+      with:
+        artifact-ids: ${{ steps.metadata.outputs.artifact_id }}
+        merge-multiple: true
+        digest-mismatch: error
+        github-token: ${{ inputs.token }}
+        repository: BipoXDXD/duora
+        run-id: ${{ steps.plan.outputs.run_id }}
+        path: ${{ runner.temp }}/postgres-component-native
+
+    - name: Wait before the second and last artifact download
+      if: ${{ steps.download-native.outcome == 'failure' }}
+      shell: bash
+      run: |
+        echo "::warning title=Download do artifact falhou::segunda e última tentativa em 30 s"
+        rm -rf -- "$RUNNER_TEMP/postgres-component-native"
+        sleep 30
+
+    - name: Download the exact retained native publication (second and last attempt)
+      if: ${{ steps.download-native.outcome == 'failure' }}
       uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
       with:
         artifact-ids: ${{ steps.metadata.outputs.artifact_id }}
