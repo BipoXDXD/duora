@@ -128,6 +128,33 @@ class ParseTests(unittest.TestCase):
         self.assertEqual(600.0, stuck.seconds)
         self.assertIn("LockTests.Gives(state: Confirmed)", diag.render_markdown("m", runs, top=5))
 
+    def test_interleaved_theory_rows_are_timed_separately(self):
+        runs = diag.parse_lines([
+            stamp("00:00:00.0000000"),
+            update("t", IDENTITY, "LockTests", "Gives", "InProgress", "(state: Pending)"),
+            stamp("00:00:01.0000000"),
+            update("t", IDENTITY, "LockTests", "Gives", "InProgress", "(state: Confirmed)"),
+            stamp("00:00:03.0000000"),
+            update("t", IDENTITY, "LockTests", "Gives", "Passed", "(state: Pending)"),
+            stamp("00:00:07.0000000"),
+            update("t", IDENTITY, "LockTests", "Gives", "Failed", "(state: Confirmed)"),
+        ])
+
+        self.assertEqual([("(state: Confirmed)", "Failed", 6.0), ("(state: Pending)", "Passed", 3.0)],
+                         sorted((r.arguments, r.outcome, r.seconds) for r in runs))
+
+    def test_a_repeated_in_progress_while_open_is_one_run(self):
+        runs = diag.parse_lines([
+            stamp("00:00:00.0000000"),
+            update("a", IDENTITY, "LoginTests", "Works", "InProgress"),
+            stamp("00:00:01.0000000"),
+            update("a", IDENTITY, "LoginTests", "Works", "InProgress"),
+            stamp("00:00:04.0000000"),
+            update("a", IDENTITY, "LoginTests", "Works", "Passed"),
+        ])
+
+        self.assertEqual([("Passed", 4.0)], [(r.outcome, r.seconds) for r in runs])
+
     def test_a_diag_cut_in_the_middle_of_a_message_keeps_the_test_open(self):
         finished = update("a", DATABASE, "PostgresMemoryProfileTests", "Fits", "Passed")
         runs = diag.parse_lines([
