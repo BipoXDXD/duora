@@ -134,6 +134,8 @@ export const ptBR = {
   'participation.noEvents': 'Não há encontros disponíveis.',
   'participation.waiting': 'Aguardando um par compatível. Suas preferências não serão ampliadas pela espera.',
   'participation.joinInstructions': 'Inscreva-se e confirme sua presença quando o check-in abrir.',
+  'participation.roundCancelled':
+    'A rodada foi cancelada. Sua inscrição continua valendo e você não precisa fazer nada.',
   'participation.register': 'Inscrever-se',
   'participation.checkIn': 'Confirmar presença',
   'participation.withdraw': 'Cancelar inscrição',
