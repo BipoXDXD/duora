@@ -63,7 +63,7 @@ describe('saída da sala quando a leitura é recusada', () => {
     const { user } = await renderApp('/rooms/room-1')
     await user.click(await screen.findByRole('button', { name: 'Sair da sala' }))
 
-    expect(await screen.findByText('Este encontro foi encerrado.')).toBeInTheDocument()
+    expect(await screen.findByText('Esta sala foi encerrada.')).toBeInTheDocument()
     await waitFor(() => {
       expect(exits).toBe(1)
     })
@@ -90,7 +90,7 @@ describe('saída da sala quando a leitura é recusada', () => {
     const exitButton = await screen.findByRole('button', { name: 'Sair da sala' })
     const readsAtExit = roomReadsIn(fetchSpy)
     await user.click(exitButton)
-    expect(await screen.findByText('Este encontro foi encerrado.')).toBeInTheDocument()
+    expect(await screen.findByText('Esta sala foi encerrada.')).toBeInTheDocument()
     await advancePolling(ROOM_POLL_INTERVAL_MS * 3)
 
     expect(roomReadsIn(fetchSpy)).toBe(readsAtExit)
@@ -128,7 +128,7 @@ describe('saída da sala quando a leitura é recusada', () => {
 })
 
 const LOADING_TEXT = 'Carregando suas preferências…'
-const UNAVAILABLE_TEXT = 'Este encontro não está disponível.'
+const UNAVAILABLE_TEXT = 'Esta sala não está disponível.'
 const EXIT_BUTTON = { name: 'Sair da sala' }
 const ACCEPT_BUTTON = { name: 'Aceitar convite' }
 
@@ -252,7 +252,7 @@ describe('tela da sala enquanto a próxima leitura não responde', () => {
     await advancePollingAndNotify()
     await user.click(screen.getByRole('button', EXIT_BUTTON))
 
-    expect(await screen.findByText('Este encontro foi encerrado.')).toBeInTheDocument()
+    expect(await screen.findByText('Esta sala foi encerrada.')).toBeInTheDocument()
     expect(exits).toBe(1)
 
     secondRead.release(problemResponse(403, 'FORBIDDEN'))
