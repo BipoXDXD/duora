@@ -1,3 +1,4 @@
+using System.Diagnostics.Metrics;
 using System.Net.Sockets;
 using System.Text.Json.Nodes;
 using Duora.Infrastructure.Identity;
@@ -105,7 +106,8 @@ public sealed class EligibilityUnavailableResponseTests
         context.Features.Set<IExceptionHandlerFeature>(
             new ExceptionHandlerFeature { Error = failure, Path = "/api/v1/x", Endpoint = EndpointFor(neutral) });
         var handler = new DatabaseUnavailableExceptionHandler(
-            loggerFactory.CreateLogger<DatabaseUnavailableExceptionHandler>());
+            loggerFactory.CreateLogger<DatabaseUnavailableExceptionHandler>(),
+            new DatabaseUnavailableMetrics(services.GetRequiredService<IMeterFactory>()));
 
         Assert.True(await handler.TryHandleAsync(context, failure, TestContext.Current.CancellationToken));
         return WholeResponse(context, body);
@@ -126,6 +128,7 @@ public sealed class EligibilityUnavailableResponseTests
 
     private static ServiceProvider Services() => new ServiceCollection()
         .AddLogging()
+        .AddMetrics()
         .AddAntiforgery()
         .AddSingleton(Options.Create(new AccountLockOptions()))
         .BuildServiceProvider();

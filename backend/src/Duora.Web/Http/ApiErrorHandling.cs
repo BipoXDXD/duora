@@ -10,6 +10,7 @@ internal static class ApiErrorHandling
     {
         services.AddProblemDetails(options => options.CustomizeProblemDetails = ApiProblems.AddDefaultCode);
         services.AddSingleton<AccountBusyMetrics>();
+        services.AddSingleton<DatabaseUnavailableMetrics>();
         services.AddExceptionHandler<AccountBusyExceptionHandler>();
         services.AddExceptionHandler<DatabaseUnavailableExceptionHandler>();
         return services;
