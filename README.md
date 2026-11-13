@@ -84,6 +84,7 @@ cd backend && dotnet test --solution Duora.slnx
 | [Fluxo de trabalho](docs/automation/workflow.md) | Etapas, Definition of Ready e Done |
 | [Fontes técnicas](docs/references/sources.yml) | Catálogo das 78 fichas de documentação |
 | [Ambiente](docs/development/environment.md) | Setup local e diagnóstico |
+| [Merge e branches](docs/development/merge-e-branches.md) | Strict na fila de merges e branches `arquivo/*` |
 
 ## Builds Docker e arquitetura
 

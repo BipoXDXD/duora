@@ -87,9 +87,10 @@ projeto sombra e do restic) e grava o motivo. CPU > 85% por 5 min e throttling >
 
 Pré-requisitos no Mac: `ssh c2vps` (alias para a VPS, root ou usuário com Docker e `sudo` sem senha) e o worktree
 no commit do PR. Na VPS: Docker Compose ≥ 2.24.4 (`!override`), `restic`, `openssl`, Python 3.12, ≥ 15 GiB livres.
-Escolher a janela fora dos timers de backup da produção (`systemctl list-timers 'duora*'`: hoje media/diff/
-verify-repo/media-verify/media-check entre 02:35 e 06:45 UTC e o FULL de domingo às 03:06 UTC); o `verify` de
-15 em 15 min fica ligado e entra na linha de base. OpenClaw pausado pelo responsável durante toda a janela.
+Escolher a janela fora dos timers de backup da produção (`systemctl list-timers 'duora*'`: hoje full de domingo e
+diff de segunda a sábado às 03:00, media 03:10, verify-repo 03:45, media-verify 03:55, verify-repo-full de quarta e
+media-check de quinta às 04:05 UTC) e do reinício automático das 05:40 UTC; o `verify` de 15 em 15 min fica ligado e
+entra na linha de base. OpenClaw pausado pelo responsável durante toda a janela.
 
 | T (min) | Fase | Duração | Corte |
 |---|---|---:|---|

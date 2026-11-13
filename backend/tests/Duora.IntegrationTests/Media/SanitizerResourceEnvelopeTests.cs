@@ -53,6 +53,8 @@ public sealed class SanitizerResourceEnvelopeTests
             + "|---|---:|---|---:|---:|---:|\n");
         var raw = new StringBuilder("\n<details><summary>Raw synthetic samples (JSONL)</summary>\n\n```jsonl\n");
         var pids = new HashSet<int>();
+        // .NET does not implement Process.PeakWorkingSet64 on macOS: it reports 0 there.
+        var peakWorkingSetMeasured = !OperatingSystem.IsMacOS();
         try
         {
             foreach (var item in SanitizerBaselineCorpus.Cases)
@@ -72,7 +74,10 @@ public sealed class SanitizerResourceEnvelopeTests
                     Assert.True(pids.Add(pid), "Every sample must come from a new OS process.");
                     Assert.Equal(input.Length, result.GetProperty("InputBytes").GetInt32());
                     Assert.Equal(Convert.ToHexStringLower(SHA256.HashData(input)), result.GetProperty("InputSha256").GetString());
-                    Assert.True(result.GetProperty("PeakWorkingSetBytes").GetInt64() > 0);
+                    if (peakWorkingSetMeasured)
+                    {
+                        Assert.True(result.GetProperty("PeakWorkingSetBytes").GetInt64() > 0);
+                    }
                     Assert.True(result.GetProperty("AllocatedDuringSanitizeBytes").GetInt64() >= 0);
                     Assert.Equal(item.RejectionCode, result.GetProperty("RejectionCode").GetString());
                     Assert.Equal(item.RejectionCode is null ? "Sanitized" : "Rejected", result.GetProperty("Outcome").GetString());
@@ -146,6 +151,8 @@ public sealed class SanitizerResourceEnvelopeTests
         {
             Directory.Delete(folder, recursive: true);
         }
+        Assert.SkipUnless(peakWorkingSetMeasured,
+            "PeakWorkingSetBytes is not available on macOS (.NET reports 0); the RSS assertion runs on Linux CI.");
     }
 
     private static void ValidateVariants(SanitizerBaselineCase item, JsonElement result)

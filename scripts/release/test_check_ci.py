@@ -1,5 +1,10 @@
+import re
 import unittest
-from check_ci import REQUIRED_JOBS, validate
+from pathlib import Path
+
+from check_ci import BACKEND_SHARDS, REQUIRED_JOBS, validate
+
+CI_WORKFLOW = Path(__file__).resolve().parents[2] / ".github" / "workflows" / "ci.yml"
 
 
 class ReleaseGateTests(unittest.TestCase):
@@ -40,3 +45,46 @@ class ReleaseGateTests(unittest.TestCase):
         for commit in ["a" * 7, "A" * 40, "--help", "a" * 40 + "\n"]:
             with self.subTest(commit=commit), self.assertRaises(ValueError):
                 validate(self.run, self.jobs, commit, self.repo)
+
+
+class ShardedBackendGateTests(unittest.TestCase):
+    """#510: the backend suite runs in shards and the exact sharded set qualifies; nothing less does."""
+
+    def setUp(self):
+        self.commit = "a" * 40
+        self.repo = "owner/repo"
+        self.run = dict(head_sha=self.commit, head_branch="main", event="push",
+                        path=".github/workflows/ci.yml", head_repository={"full_name": self.repo},
+                        status="completed", conclusion="success")
+        self.jobs = [dict(name=name, status="completed", conclusion="success")
+                     for name in sorted(REQUIRED_JOBS | BACKEND_SHARDS)]
+
+    def test_every_sharded_job_succeeded(self):
+        validate(self.run, self.jobs, self.commit, self.repo)
+
+    def test_each_shard_that_did_not_succeed_refuses(self):
+        for index, job in enumerate(self.jobs):
+            if job["name"] not in BACKEND_SHARDS:
+                continue
+            for state in ["skipped", "failure", "cancelled", "neutral", None]:
+                jobs = [*self.jobs[:index], {**job, "conclusion": state}, *self.jobs[index + 1:]]
+                with self.subTest(shard=job["name"], state=state), self.assertRaises(ValueError):
+                    validate(self.run, jobs, self.commit, self.repo)
+
+    def test_missing_duplicate_or_unknown_shard_refuses(self):
+        shards = [job for job in self.jobs if job["name"] in BACKEND_SHARDS]
+        others = [job for job in self.jobs if job["name"] not in BACKEND_SHARDS]
+        unknown = {"name": "backend (novo)", "status": "completed", "conclusion": "success"}
+        for name, jobs in [("one shard missing", others + shards[1:]),
+                           ("aggregate missing", [job for job in self.jobs if job["name"] != "backend"]),
+                           ("duplicated shard", self.jobs + [shards[0]]),
+                           ("unknown shard", self.jobs + [unknown]),
+                           ("unknown shard replaces one", others + shards[1:] + [unknown]),
+                           ("legacy set plus one shard", others + shards[:1])]:
+            with self.subTest(name), self.assertRaises(ValueError):
+                validate(self.run, jobs, self.commit, self.repo)
+
+    def test_shard_names_match_the_ci_matrix(self):
+        shards = re.findall(r"^ {10}- shard: (\S+)$", CI_WORKFLOW.read_text(encoding="utf-8"), re.MULTILINE)
+        self.assertEqual({f"backend ({shard})" for shard in shards}, BACKEND_SHARDS)
+        self.assertEqual(len(shards), len(BACKEND_SHARDS))
