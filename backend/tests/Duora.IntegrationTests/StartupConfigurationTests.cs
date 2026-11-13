@@ -60,8 +60,8 @@ public sealed class StartupConfigurationTests
     }
 
     /// <summary>
-    /// Teto do cadastro para esperar a linha da conta (#466): abaixo de 1 ms o <c>lock_timeout</c> vira 0, que desliga o
-    /// teto; acima de 50 ms a espera volta a aparecer no tempo de resposta.
+    /// Teto do cadastro para esperar a linha da conta (#466): abaixo de 1 ms o <c>lock_timeout</c> vira 0, que
+    /// desliga o teto; acima de 50 ms a espera volta a aparecer no tempo de resposta.
     /// </summary>
     [Theory]
     [InlineData("00:00:00")]

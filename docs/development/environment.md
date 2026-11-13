@@ -21,6 +21,12 @@ Inventário da máquina de desenvolvimento em 2026-11-05, lido com os comandos d
 
 O CI roda em Ubuntu 24.04; o inventário do runner fica registrado no workflow quando ele existir.
 
+Python: o tooling que roda só no runner (ansible-core 2.22, ansible-lint, pyright, ilustrações, supply chain, ensaios)
+usa 3.14.10 exato (`actions/setup-python` fixado por SHA), e os lockfiles com hashes (`scripts/deploy/requirements.txt`,
+`tools/visual/requirements.txt`) são compilados para 3.14. Os testes do código que roda no Python do host da VPS
+(`scripts/deploy`, `scripts/backup`, validador da chave do apt) ficam no 3.12 do Ubuntu 24.04, que é o da VPS, até o dono
+atualizá-la. Detalhes em `infra/README.md`.
+
 ## Diagnóstico
 
 ```sh

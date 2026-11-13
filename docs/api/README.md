@@ -84,14 +84,26 @@ para a SPA tratá-los:
 Um erro passageiro do banco responde `503` `TEMPORARILY_UNAVAILABLE` com `Retry-After`, sem detalhe da falha.
 Quem decide é só o handler global (`DatabaseUnavailableExceptionHandler`); nenhum filtro de endpoint trata
 contenção por conta própria, e o teste de arquitetura `ContentionClassificationTests` impede que volte um.
+A elegibilidade indisponível (`EligibleParticipant`, `account-moderator`) não tem 503 próprio: ela monta a mesma
+resposta, pela mesma fonte do `Retry-After` (`DatabaseUnavailability.Unavailable`), mas não loga. O Warning
+(`DatabaseUnavailable` ou `DatabaseContention`) sai só pelo handler global, então uma falha de banco vista só pela
+elegibilidade responde `503` sem nenhuma linha de log (#473).
+
+Os endpoints que montam o `503` de banco sem passar pelo handler (revisão de foto, mídia, bloqueio, suspensão de
+conta, reconciliação de cadastro e a entrega da evidência) também usam `DatabaseUnavailability` (`Unavailable` com a
+exceção, ou `Contention` quando o serviço devolve só `Busy`). Um teste de arquitetura (`RetryAfterSourceTests`) barra
+o prazo literal em `SetRetryAfter` e `Unavailable` e qualquer escrita do header fora de uma allowlist de arquivos, cada
+um com o motivo (#493). Dentro desses arquivos, mandar a exceção do Npgsql para a fonte é regra de revisão: o teste não
+distingue o `catch` de banco do de storage. O `503` de outra causa (fila de mídia, storage, capacidade, revisão sem
+evidência) declara o prazo numa constante nomeada perto dela.
 
 Valores (decisão da coordenação, 10/11):
 
 | Falha | SQLSTATE | `Retry-After` fora de `/auth` | `Retry-After` em `/auth` |
 |---|---|---|---|
 | Contenção: serialização, deadlock, `lock_timeout` (crua ou embrulhada pelo Npgsql ou pelo EF) | `40001`, `40P01`, `55P03` | `2` | `30` |
-| Banco fora do alcance: rede, pool esgotado, servidor sem conexões ou desligando | `53300`, `57P01`–`57P03`, `08*`, falha transitória do cliente | `5` | `30` |
-| Timeout de comando (`statement_timeout`) | `57014` | regra da rota (mídia e revisão de foto: `503`; outras: `500`) | `30` |
+| Banco fora do alcance: rede, pool, servidor sem conexões, recursos, disco ou memória, no limite de configuração, com objeto em uso, erro de E/S, sessão ociosa encerrada, ou desligando | `53300`, `53000`, `53100`, `53200`, `53400`, `55006`, `57P05`, `58030`, `57P01`–`57P03`, `08000`, `08001`, `08003`, `08004`, `08006`, `08007`, falha do cliente | `5` | `30` |
+| Timeout de comando (`statement_timeout`) | `57014` | regra da rota (mídia e revisão de foto: `503` com `2`; outras: `500`) | `30` |
 | Conta ocupada (`AccountBusyException`: fila, lock ou prazo) | — | o da exceção (na conta, `30`) | `30`; no cadastro e no reenvio, não é `503` (abaixo) |
 | Documentos legais indisponíveis no cadastro | — | — | `30` |
 
@@ -117,17 +129,44 @@ marcador; o teste falha se uma nascer fora do grupo.
 Entra numa release só com o #451, que é a base deste PR: o #451 dá ao handler global o Warning estruturado
 (SQLSTATE, tipo da exceção, padrão da rota e trace, nunca a mensagem do Npgsql nem a connection string) e trata o
 erro passageiro do servidor embrulhado pelo Npgsql como indisponibilidade. O #465 parte daí, separa o Warning em
-dois eventos e unifica cru e embrulhado na contenção (`40001`, `40P01`, `55P03`). Fora dela, `53200`, `53400`,
-`55006` e `58030` ainda divergem (embrulhado `503` com `5`, cru `500`): issue #476.
+dois eventos e unifica cru e embrulhado na contenção (`40001`, `40P01`, `55P03`). O #476 unifica também `53200`,
+`53400`, `55006` e `58030` (sem memória, limite de configuração, objeto em uso e erro de E/S) e o #492 acrescenta
+`53000`, `53100` e `57P05` (recursos insuficientes, disco cheio e sessão ociosa encerrada): antes, embrulhados davam
+`503` com `5` e crus davam `500`. A lista é própria e não acompanha o `IsTransient` do Npgsql (a classe 08 é a
+exceção: segue exatamente os seis estados dele, #497): `55000` (defeito costuma ser permanente) e `58000` (genérico
+demais) ficam de fora de propósito e, crus, seguem `500`. Embrulhados pelo Npgsql, esses dois seguem `503`, pelo
+`IsTransient`. Um `57P05` recorrente indica `idle_session_timeout` do servidor ou do proxy
+menor que o idle do pool do Npgsql (`ConnectionIdleLifetime`, padrão 300 s): é configuração, não falha passageira.
 
-Mudança de contrato, sem mudança de schema (o OpenAPI não lista o `Retry-After` desses 503):
+Mudança de contrato, sem mudança de schema de corpo (antes do #492 o OpenAPI não listava o `Retry-After` desses 503;
+ver o fim desta seção):
 
 - Contenção crua numa rota sem filtro próprio: era `500` `INTERNAL_ERROR`, passa a `503` com `Retry-After: 2`.
 - Contenção embrulhada pelo Npgsql: era `503` com `Retry-After: 5`, passa a `2`.
 - Rotas de Participation, Catalog, PhotoReview e Media: continuam `503` com `Retry-After: 2`; a resposta ganha
   `Expires: -1`, como todo erro tratado pelo handler global, e a falha passa a gerar o Warning com o SQLSTATE.
+- Entrega da evidência de revisão de foto (`GET /api/v1/admin/photo-reviews/{id}/evidence/{variant}`), falha antes do
+  primeiro byte (#493): a exceção do Npgsql que não é contenção nem `57014` (banco fora do alcance) era `503` com
+  `Retry-After: 2`, passa a `5`, como no handler global; contenção e `57014` continuam `2`, e a falha de I/O ou o
+  cancelamento sem exceção do Npgsql continuam `2`.
+- `53200`, `53400`, `55006` e `58030` crus (`PostgresException`): eram `500` `INTERNAL_ERROR`, passam a `503` com
+  `Retry-After: 5` (`30` sob `/auth`), igual ao embrulhado pelo Npgsql ou pelo EF (#476). O mesmo vale para `53000`,
+  `53100` e `57P05` crus (#492).
+- Classe 08 (#497): o prefixo `08` vira lista explícita, a do `IsTransient` do Npgsql 10.0.3 (`08000`, `08001`,
+  `08003`, `08004`, `08006` e `08007`), que seguem `503`. `08P01` (`protocol_violation`, em geral defeito de código ou
+  de proxy, como um bind com número de parâmetros errado) e `08002` (`connection_already_exists`) crus
+  (`PostgresException`) eram `503` com `Retry-After: 5` (`30` sob `/auth`) e Warning `DatabaseUnavailable`; passam a
+  `500` `INTERNAL_ERROR`, sem `Retry-After`, com log `Error` do middleware de exceção.
 - Rotas sob `/auth`: todo `503` passa a `Retry-After: 30`; o `57014` passa de `500` a `503`; o `503` legal do
   cadastro e os `503` do Google passam a levar `Retry-After`.
+
+Declaração no OpenAPI (#492): toda operação de `/api/v1` declara o `503` `ProblemDetails` com o header `Retry-After`
+(inteiro, em segundos, mínimo 1), porque qualquer rota pode recebê-lo: o cookie de sessão é validado no banco a cada
+requisição, inclusive nas rotas anônimas que o recebem. A declaração vem de um transformer único
+(`ServiceUnavailableOpenApi`), não de cada rota: as rotas que já declaram o `503` ganham só o header. O header é
+documentado como enviado com `TEMPORARILY_UNAVAILABLE`; outros `503` de uma rota (por exemplo `SELFIE_UNAVAILABLE`)
+podem não o levar. Antes eram 48 das 85 operações; agora são as 85. Só adiciona respostas e um header opcional, sem
+breaking change para o `oasdiff`. `ServiceUnavailableOpenApiTests` confere o contrato gerado e o versionado.
 
 ## Reenvio da confirmação com a conta ocupada (#470)
 
@@ -139,7 +178,8 @@ fica só no Warning do log. Só uma conta existente espera a trava, então o `50
 
 - Continua `503`: banco indisponível, contenção e timeout de comando (seção acima). Por isso o `503` segue
   declarado no OpenAPI; a descrição da operação registra a regra nova. `oasdiff breaking` não aponta breaking change.
-- Continua `429` com `Retry-After` depois do limite do cadastro (mesmo contador; `ResendUsesTheRegistrationAccountLimitAndReturnsRetryAfter`).
+- Continua `429` com `Retry-After` depois do limite do cadastro (mesmo contador;
+  `ResendUsesTheRegistrationAccountLimitAndReturnsRetryAfter`).
 - SPA: `CheckEmailPage` não trata `503` em ramo próprio (falha genérica por `classifyRequestFailure`), então não
   muda; o `202` já mostra o aviso neutro.
 - Testes: `EmailConfirmationResendBusyTests.ExistingMissingAndBusyAccountsGetTheSameEmptyAccepted` e
@@ -175,9 +215,18 @@ versão não duplica o efeito; outro corpo é inválido. Conflito de versão ret
 Autorização, elegibilidade, saída e bloqueios são revalidados antes de reconhecer um reenvio. A rota de
 ações de uma experiência não pode operar a outra.
 
-Prazo de jogo, em `actions` e `routes-actions`: uma ação nova no prazo ou depois dele recebe `404 NOT_FOUND`,
-igual ao da sala `Expired`, antes e depois do job `game-deadline`, mesmo com `expectedVersion` desatualizado. Até
-o job rodar, o reenvio com o mesmo `actionId` segue a regra de replay acima (`204` ou `400`); depois, `404`.
+Prazo de jogo, em `actions` e `routes-actions`: numa sala ainda `Active` ou já `Completed`, uma ação nova **bem
+formada** no prazo ou depois dele recebe `404 NOT_FOUND`, igual ao da sala `Expired` e ao de uma sala inexistente,
+antes e depois do job `game-deadline`, mesmo com `expectedVersion` desatualizado. Antes do prazo, a ação nova numa sala
+`Completed` segue `400 VALIDATION_FAILED` (ADR-0054, emenda da issue #463). Payload malformado é recusado antes de a sala ser lida, no prazo ou
+depois dele, com a mesma resposta de uma sala inexistente. JSON inválido ou campo de tipo errado (como `actionId`
+que não é GUID) falha no model binding e recebe `400 INVALID_REQUEST` (`"actionId":""` e `"actionId":null` não são
+GUID e também recebem `INVALID_REQUEST`). Os demais casos recebem `400 VALIDATION_FAILED`: `actionId` ausente ou
+GUID vazio (`00000000-0000-0000-0000-000000000000`), `expectedVersion` que não é inteiro positivo, `type`
+desconhecido, ou campos ausentes ou incoerentes com o `type`. Até o job rodar, o reenvio com o mesmo `actionId`
+segue a regra de replay acima (`204` ou `400`); depois, `404`. Na sala `Completed`, o job não muda a sala, então o
+reenvio segue a regra de replay (`204` sem gravar de novo, ou `400` com outro corpo) mesmo depois do prazo e do job. Só
+o autor vê isso, e só sobre a própria ação.
 
 ## Idioma do documento aceito (issue #103)
 

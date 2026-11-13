@@ -101,7 +101,8 @@ public sealed class LoginConcurrencyTests(PostgresFixture postgres)
         var account = await new IdentityScenario(postgres, factory).CreateConfirmedAccountAsync();
         hasher.Delay = SlowHash;
         var existing = await BurstAsync(factory, account.Email, "senha incorreta longa", HttpStatusCode.Unauthorized);
-        var missing = await BurstAsync(factory, IdentityScenario.NewEmail(), "senha incorreta longa", HttpStatusCode.Unauthorized);
+        var missing = await BurstAsync(
+            factory, IdentityScenario.NewEmail(), "senha incorreta longa", HttpStatusCode.Unauthorized);
 
         Assert.Equal(1, hasher.MaximumConcurrent);
         Assert.Equal(8, hasher.Verifications);
@@ -137,7 +138,8 @@ public sealed class LoginConcurrencyTests(PostgresFixture postgres)
         {
             using var browser = new Browser(factory);
             // Outra caixa deve disputar a mesma vez, tanto para conta existente quanto inexistente.
-            using var response = await IdentityScenario.LoginAsync(browser, email.ToUpperInvariant(), "senha incorreta longa");
+            using var response = await IdentityScenario.LoginAsync(
+                browser, email.ToUpperInvariant(), "senha incorreta longa");
             await ProblemAssert.IsProblemAsync(response, HttpStatusCode.ServiceUnavailable, "TEMPORARILY_UNAVAILABLE");
             Assert.Equal(1, ProblemAssert.RetryAfterSeconds(response));
             Assert.Null(browser.Cookie("__Host-duora"));
@@ -240,7 +242,8 @@ public sealed class LoginConcurrencyTests(PostgresFixture postgres)
         var waiting = gate.EnterAsync(key, TimeSpan.FromSeconds(10), cancelled.Token);
         await cancelled.CancelAsync();
         await Assert.ThrowsAnyAsync<OperationCanceledException>(() => waiting);
-        await Assert.ThrowsAsync<AccountBusyException>(() => gate.EnterAsync(key, timeout, TestContext.Current.CancellationToken));
+        await Assert.ThrowsAsync<AccountBusyException>(
+            () => gate.EnterAsync(key, timeout, TestContext.Current.CancellationToken));
         // Uma chave diferente continua independente.
         await using var other = await gate.EnterAsync(Guid.NewGuid(), timeout, TestContext.Current.CancellationToken);
         await holder.DisposeAsync();
@@ -285,14 +288,18 @@ public sealed class LoginConcurrencyTests(PostgresFixture postgres)
         using var browser = await scenario.SignedInBrowserAsync(account);
         var gate = factory.Services.GetRequiredService<AccountCheckGate>();
 
-        await using (await gate.EnterAsync(account.UserId, TimeSpan.FromSeconds(1), TestContext.Current.CancellationToken))
+        await using (await gate.EnterAsync(
+            account.UserId, TimeSpan.FromSeconds(1), TestContext.Current.CancellationToken))
         {
             // O timeout do runtime usa TickCount64 (ms); Stopwatch mantém o diagnóstico e o teto.
             var startedAtMilliseconds = Environment.TickCount64;
             var waited = Stopwatch.StartNew();
-            var reauthentication = browser.PostJsonAsync(MfaScenario.Reauthenticate, new { password = account.Password });
-            var finished = await Task.WhenAny(reauthentication, Task.Delay(QueueCeilingLimit, TestContext.Current.CancellationToken));
-            Assert.True(finished == reauthentication, $"A reautenticação não desistiu em {QueueCeilingLimit}: a fila por UUID está sem teto.");
+            var reauthentication = browser.PostJsonAsync(
+                MfaScenario.Reauthenticate, new { password = account.Password });
+            var finished = await Task.WhenAny(
+                reauthentication, Task.Delay(QueueCeilingLimit, TestContext.Current.CancellationToken));
+            Assert.True(finished == reauthentication,
+                $"A reautenticação não desistiu em {QueueCeilingLimit}: a fila por UUID está sem teto.");
             using var response = await reauthentication;
             waited.Stop();
             var waitedMilliseconds = Environment.TickCount64 - startedAtMilliseconds;
@@ -330,17 +337,20 @@ public sealed class LoginConcurrencyTests(PostgresFixture postgres)
         Assert.True(EmailAddress.TryParse(account.Email, out var address));
         using var scope = factory.Services.CreateScope();
         var security = scope.ServiceProvider.GetRequiredService<AccountSecurityService>();
-        var user = await scope.ServiceProvider.GetRequiredService<UserManager<DuoraUser>>().FindByIdAsync($"{account.UserId:D}");
+        var user = await scope.ServiceProvider.GetRequiredService<UserManager<DuoraUser>>()
+            .FindByIdAsync($"{account.UserId:D}");
         Assert.NotNull(user);
         var ct = TestContext.Current.CancellationToken;
 
         await using (await security.LockAccountAsync(user, ct))
         {
-            var inverted = await Assert.ThrowsAsync<InvalidOperationException>(() => security.EnterLoginAsync(address, ct));
+            var inverted = await Assert.ThrowsAsync<InvalidOperationException>(
+                () => security.EnterLoginAsync(address, ct));
             Assert.Contains("ordem", inverted.Message, StringComparison.Ordinal);
         }
 
-        await using (await factory.Services.GetRequiredService<AccountCheckGate>().EnterAsync(account.UserId, TimeSpan.FromSeconds(1), ct))
+        await using (await factory.Services.GetRequiredService<AccountCheckGate>()
+            .EnterAsync(account.UserId, TimeSpan.FromSeconds(1), ct))
         {
             await Assert.ThrowsAsync<InvalidOperationException>(() => security.EnterLoginAsync(address, ct));
         }
@@ -366,18 +376,20 @@ public sealed class LoginConcurrencyTests(PostgresFixture postgres)
         Assert.Equal(valid, options.IsValid());
     }
 
-    private DuoraWebFactory CreateFactory(SlowHasher hasher, string? loginTimeout = null) => new(postgres.ConnectionString)
-    {
-        TestServices = services => services.AddSingleton<IPasswordHasher<DuoraUser>>(hasher),
-        Settings = loginTimeout is null
-            ? new Dictionary<string, string?>()
-            : new Dictionary<string, string?> { ["Identity:LoginTimeout"] = loginTimeout },
-    };
+    private DuoraWebFactory CreateFactory(
+        SlowHasher hasher, string? loginTimeout = null) => new(postgres.ConnectionString)
+        {
+            TestServices = services => services.AddSingleton<IPasswordHasher<DuoraUser>>(hasher),
+            Settings = loginTimeout is null
+                ? new Dictionary<string, string?>()
+                : new Dictionary<string, string?> { ["Identity:LoginTimeout"] = loginTimeout },
+        };
 
     private static async Task<int> AccessFailedCountAsync(DuoraWebFactory factory, Guid userId)
     {
         using var scope = factory.Services.CreateScope();
-        var user = await scope.ServiceProvider.GetRequiredService<UserManager<DuoraUser>>().FindByIdAsync($"{userId:D}");
+        var user = await scope.ServiceProvider.GetRequiredService<UserManager<DuoraUser>>()
+            .FindByIdAsync($"{userId:D}");
         Assert.NotNull(user);
         return user.AccessFailedCount;
     }
@@ -435,7 +447,8 @@ public sealed class LoginConcurrencyTests(PostgresFixture postgres)
 
         public string HashPassword(DuoraUser user, string password) => _inner.HashPassword(user, password);
 
-        public PasswordVerificationResult VerifyHashedPassword(DuoraUser user, string hashedPassword, string providedPassword)
+        public PasswordVerificationResult VerifyHashedPassword(
+            DuoraUser user, string hashedPassword, string providedPassword)
         {
             if (Delay == TimeSpan.Zero)
             {
