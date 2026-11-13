@@ -205,8 +205,9 @@ public sealed class RoutesParticipationTests(PostgresFixture postgres)
     }
 
     /// <summary>
-    /// Como em API-R03: entre o prazo e o job a sala segue <c>Active</c> no banco, mas uma ação nova recebe, antes e depois
-    /// do job, a mesma <c>404</c> de uma sala inexistente, em status, corpo sem <c>traceId</c> e headers, sem gravar nada.
+    /// Como em API-R03: entre o prazo e o job a sala segue <c>Active</c> no banco, mas uma ação nova recebe, antes e
+    /// depois do job, a mesma <c>404</c> de uma sala inexistente, em status, corpo sem <c>traceId</c> e headers, sem
+    /// gravar nada.
     /// </summary>
     [Theory]
     [InlineData(0)]
@@ -244,8 +245,8 @@ public sealed class RoutesParticipationTests(PostgresFixture postgres)
     }
 
     /// <summary>
-    /// Uma ação nova com <c>expectedVersion</c> desatualizado, no prazo e antes do job, recebe a mesma <c>404</c> da ação
-    /// atrasada e de uma sala inexistente, não o <c>409</c> de conflito. Nada é gravado.
+    /// Uma ação nova com <c>expectedVersion</c> desatualizado, no prazo e antes do job, recebe a mesma <c>404</c> da
+    /// ação atrasada e de uma sala inexistente, não o <c>409</c> de conflito. Nada é gravado.
     /// </summary>
     [Fact]
     public async Task ANewActionWithAStaleVersionAtTheDeadlineGetsTheSame404()
@@ -255,8 +256,10 @@ public sealed class RoutesParticipationTests(PostgresFixture postgres)
         var ct = TestContext.Current.CancellationToken;
         await using var factory = new DuoraWebFactory(connectionString) { Time = clock };
         var identity = new IdentityScenario(connectionString, factory);
-        using var alice = await identity.SignedInBrowserAsync(new(seed.Alice, "alice@example.com", IdentityScenario.ValidPassword));
-        using var bob = await identity.SignedInBrowserAsync(new(seed.Bob, "bob@example.com", IdentityScenario.ValidPassword));
+        using var alice = await identity.SignedInBrowserAsync(
+            new(seed.Alice, "alice@example.com", IdentityScenario.ValidPassword));
+        using var bob = await identity.SignedInBrowserAsync(
+            new(seed.Bob, "bob@example.com", IdentityScenario.ValidPassword));
         var before = (await service.RoomAsync(room, seed.Alice, ct))!;
         await using var connection = await source.OpenConnectionAsync(ct);
         var deadline = await DeadlineAsync(connection, room, ct);
@@ -281,12 +284,14 @@ public sealed class RoutesParticipationTests(PostgresFixture postgres)
 
     /// <summary>
     /// Issue #463, como em API-R03: numa sala <c>Completed</c>, uma ação nova no prazo ou depois dele recebe a mesma
-    /// <c>404</c> de uma sala inexistente, em status, corpo sem <c>traceId</c> e headers, antes e depois do job, sem gravar nada.
+    /// <c>404</c> de uma sala inexistente, em status, corpo sem <c>traceId</c> e headers, antes e depois do job, sem
+    /// gravar nada.
     /// </summary>
     [Theory]
     [InlineData(0)]
     [InlineData(60)]
-    public async Task ANewActionInACompletedRoomAtOrAfterTheDeadlineGetsTheSame404BeforeAndAfterTheJob(int secondsAfterDeadline)
+    public async Task ANewActionInACompletedRoomAtOrAfterTheDeadlineGetsTheSame404BeforeAndAfterTheJob(
+        int secondsAfterDeadline)
     {
         var (source, clock, service, seed, room, connectionString) = await Active();
         await using var owned = source;
@@ -318,7 +323,72 @@ public sealed class RoutesParticipationTests(PostgresFixture postgres)
         Assert.Equal(completed, await RoomFactsAsync(connection, room, ct));
     }
 
-    /// <summary>Só o depois do prazo mudou: numa sala <c>Completed</c>, uma ação nova antes do prazo continua <c>400 VALIDATION_FAILED</c>, sem gravar.</summary>
+    /// <summary>
+    /// Na sala <c>Completed</c> depois do prazo, a ação nova com <c>expectedVersion</c> desatualizado também recebe
+    /// a <c>404</c> neutra, não o <c>409</c>, como em <c>GameDeadlineTests</c>. Nada é gravado.
+    /// </summary>
+    [Fact]
+    public async Task ANewActionWithAStaleVersionInACompletedRoomAfterTheDeadlineGetsTheSame404()
+    {
+        var (source, clock, service, seed, room, connectionString) = await Active();
+        await using var owned = source;
+        var ct = TestContext.Current.CancellationToken;
+        await using var factory = new DuoraWebFactory(connectionString) { Time = clock };
+        using var alice = await new IdentityScenario(connectionString, factory)
+            .SignedInBrowserAsync(new(seed.Alice, "alice@example.com", IdentityScenario.ValidPassword));
+        await CompleteRoutesAsync(service, seed, room, ct);
+        await using var connection = await source.OpenConnectionAsync(ct);
+        var completed = await RoomFactsAsync(connection, room, ct);
+        Assert.Equal("Completed", completed.State);
+        clock.SetUtcNow(await DeadlineAsync(connection, room, ct));
+
+        using var stale = await alice.PostJsonAsync(
+            $"/api/v1/rooms/{room}/routes-actions", AcknowledgeIntroduction(completed.Version - 1));
+
+        Assert.Equal(HttpStatusCode.NotFound, stale.StatusCode);
+        Assert.Equal("NOT_FOUND", await ProblemCodeAsync(stale, ct));
+        var unknownRoom = await UnknownRoomAsync(alice, completed.Version - 1, ct);
+        Assert.Equal(unknownRoom, await NeutralResponse.DescribeAsync(stale, ct));
+        Assert.Equal(completed, await RoomFactsAsync(connection, room, ct));
+    }
+
+    /// <summary>
+    /// Quem não participa da sala <c>Completed</c> recebe, depois do prazo, a mesma <c>404</c> de uma sala
+    /// inexistente, como em <c>GameDeadlineTests</c>. Nada é gravado.
+    /// </summary>
+    [Fact]
+    public async Task AnOutsiderActingOnACompletedRoomAfterTheDeadlineGetsTheNeutral404()
+    {
+        var (source, clock, service, seed, room, connectionString) = await Active();
+        await using var owned = source;
+        var ct = TestContext.Current.CancellationToken;
+        await using var factory = new DuoraWebFactory(connectionString) { Time = clock };
+        await using var connection = await source.OpenConnectionAsync(ct);
+        // Active() deixa Third como product_admin, que a rota recusa com 403 antes de olhar a sala: o forasteiro
+        // precisa ser um participante que simplesmente não está nela.
+        await Execute(connection, "delete from identity.user_roles where user_id=$1", ct, seed.Third);
+        await Execute(connection, """
+            insert into identity.user_roles(user_id,role_id) select $1,id from identity.roles where name='participant'
+            """, ct, seed.Third);
+        using var third = await new IdentityScenario(connectionString, factory)
+            .SignedInBrowserAsync(new(seed.Third, "third@example.com", IdentityScenario.ValidPassword));
+        await CompleteRoutesAsync(service, seed, room, ct);
+        var completed = await RoomFactsAsync(connection, room, ct);
+        Assert.Equal("Completed", completed.State);
+        clock.SetUtcNow(await DeadlineAsync(connection, room, ct));
+
+        using var outsider = await third.PostJsonAsync(
+            $"/api/v1/rooms/{room}/routes-actions", AcknowledgeIntroduction(completed.Version));
+
+        Assert.Equal(HttpStatusCode.NotFound, outsider.StatusCode);
+        Assert.Equal("NOT_FOUND", await ProblemCodeAsync(outsider, ct));
+        var unknownRoom = await UnknownRoomAsync(third, completed.Version, ct);
+        Assert.Equal(unknownRoom, await NeutralResponse.DescribeAsync(outsider, ct));
+        Assert.Equal(completed, await RoomFactsAsync(connection, room, ct));
+    }
+
+    /// <summary>Só o depois do prazo mudou: numa sala <c>Completed</c>, uma ação nova antes do prazo continua <c>400
+    /// VALIDATION_FAILED</c>, sem gravar.</summary>
     [Fact]
     public async Task ANewActionInACompletedRoomBeforeTheDeadlineIsStillAValidationFailure()
     {
@@ -334,7 +404,9 @@ public sealed class RoutesParticipationTests(PostgresFixture postgres)
         Assert.Equal("Completed", completed.State);
         clock.SetUtcNow((await DeadlineAsync(connection, room, ct)).AddTicks(-1));
 
-        using var refused = await alice.PostJsonAsync($"/api/v1/rooms/{room}/routes-actions", AcknowledgeIntroduction(completed.Version));
+        using var refused = await alice.PostJsonAsync(
+            $"/api/v1/rooms/{room}/routes-actions",
+            AcknowledgeIntroduction(completed.Version));
 
         Assert.Equal(HttpStatusCode.BadRequest, refused.StatusCode);
         Assert.Equal("VALIDATION_FAILED", await ProblemCodeAsync(refused, ct));
@@ -342,9 +414,9 @@ public sealed class RoutesParticipationTests(PostgresFixture postgres)
     }
 
     /// <summary>
-    /// Resíduo do replay na sala <c>Completed</c>, como em API-R03: o job não muda a sala, então mesmo depois do prazo e do
-    /// job a ação que completou a sala, reenviada, responde <c>204</c> sem gravar de novo, e o mesmo <c>actionId</c> com outro
-    /// corpo responde <c>400</c>. Só o autor vê isso, e só sobre a própria ação.
+    /// Resíduo do replay na sala <c>Completed</c>, como em API-R03: o job não muda a sala, então mesmo depois do prazo
+    /// e do job a ação que completou a sala, reenviada, responde <c>204</c> sem gravar de novo, e o mesmo
+    /// <c>actionId</c> com outro corpo responde <c>400</c>. Só o autor vê isso, e só sobre a própria ação.
     /// </summary>
     [Fact]
     public async Task TheActionThatCompletedTheRoomIsStillReplayedAfterTheDeadlineAndTheJob()
@@ -431,16 +503,33 @@ public sealed class RoutesParticipationTests(PostgresFixture postgres)
 
     /// <summary>
     /// O prazo só vale para a ação bem formada. Um payload malformado no prazo é recusado antes de a sala ser lida: a
-    /// resposta é igual à do mesmo payload numa sala inexistente, e nada é gravado. O handler recusa a versão inválida com
-    /// <c>400 VALIDATION_FAILED</c>, assim como o <c>actionId</c> ausente, que chega ao serviço como GUID vazio; JSON inválido
-    /// (aqui truncado em <c>{"actionId":</c>), GUID malformado e <c>actionId</c> como string vazia ou <c>null</c> falham no
-    /// model binding com <c>400 INVALID_REQUEST</c>.
+    /// resposta é igual à do mesmo payload numa sala inexistente, e nada é gravado. O handler recusa a versão inválida
+    /// com <c>400 VALIDATION_FAILED</c>, assim como o <c>actionId</c> ausente, que chega ao serviço como GUID vazio;
+    /// JSON inválido (aqui truncado em <c>{"actionId":</c>), GUID malformado e <c>actionId</c> como string vazia ou
+    /// <c>null</c> falham no model binding com <c>400 INVALID_REQUEST</c>.
     /// </summary>
     [Theory]
-    [InlineData("""{"actionId":"6f1c2a4e-0000-4000-8000-000000000002","expectedVersion":"0","type":"acknowledge","stage":"Introduction"}""", "VALIDATION_FAILED")]
-    [InlineData("""{"actionId":"not-a-guid","expectedVersion":"1","type":"acknowledge","stage":"Introduction"}""", "INVALID_REQUEST")]
-    [InlineData("""{"actionId":"","expectedVersion":"1","type":"acknowledge","stage":"Introduction"}""", "INVALID_REQUEST")]
-    [InlineData("""{"actionId":null,"expectedVersion":"1","type":"acknowledge","stage":"Introduction"}""", "INVALID_REQUEST")]
+    [InlineData(
+        """
+        {"actionId":"6f1c2a4e-0000-4000-8000-000000000002","expectedVersion":"0","type":"acknowledge",
+         "stage":"Introduction"}
+        """,
+        "VALIDATION_FAILED")]
+    [InlineData(
+        """
+        {"actionId":"not-a-guid","expectedVersion":"1","type":"acknowledge","stage":"Introduction"}
+        """,
+        "INVALID_REQUEST")]
+    [InlineData(
+        """
+        {"actionId":"","expectedVersion":"1","type":"acknowledge","stage":"Introduction"}
+        """,
+        "INVALID_REQUEST")]
+    [InlineData(
+        """
+        {"actionId":null,"expectedVersion":"1","type":"acknowledge","stage":"Introduction"}
+        """,
+        "INVALID_REQUEST")]
     [InlineData("""{"expectedVersion":"1","type":"acknowledge","stage":"Introduction"}""", "VALIDATION_FAILED")]
     // JSON truncado: o literal bruto termina em {"actionId": e não envia valor algum.
     [InlineData("""{"actionId":""", "INVALID_REQUEST")]
@@ -461,7 +550,9 @@ public sealed class RoutesParticipationTests(PostgresFixture postgres)
         Assert.Equal(HttpStatusCode.BadRequest, malformed.StatusCode);
         Assert.Equal(code, await ProblemCodeAsync(malformed, ct));
         using var unknown = await alice.PostRawJsonAsync($"/api/v1/rooms/{Guid.NewGuid()}/routes-actions", json);
-        Assert.Equal(await NeutralResponse.DescribeAsync(unknown, ct), await NeutralResponse.DescribeAsync(malformed, ct));
+        Assert.Equal(
+            await NeutralResponse.DescribeAsync(unknown, ct),
+            await NeutralResponse.DescribeAsync(malformed, ct));
         Assert.Equal(active, await RoomFactsAsync(connection, room, ct));
     }
 
@@ -584,10 +675,14 @@ public sealed class RoutesParticipationTests(PostgresFixture postgres)
     }
 
     /// <summary>
-    /// Joga a rota inteira pelo serviço, antes do prazo e sem revisão: a sala termina <c>Completed</c>. Devolve a confirmação
-    /// de Bob, a ação que completou a sala, para o teste de replay.
+    /// Joga a rota inteira pelo serviço, antes do prazo e sem revisão: a sala termina <c>Completed</c>. Devolve a
+    /// confirmação de Bob, a ação que completou a sala, para o teste de replay.
     /// </summary>
-    private static async Task<RoutesActionRequest> CompleteRoutesAsync(ParticipationService service, ParticipationSeed seed, Guid room, CancellationToken ct)
+    private static async Task<RoutesActionRequest> CompleteRoutesAsync(
+        ParticipationService service,
+        ParticipationSeed seed,
+        Guid room,
+        CancellationToken ct)
     {
         await Acknowledge(service, seed, room, "Introduction", ct);
         await Acknowledge(service, seed, room, "Clues", ct);
@@ -597,8 +692,25 @@ public sealed class RoutesParticipationTests(PostgresFixture postgres)
         await Action(service, room, partner, "choose-option", null, "second", "lake", ct);
         await Action(service, room, seed.Alice, "confirm-route", null, null, null, ct);
         var version = (await service.RoomAsync(room, seed.Bob, ct))!.Version;
-        var completing = new RoutesActionRequest(Guid.NewGuid(), version.ToString(CultureInfo.InvariantCulture), "confirm-route", null, null, null);
-        Assert.Equal(ParticipationOutcome.Done, await service.RoutesActionAsync(room, seed.Bob, completing.ActionId, version, "confirm-route", null, null, null, ct));
+        var completing = new RoutesActionRequest(
+            Guid.NewGuid(),
+            version.ToString(CultureInfo.InvariantCulture),
+            "confirm-route",
+            null,
+            null,
+            null);
+        Assert.Equal(
+            ParticipationOutcome.Done,
+            await service.RoutesActionAsync(
+                room,
+                seed.Bob,
+                completing.ActionId,
+                version,
+                "confirm-route",
+                null,
+                null,
+                null,
+                ct));
         Assert.Equal("Completed", (await service.RoomAsync(room, seed.Alice, ct))!.State);
         return completing;
     }
@@ -606,20 +718,27 @@ public sealed class RoutesParticipationTests(PostgresFixture postgres)
     private static RoutesActionRequest AcknowledgeIntroduction(long version) =>
         new(Guid.NewGuid(), version.ToString(CultureInfo.InvariantCulture), "acknowledge", "Introduction", null, null);
 
-    private static async Task<DateTimeOffset> DeadlineAsync(NpgsqlConnection connection, Guid room, CancellationToken ct)
+    private static async Task<DateTimeOffset> DeadlineAsync(
+        NpgsqlConnection connection,
+        Guid room,
+        CancellationToken ct)
     {
-        await using var query = Command(connection, "select active_deadline_at from experiences.game_sessions where id=$1", room);
+        await using var query = Command(connection,
+            "select active_deadline_at from experiences.game_sessions where id=$1",
+            room);
         await using var reader = await query.ExecuteReaderAsync(ct);
         Assert.True(await reader.ReadAsync(ct));
         return reader.GetFieldValue<DateTimeOffset>(0);
     }
 
-    /// <summary>Estado e versão da sala, reservas ainda ativas do par e ações gravadas: tudo o que uma ação poderia mudar.</summary>
+    /// <summary>Estado e versão da sala, reservas ainda ativas do par e ações gravadas: tudo o que uma ação poderia
+    /// mudar.</summary>
     private static async Task<RoomFacts> RoomFactsAsync(NpgsqlConnection connection, Guid room, CancellationToken ct)
     {
         await using var query = Command(connection, """
             select s.state,s.version,
-              (select count(*) from events.pairing_participants pp where pp.pairing_id=s.pairing_id and pp.released_at is null),
+              (select count(*) from events.pairing_participants pp
+                where pp.pairing_id=s.pairing_id and pp.released_at is null),
               (select count(*) from experiences.game_actions a where a.game_session_id=s.id)
             from experiences.game_sessions s where s.id=$1
             """, room);
@@ -631,7 +750,9 @@ public sealed class RoutesParticipationTests(PostgresFixture postgres)
     /// <summary><c>status|tentativas</c> do job <c>game-deadline</c> da sala.</summary>
     private static async Task<string> GameDeadlineJobAsync(NpgsqlConnection connection, Guid room, CancellationToken ct)
     {
-        await using var query = Command(connection, "select status||'|'||attempts from ops.jobs where kind='game-deadline' and aggregate_id=$1", room);
+        await using var query = Command(connection,
+            "select status||'|'||attempts from ops.jobs where kind='game-deadline' and aggregate_id=$1",
+            room);
         return (string)(await query.ExecuteScalarAsync(ct))!;
     }
 
@@ -646,7 +767,9 @@ public sealed class RoutesParticipationTests(PostgresFixture postgres)
     /// <summary>A mesma ação numa sala que não existe: a resposta que a sala vencida não pode distinguir.</summary>
     private static async Task<string> UnknownRoomAsync(Browser browser, long version, CancellationToken ct)
     {
-        using var unknown = await browser.PostJsonAsync($"/api/v1/rooms/{Guid.NewGuid()}/routes-actions", AcknowledgeIntroduction(version));
+        using var unknown = await browser.PostJsonAsync(
+            $"/api/v1/rooms/{Guid.NewGuid()}/routes-actions",
+            AcknowledgeIntroduction(version));
         return await NeutralResponse.DescribeAsync(unknown, ct);
     }
 

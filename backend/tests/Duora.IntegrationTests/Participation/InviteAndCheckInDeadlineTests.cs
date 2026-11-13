@@ -15,7 +15,7 @@ public sealed class InviteAndCheckInDeadlineTests(PostgresFixture postgres)
     private static readonly TimeSpan CheckInWindow = TimeSpan.FromMinutes(10);
 
     [Fact]
-    public async Task AcceptFromTheExactInviteDeadlineReleasesBothButStillAnswers204InsteadOf404()
+    public async Task AcceptFromTheExactInviteDeadlineReleasesBothAndAnswers404()
     {
         var ct = TestContext.Current.CancellationToken;
         await using var scene = await SceneAsync(ct);
@@ -32,10 +32,12 @@ public sealed class InviteAndCheckInDeadlineTests(PostgresFixture postgres)
 
         scene.Clock.SetUtcNow(deadline);
         using (var late = await AcceptAsync(scene.Bob, room))
+        using (var unknown = await AcceptAsync(scene.Bob, Guid.NewGuid()))
         {
-            // Divergência aberta: o aceite tardio não aceita nada, mas responde 204, e só a
-            // repetição recebe 404. O esperado é 404 já aqui, em PR próprio. O assert existe para essa troca não passar em silêncio.
-            Assert.Equal(HttpStatusCode.NoContent, late.StatusCode);
+            Assert.Equal(HttpStatusCode.NotFound, late.StatusCode);
+            Assert.Equal(
+                await NeutralResponse.DescribeAsync(unknown, ct),
+                await NeutralResponse.DescribeAsync(late, ct));
         }
         Assert.Equal(new RoomFacts("Expired", AliceAccepted: true, BobAccepted: false, ActiveReservations: 0, HasGame: false, GameDeadlineJobs: 0),
             await ReadRoomFactsAsync(scene, room, ct));
@@ -48,6 +50,28 @@ public sealed class InviteAndCheckInDeadlineTests(PostgresFixture postgres)
 
         using var repeated = await AcceptAsync(scene.Bob, room);
         Assert.Equal(HttpStatusCode.NotFound, repeated.StatusCode);
+    }
+
+    /// <summary>
+    /// Recusar um convite vencido não pedia nada que deixou de existir: o pedido cumpriu o efeito e segue
+    /// <c>204</c>.
+    /// </summary>
+    [Fact]
+    public async Task RejectFromTheExactInviteDeadlineReleasesBothAndStillAnswers204()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        await using var scene = await SceneAsync(ct);
+        var room = await InvitedRoomAsync(scene, ct);
+
+        scene.Clock.SetUtcNow(await ReadInviteDeadlineAsync(scene, room, ct));
+        using var late = await scene.Bob.PostJsonAsync($"/api/v1/rooms/{room}/reject", null);
+
+        Assert.Equal(HttpStatusCode.NoContent, late.StatusCode);
+        Assert.Equal(
+            new RoomFacts(
+                "Expired", AliceAccepted: false, BobAccepted: false, ActiveReservations: 0, HasGame: false,
+                GameDeadlineJobs: 0),
+            await ReadRoomFactsAsync(scene, room, ct));
     }
 
     /// <summary>A leitura decide sozinha, sem aceite nem job que tenham gravado o estado: no banco a sala segue <c>Invited</c>.</summary>
@@ -84,7 +108,10 @@ public sealed class InviteAndCheckInDeadlineTests(PostgresFixture postgres)
         var job = await ClaimTheExpireInviteJobAsync(scene, ct);
 
         Assert.True(await scene.Service.CompleteJobAsync(job, ct));
-        Assert.Equal(new RoomFacts("Expired", AliceAccepted: false, BobAccepted: false, ActiveReservations: 0, HasGame: false, GameDeadlineJobs: 0),
+        Assert.Equal(
+            new RoomFacts(
+                "Expired", AliceAccepted: false, BobAccepted: false, ActiveReservations: 0, HasGame: false,
+                GameDeadlineJobs: 0),
             await ReadRoomFactsAsync(scene, room, ct));
     }
 
