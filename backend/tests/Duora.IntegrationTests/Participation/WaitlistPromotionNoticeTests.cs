@@ -1,6 +1,7 @@
 using Duora.Infrastructure.Email;
 using Duora.Infrastructure.Participation;
 using Duora.IntegrationTests.Safety;
+using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
 using Npgsql;
 using static Duora.Infrastructure.Participation.ParticipationSql;
@@ -101,8 +102,9 @@ public sealed class WaitlistPromotionNoticeTests(PostgresFixture postgres)
             where event_id=$1 and user_id=$2
             """, s.Token, s.EventId, s.Seed.Bob, s.Clock.GetUtcNow());
         var application = "waitlist-notice-blocked";
-        await using var named = NpgsqlDataSource.Create(new NpgsqlConnectionStringBuilder(s.Database.AppConnectionString)
-        { ApplicationName = application }.ConnectionString);
+        await using var named = NpgsqlDataSource.Create(
+            new NpgsqlConnectionStringBuilder(s.Database.AppConnectionString)
+            { ApplicationName = application }.ConnectionString);
 
         var scheduling = Scheduler(s, source: named).ScheduleBatchAsync(s.Token);
         await s.WaitForWaiterAsync(application, "events.registrations");
@@ -195,7 +197,8 @@ public sealed class WaitlistPromotionNoticeTests(PostgresFixture postgres)
         await using var s = await SuspendedRegistrationScenario.CreateAsync(postgres);
         await s.RegisterAsync(s.Seed.Bob);
         await s.ExecuteAsync($"""
-            insert into ops.outbox_events(id,type,schema_version,resource_type,resource_id,resource_version,payload,occurred_at)
+            insert into ops.outbox_events(id,type,schema_version,resource_type,resource_id,resource_version,payload,
+              occurred_at)
             values ($1,'{Fact}',$2,'event',$3,1,$4::jsonb,$5)
             """, Guid.CreateVersion7(), schemaVersion, s.EventId,
             payload.Replace("{event}", s.EventId.ToString("D"), StringComparison.Ordinal)
@@ -206,6 +209,75 @@ public sealed class WaitlistPromotionNoticeTests(PostgresFixture postgres)
 
         Assert.Equal(0, await NoticesAsync(s, s.Seed.Bob));
         Assert.Equal(["Failed|InvalidContract"], await MarkersAsync(s));
+    }
+
+    [Fact]
+    public async Task AFactLockedByAnotherTransactionIsSkippedWithoutWaitingAndTheOthersAreProcessed()
+    {
+        await using var s = await TwoPromotionsAsync();
+        var logs = new CapturingLoggerProvider();
+        await using var holder = await s.Source.OpenConnectionAsync(s.Token);
+        await using var transaction = await holder.BeginTransactionAsync(s.Token);
+        await Execute(holder, "select 1 from ops.outbox_events where id=$1 for update", s.Token,
+            await FactOfAsync(s, s.Seed.Bob));
+
+        Assert.Equal(1, await Scheduler(s, logs: logs).ScheduleBatchAsync(s.Token));
+
+        Assert.Equal(1, await NoticesAsync(s, s.Seed.Third));
+        Assert.Equal(["Delivered|-"], await MarkersAsync(s));
+        Assert.DoesNotContain(logs.Entries, entry => entry.Level >= LogLevel.Warning);
+
+        await transaction.CommitAsync(s.Token);
+        Assert.Equal(1, await Scheduler(s).ScheduleBatchAsync(s.Token));
+        Assert.Equal(["Delivered|-", "Expired|RegistrationNotConfirmed"], await MarkersAsync(s));
+    }
+
+    [Fact]
+    public async Task ARegistrationHeldPastTheLockTimeoutLeavesItsFactForTheNextRound()
+    {
+        await using var s = await TwoPromotionsAsync();
+        var logs = new CapturingLoggerProvider();
+        await using var holder = await s.Source.OpenConnectionAsync(s.Token);
+        await using var transaction = await holder.BeginTransactionAsync(s.Token);
+        await Execute(holder, "select 1 from events.registrations where event_id=$1 and user_id=$2 for update",
+            s.Token, s.EventId, s.Seed.Third);
+
+        Assert.Equal(1, await Scheduler(s, logs: logs).ScheduleBatchAsync(s.Token));
+
+        Assert.Equal(0, await NoticesAsync(s, s.Seed.Third));
+        Assert.Equal(["Expired|RegistrationNotConfirmed"], await MarkersAsync(s));
+        var busy = Assert.Single(logs.Entries, entry => entry.Level == LogLevel.Warning);
+        Assert.Equal(await FactOfAsync(s, s.Seed.Third), busy.Fields["FactId"]);
+
+        await transaction.CommitAsync(s.Token);
+        Assert.Equal(1, await Scheduler(s).ScheduleBatchAsync(s.Token));
+        Assert.Equal(1, await NoticesAsync(s, s.Seed.Third));
+    }
+
+    [Fact]
+    public async Task AFactThatFailsUnexpectedlyDoesNotStopTheBatch()
+    {
+        await using var s = await TwoPromotionsAsync();
+        var logs = new CapturingLoggerProvider();
+        var poisoned = await FactOfAsync(s, s.Seed.Bob);
+        await using (var owner = new NpgsqlConnection(s.Database.MigratorConnectionString))
+        {
+            await owner.OpenAsync(s.Token);
+            await Execute(owner, $"""
+                create function ops.test_poison() returns trigger language plpgsql as $$
+                begin raise exception 'poisoned fact'; end $$;
+                create trigger test_poison before insert on ops.outbox_deliveries for each row
+                  when (new.recipient_key='{poisoned:D}') execute function ops.test_poison();
+                """, s.Token);
+        }
+
+        Assert.Equal(1, await Scheduler(s, logs: logs).ScheduleBatchAsync(s.Token));
+
+        Assert.Equal(1, await NoticesAsync(s, s.Seed.Third));
+        Assert.Equal(["Delivered|-"], await MarkersAsync(s));
+        var failure = Assert.Single(logs.Entries, entry => entry.Level == LogLevel.Error);
+        Assert.Equal(poisoned, failure.Fields["FactId"]);
+        Assert.DoesNotContain("poisoned fact", failure.Text, StringComparison.Ordinal);
     }
 
     /// <summary>Capacidade 1, três inscritos; a retirada de Alice promove Bob e grava um fato.</summary>
@@ -222,13 +294,30 @@ public sealed class WaitlistPromotionNoticeTests(PostgresFixture postgres)
         return s;
     }
 
+    /// <summary>Depois da promoção de Bob, a retirada dele promove Third: dois fatos, o de Bob mais antigo.</summary>
+    private async Task<SuspendedRegistrationScenario> TwoPromotionsAsync()
+    {
+        var s = await PromotedAsync();
+        s.Clock.Advance(TimeSpan.FromSeconds(1));
+        Assert.Equal(ParticipationOutcome.Done, await s.Participation.WithdrawAsync(s.EventId, s.Seed.Bob, s.Token));
+        Assert.Equal(2, await s.CountAsync($"select count(*) from ops.outbox_events where type='{Fact}'"));
+        return s;
+    }
+
+    private static async Task<Guid> FactOfAsync(SuspendedRegistrationScenario s, Guid user) =>
+        Guid.Parse(await s.TextAsync(
+            $"select id::text from ops.outbox_events where type='{Fact}' and payload->>'userId'=$1",
+            user.ToString("D")));
+
     private static WaitlistPromotionNoticeScheduler Scheduler(SuspendedRegistrationScenario s, bool enabled = true,
-        DateTimeOffset? notBefore = null, NpgsqlDataSource? source = null) =>
+        DateTimeOffset? notBefore = null, NpgsqlDataSource? source = null, CapturingLoggerProvider? logs = null) =>
         new(source ?? s.Source, s.Clock, new WaitlistPromotionNoticeOptions
         {
             Enabled = enabled,
             NotBefore = notBefore ?? s.StartsAt.AddMinutes(-5),
-        }, NullLogger<WaitlistPromotionNoticeScheduler>.Instance);
+        }, logs is null
+            ? NullLogger<WaitlistPromotionNoticeScheduler>.Instance
+            : new Logger<WaitlistPromotionNoticeScheduler>(new LoggerFactory([logs])));
 
     private static Task<long> NoticesAsync(SuspendedRegistrationScenario s, Guid user) => s.CountAsync("""
         select count(*) from ops.outbox_events
@@ -252,7 +341,8 @@ public sealed class WaitlistPromotionNoticeTests(PostgresFixture postgres)
     }
 
     private static Task<string> RegistrationsAsync(SuspendedRegistrationScenario s) => s.TextAsync("""
-        select string_agg(user_id||':'||state||':'||coalesce(waitlist_position::text,'-')||':'||version, ',' order by user_id)
+        select string_agg(user_id||':'||state||':'||coalesce(waitlist_position::text,'-')||':'||version, ','
+            order by user_id)
           ||'|'||(select confirmed_count||':'||version from events.events where id=$1)
         from events.registrations where event_id=$1
         """, s.EventId);

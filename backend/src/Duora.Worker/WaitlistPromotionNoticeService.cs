@@ -46,7 +46,8 @@ internal sealed partial class WaitlistPromotionNoticeService(
             LogDatabaseFailure(logger, exception.GetType().Name);
             return 0;
         }
-        catch (Exception exception) when (exception is not OutOfMemoryException && !stoppingToken.IsCancellationRequested)
+        catch (Exception exception)
+            when (exception is not OutOfMemoryException && !stoppingToken.IsCancellationRequested)
         {
             LogUnexpectedFailure(logger, exception.GetType().Name, ExceptionFrames.Describe(exception));
             return 0;
@@ -56,9 +57,11 @@ internal sealed partial class WaitlistPromotionNoticeService(
     [LoggerMessage(Level = LogLevel.Information, Message = "Avisos de promoção da lista de espera desligados")]
     private static partial void LogDisabled(ILogger logger);
 
-    [LoggerMessage(Level = LogLevel.Warning, Message = "Fatos de promoção não processados ({Cause}); a próxima volta tenta de novo")]
+    [LoggerMessage(Level = LogLevel.Warning,
+        Message = "Fatos de promoção não processados ({Cause}); a próxima volta tenta de novo")]
     private static partial void LogDatabaseFailure(ILogger logger, string cause);
 
-    [LoggerMessage(Level = LogLevel.Error, Message = "Fatos de promoção falharam de forma inesperada ({Cause}). Frames: {Frames}")]
+    [LoggerMessage(Level = LogLevel.Error,
+        Message = "Fatos de promoção falharam de forma inesperada ({Cause}). Frames: {Frames}")]
     private static partial void LogUnexpectedFailure(ILogger logger, string cause, string frames);
 }

@@ -13,7 +13,9 @@ public sealed class WaitlistPromotionNoticeEmailTests
     private static readonly PublicOrigin Origin =
         PublicOrigin.TryParse("https://duora.example", out var origin) ? origin : throw new InvalidOperationException();
     private static readonly EmailAddress Support =
-        EmailAddress.TryParse("suporte@duora.example", out var support) ? support : throw new InvalidOperationException();
+        EmailAddress.TryParse("suporte@duora.example", out var support)
+            ? support
+            : throw new InvalidOperationException();
     private static readonly EmailAddress Recipient =
         EmailAddress.TryParse("ana@example.com", out var to) ? to : throw new InvalidOperationException();
 

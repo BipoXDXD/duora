@@ -14,7 +14,8 @@ public sealed class WaitlistPromotionNoticeDispatchTests(PostgresFixture postgre
     public async Task TheNoticeIsDeliveredInBothLanguagesWithALinkToTheEvents()
     {
         await using var harness = await EmailOutboxHarness.CreateAsync(postgres, Ct);
-        var deliveryId = await harness.EnqueueAsync(AccountEmailKind.WaitlistPromotionNotice, token: null, language: null, Ct);
+        var deliveryId = await harness.EnqueueAsync(
+            AccountEmailKind.WaitlistPromotionNotice, token: null, language: null, Ct);
         var dispatcher = harness.StartWorker();
 
         await dispatcher.DispatchBatchAsync(Ct);

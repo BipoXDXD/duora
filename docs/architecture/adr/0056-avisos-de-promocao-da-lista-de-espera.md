@@ -42,7 +42,10 @@ Alternativas consideradas:
    depois inscrição): conta `Active`, inscrição `Confirmed`, evento `Published` e ainda não iniciado. Senão a marca
    fecha como `Expired` com motivo fixo (`AccountNotActive`, `RegistrationNotConfirmed`, `EventNotOpen`,
    `EventStarted`). Contrato fora da v1 ou destinatário inválido fecham como `Failed` (`InvalidContract`,
-   `InvalidRecipient`), para revisão. Trava além do teto deixa o fato sem marca para a próxima rodada.
+   `InvalidRecipient`), para revisão. Trava além do teto deixa o fato sem marca para a próxima rodada. Um fato que
+   falha de outro jeito (erro inesperado) também fica sem marca e não interrompe o lote; o log leva só o tipo da falha.
+   A linha de `events.events` é lida sem lock: hoje não há caso de uso que cancele evento. Quando houver, a consulta
+   passa a `for share of r, e`, na ordem evento → inscrição do `RegistrationLockPlan`.
 5. **Prazo do e-mail** = o menor entre 24 h e o início do evento: o dispatcher expira o aviso que não saiu a tempo.
 6. **Texto bilíngue (pt-BR e EN) sem dado sensível.** O corpo diz que a inscrição saiu da lista de espera e pede para
    conferir o estado atual em `/events`; não cita evento, horário, ids nem destinatário. O log leva só o id do fato e o
@@ -57,7 +60,16 @@ Alternativas consideradas:
 - Rollback: `Enabled=false`. Marcas e e-mails já enfileirados ficam; o dispatcher ainda envia os pendentes dentro do
   prazo, e mensagem aceita pelo provedor não se revoga.
 - Fato que chegar com o consumidor desligado e passar de 48 h nunca será avisado. É intencional.
-- Um aviso pode chegar e a pessoa desistir logo depois; por isso o texto manda conferir o estado atual.
+- A revalidação vale no enfileiramento, não no envio: o `TransactionalEmailDispatcher` não revalida. Uma retirada,
+  suspensão ou exclusão de conta que aconteça depois (ou que commite logo após o lock de leitura da conta) não impede
+  o envio, e com o provedor falhando o aviso pode sair até o fim do prazo da entrega (no máximo 24 h). Por isso o
+  texto manda conferir o estado atual. Revalidar no envio pede o id do evento no payload e consultas a Identity e
+  Events no dispatcher; fica como decisão pendente do dono, sobretudo para conta suspensa ou excluída.
+- Um fato venenoso volta a cada rodada até sair da janela de 48 h; isolado por fato, não bloqueia os vizinhos, mas
+  ocupa uma vaga do lote em cada rodada.
+- Risco de rollout: com o consumidor ligado mas falhando (banco, trava, erro inesperado), um fato pode envelhecer
+  48 h sem marca e sumir sem métrica, porque os gauges da outbox só veem marcas. Até haver métrica própria, o sinal
+  é o log de `Warning`/`Error` do consumidor, que deve ser acompanhado na ativação.
 - Fora deste ADR: preferências de notificação, outros canais, métrica própria por desfecho (hoje há log e os gauges da
   outbox por consumidor).
 
@@ -70,7 +82,11 @@ Testes de integração com PostgreSQL real (`WaitlistPromotionNoticeTests`):
 `AWithdrawalCommittedWhileTheSchedulerWaitsIsHonoured`, `AnInactiveAccountReceivesNothing`,
 `AFactOfAnEventThatAlreadyStartedSchedulesNothing`, `ACancelledEventSchedulesNothing`,
 `WhenDisabledNothingIsReadOrWritten`, `FactsRecordedBeforeTheWatermarkAreNeverProcessed`,
-`FactsOlderThanTheMaximumAgeAreNeverProcessed`, `AFactOutsideTheV1ContractGoesToReviewWithoutANotice`.
+`FactsOlderThanTheMaximumAgeAreNeverProcessed`, `AFactOutsideTheV1ContractGoesToReviewWithoutANotice`,
+`AFactLockedByAnotherTransactionIsSkippedWithoutWaitingAndTheOthersAreProcessed`,
+`ARegistrationHeldPastTheLockTimeoutLeavesItsFactForTheNextRound`, `AFactThatFailsUnexpectedlyDoesNotStopTheBatch`.
+Trava de ativação: `WorkerHostTests.WaitlistPromotionNoticesDoNotStartEnabledWithoutAWatermark`,
+`WorkerHostTests.WaitlistPromotionNoticesNeedAWatermarkOnlyWhenEnabled` e `WaitlistPromotionNoticeOptionsTests`.
 Envio (`WaitlistPromotionNoticeDispatchTests`): `TheNoticeIsDeliveredInBothLanguagesWithALinkToTheEvents`,
 `ANoticeCarryingATokenIsRejectedWithoutSending`. Texto (`WaitlistPromotionNoticeEmailTests`, unitário).
 O consumidor entra na lista fixa do monitoramento da outbox (`RetentionTests.Monitoring`).

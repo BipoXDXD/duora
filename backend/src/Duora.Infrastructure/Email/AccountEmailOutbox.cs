@@ -28,7 +28,9 @@ internal enum AccountEmailKind
     GoogleLinkedNotice,
     GoogleUnlinkedNotice,
 
-    /// <summary>Aviso de saída da lista de espera (ADR-0056), sem token e bilíngue; o leitor veio com o gravador.</summary>
+    /// <summary>
+    /// Aviso de saída da lista de espera (ADR-0056), sem token e bilíngue; o leitor veio com o gravador.
+    /// </summary>
     WaitlistPromotionNotice,
 }
 
@@ -115,8 +117,10 @@ internal static class AccountEmailOutbox
         Create(new AccountEmailRequested(NoticeKinds[change], to, userId, Token: null, EmailLanguageTag.Format(language), preferredTimeZone), now);
 
     public static OutboxEvent Create(AccountEmailRequested message, DateTimeOffset now) =>
-        Record(message, now, now + (message.Kind == AccountEmailKind.EmailConfirmation && message.Token is { Length: 8 } code
-            && code.All(char.IsAsciiDigit) ? TimeSpan.FromMinutes(10) : DeliveryWindow(message.Kind)));
+        Record(message, now, now + (message.Kind == AccountEmailKind.EmailConfirmation
+            && message.Token is { Length: 8 } code && code.All(char.IsAsciiDigit)
+                ? TimeSpan.FromMinutes(10)
+                : DeliveryWindow(message.Kind)));
 
     /// <summary>
     /// Aviso de saída da lista de espera (ADR-0056). Sem token e sem idioma: o texto é bilíngue e só remete ao estado

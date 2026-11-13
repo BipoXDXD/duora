@@ -65,7 +65,8 @@ public static class EmailServiceCollectionExtensions
         services.AddOptions<WaitlistPromotionNoticeOptions>()
             .BindConfiguration(WaitlistPromotionNoticeOptions.Section)
             .Validate(o => o.IsValid(),
-                "Notifications:WaitlistPromotion incoerente: ligado exige NotBefore; BatchSize de 1 a 100 e PollInterval positivo.")
+                "Notifications:WaitlistPromotion incoerente: ligado exige NotBefore; BatchSize de 1 a 100 e "
+                + "PollInterval positivo.")
             .ValidateOnStart();
         services.AddSingleton(provider => new WaitlistPromotionNoticeScheduler(
             provider.GetRequiredService<NpgsqlDataSource>(),

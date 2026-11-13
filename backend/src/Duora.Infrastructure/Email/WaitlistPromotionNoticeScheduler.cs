@@ -77,6 +77,12 @@ public sealed partial class WaitlistPromotionNoticeScheduler
                 // sem travar os vizinhos do lote.
                 LogBusy(_logger, factId);
             }
+            catch (Exception exception) when (exception is not OutOfMemoryException && !ct.IsCancellationRequested)
+            {
+                // Um fato venenoso não derruba o lote: fica sem marca, volta na próxima rodada e sai da janela em
+                // MaxFactAge. Só o tipo vai ao log, porque a mensagem do banco pode citar valores.
+                LogFailed(_logger, factId, exception.GetType().Name);
+            }
         }
         return processed;
     }
@@ -88,7 +94,8 @@ public sealed partial class WaitlistPromotionNoticeScheduler
         await using var query = Command(connection, $"""
             select e.id from ops.outbox_events e
             where e.type='{FactType}' and e.occurred_at>=$1 and e.occurred_at>$2
-              and not exists(select 1 from ops.outbox_deliveries d where d.outbox_event_id=e.id and d.consumer='{Consumer}')
+              and not exists(select 1 from ops.outbox_deliveries d
+                where d.outbox_event_id=e.id and d.consumer='{Consumer}')
             order by e.occurred_at,e.id limit $3
             """, notBefore, oldest, _options.BatchSize);
         await using var reader = await query.ExecuteReaderAsync(ct);
@@ -128,12 +135,14 @@ public sealed partial class WaitlistPromotionNoticeScheduler
     /// Trava o fato (o outro worker pula) e confere de novo a falta de marca, agora sob o lock. A ordem é conta e
     /// depois inscrição, como nos casos de uso; nenhum deles espera pela linha do fato, então não há ciclo.
     /// </summary>
-    private static async Task<StoredFact?> LockFactAsync(NpgsqlConnection connection, Guid factId, CancellationToken ct)
+    private static async Task<StoredFact?> LockFactAsync(NpgsqlConnection connection, Guid factId,
+        CancellationToken ct)
     {
         await using var query = Command(connection, $"""
             select e.schema_version,e.resource_type,e.resource_id,e.payload::text from ops.outbox_events e
             where e.id=$1
-              and not exists(select 1 from ops.outbox_deliveries d where d.outbox_event_id=e.id and d.consumer='{Consumer}')
+              and not exists(select 1 from ops.outbox_deliveries d
+                where d.outbox_event_id=e.id and d.consumer='{Consumer}')
             for no key update skip locked
             """, factId);
         await using var reader = await query.ExecuteReaderAsync(ct);
@@ -142,7 +151,9 @@ public sealed partial class WaitlistPromotionNoticeScheduler
             : null;
     }
 
-    /// <summary>Só o contrato v1: tipo, schema 1, recurso evento e payload exato com o mesmo evento do envelope.</summary>
+    /// <summary>
+    /// Só o contrato v1: tipo, schema 1, recurso evento e payload exato com o mesmo evento do envelope.
+    /// </summary>
     private static Promotion? Read(StoredFact fact)
     {
         if (fact.SchemaVersion != FactSchemaVersion || fact.ResourceType != "event")
@@ -219,7 +230,8 @@ public sealed partial class WaitlistPromotionNoticeScheduler
         if (decision.Notice is { } notice)
         {
             await InsertAsync(connection,
-                AccountEmailOutbox.CreateWaitlistPromotionNotice(notice.To, notice.UserId, now, notice.EventStartsAt), ct);
+                AccountEmailOutbox.CreateWaitlistPromotionNotice(notice.To, notice.UserId, now, notice.EventStartsAt),
+                ct);
         }
         return true;
     }
@@ -243,8 +255,13 @@ public sealed partial class WaitlistPromotionNoticeScheduler
     [LoggerMessage(Level = LogLevel.Information, Message = "Fato de promoção {FactId} tratado como {Outcome}")]
     private static partial void LogProcessed(ILogger logger, Guid factId, NoticeOutcome outcome);
 
-    [LoggerMessage(Level = LogLevel.Warning, Message = "Fato de promoção {FactId} adiado: conta ou inscrição em uso")]
+    [LoggerMessage(Level = LogLevel.Warning,
+        Message = "Fato de promoção {FactId} adiado: conta ou inscrição em uso")]
     private static partial void LogBusy(ILogger logger, Guid factId);
+
+    [LoggerMessage(Level = LogLevel.Error,
+        Message = "Fato de promoção {FactId} falhou ({Cause}); fica sem marca e volta na próxima rodada")]
+    private static partial void LogFailed(ILogger logger, Guid factId, string cause);
 
     private sealed record StoredFact(int SchemaVersion, string ResourceType, Guid ResourceId, string Payload);
 
@@ -261,14 +278,16 @@ public sealed partial class WaitlistPromotionNoticeScheduler
 
     /// <summary>
     /// Estado da marca, motivo sanitizado (um código fixo, nunca dado pessoal) e, quando há, o aviso a enfileirar.
-    /// Descartar fecha a marca como <c>Expired</c>; contrato ou destinatário inválido, como <c>Failed</c>, para revisão.
+    /// Descartar fecha a marca como <c>Expired</c>; contrato ou destinatário inválido, como <c>Failed</c>, para
+    /// revisão.
     /// </summary>
     private sealed record NoticeDecision(OutboxDeliveryStatus Status, string? Reason, PendingNotice? Notice)
     {
         public NoticeOutcome Outcome => Notice is not null ? NoticeOutcome.Scheduled
             : Status == OutboxDeliveryStatus.Failed ? NoticeOutcome.Rejected : NoticeOutcome.Discarded;
 
-        public static NoticeDecision Schedule(PendingNotice notice) => new(OutboxDeliveryStatus.Delivered, null, notice);
+        public static NoticeDecision Schedule(PendingNotice notice) =>
+            new(OutboxDeliveryStatus.Delivered, null, notice);
 
         public static NoticeDecision Discard(string reason) => new(OutboxDeliveryStatus.Expired, reason, null);
 
