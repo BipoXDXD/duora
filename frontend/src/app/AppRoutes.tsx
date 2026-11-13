@@ -78,8 +78,7 @@ const RequireSession = routePage(async () => {
 
 export function AppRoutes(): React.JSX.Element {
   return (
-    <>
-      <SelfieDocumentBoundary />
+    <SelfieDocumentBoundary>
       <Routes>
         {Object.entries(legacyPaths).map(([legacy, canonical]) => (
           <Route key={legacy} path={legacy} element={<LegacyRedirect to={canonical} />} />
@@ -121,7 +120,7 @@ export function AppRoutes(): React.JSX.Element {
           <Route path="*" element={<NotFoundPage />} />
         </Route>
       </Routes>
-    </>
+    </SelfieDocumentBoundary>
   )
 }
 

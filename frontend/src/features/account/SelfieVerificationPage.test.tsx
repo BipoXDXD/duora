@@ -74,6 +74,40 @@ describe('documento próprio da selfie', () => {
       expect(reloadCurrentDocument).toHaveBeenCalledTimes(1)
     })
   })
+
+  it('ao sair, o destino não renderiza no documento da selfie: o recarregamento não cancela leituras em voo', async () => {
+    vi.mocked(reloadCurrentDocument).mockClear()
+    let accountReads = 0
+    server.use(
+      http.get(`${API}/me`, () => HttpResponse.json(withSessionContext(pendingAccount))),
+      http.get(`${API}/me/selfie-verifications/current`, () =>
+        HttpResponse.json({ id: null, state: 'NotStarted', nextStep: 'Start', feedbackCode: null, expiresAt: null }),
+      ),
+      http.get(`${API}/me/sessions`, () => {
+        accountReads++
+        return HttpResponse.json([])
+      }),
+      http.get(`${API}/me/external-logins`, () => {
+        accountReads++
+        return HttpResponse.json([])
+      }),
+    )
+    const { user } = await renderApp('/account/selfie')
+    await screen.findByRole('button', { name: 'Iniciar captura' }, { timeout: ROUTE_CHUNK_TIMEOUT_MS })
+    let pageRenderedAtReload: boolean | undefined
+    vi.mocked(reloadCurrentDocument).mockImplementation(() => {
+      pageRenderedAtReload = document.querySelector('main') !== null
+    })
+
+    await user.click(screen.getByRole('link', { name: 'Voltar à conta' }))
+
+    await vi.waitFor(() => {
+      expect(reloadCurrentDocument).toHaveBeenCalledTimes(1)
+    })
+    expect(pageRenderedAtReload).toBe(false)
+    expect(screen.queryByRole('main')).not.toBeInTheDocument()
+    expect(accountReads).toBe(0)
+  })
 })
 
 describe('selfie sem idade', () => {
