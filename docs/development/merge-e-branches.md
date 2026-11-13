@@ -33,9 +33,9 @@ completo (30 a 45 min), e a fila sai em cerca de um merge a cada 40 min.
 release. O caso nomeado é `test_main_commit_with_red_ci_never_becomes_eligible`, em
 [test_gate.py](../../scripts/release/coolify/test_gate.py) (`python3 -m unittest discover -s
 scripts/release/coolify`). Pelo `main()` do gate, ele prova que nada é gravado em `GITHUB_OUTPUT` (nem
-`eligible=true`) em quatro casos: run `failure` ou `timed_out` com um job obrigatório em `failure`, run `failure` com os jobs
-verdes e run `success` com um job obrigatório em `failure`. Cai se `validate()` deixar de conferir a conclusão
-do run ou a dos jobs obrigatórios, cada uma sozinha.
+`eligible=true`) em quatro casos: run `failure` ou `timed_out` com um job obrigatório em `failure`, run
+`failure` com os jobs verdes e run `success` com um job obrigatório em `failure`. Cai se `validate()` deixar
+de conferir a conclusão do run ou a dos jobs obrigatórios, cada uma sozinha.
 
 **Reabrir quando:** a fila de PRs prontos passar a esperar mais que um dia de forma recorrente, ou o
 repositório for para uma organização com merge queue disponível.
