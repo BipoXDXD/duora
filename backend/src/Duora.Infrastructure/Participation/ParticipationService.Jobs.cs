@@ -77,6 +77,17 @@ public sealed partial class ParticipationService
         using var linked = CancellationTokenSource.CreateLinkedTokenSource(ct, deadline.Token);
         ct = linked.Token;
         await using var connection = await source.OpenConnectionAsync(ct);
+        var now = Now;
+        if (job.DueAt > now)
+        {
+            if (await RequeueEarlyJobAsync(connection, job, now, ct) == 1 && logger is not null)
+            {
+                LogEarlyJobRequeued(logger, job.Id, job.Kind);
+            }
+
+            return false;
+        }
+
         await using var tx = await connection.BeginTransactionAsync(ct);
         // Position zero: fencing, completion and aggregate changes commit together.
         var owned = await Execute(connection, """
@@ -128,6 +139,23 @@ public sealed partial class ParticipationService
         await tx.CommitAsync(ct);
         return true;
     }
+
+    /// <summary>
+    /// Nenhum job de participação (<c>build-round</c>, <c>close-round</c>, <c>expire-invite</c>, <c>game-deadline</c>)
+    /// entregue antes do <c>due_at</c> pode ser consumido: a conclusão veria o prazo ainda aberto e nada o reagendaria.
+    /// Como o claim e a conclusão usam o mesmo relógio, isso só acontece com <c>available_at</c> mexido à mão ou com o
+    /// relógio do processo recuando entre o claim e a conclusão. Volta a <c>Pending</c> no próprio <c>due_at</c>,
+    /// devolvendo a tentativa do claim. Um só comando com o fencing do claim: só o dono do token o devolve, uma vez.
+    /// A decisão de reagendar e este UPDATE usam o mesmo <c>now</c>, mas a conclusão normal relê o relógio (no UPDATE
+    /// de <c>Done</c>, nos fechamentos e em <c>BuildRoundAsync</c>). Lacuna conhecida: se o relógio recuar para antes do
+    /// <c>due_at</c> entre a decisão e essas leituras, o job ainda pode virar <c>Done</c> sem efeito. Fecha passando
+    /// <c>now</c> adiante, num follow-up.
+    /// </summary>
+    private static Task<int> RequeueEarlyJobAsync(NpgsqlConnection connection, ParticipationJob job, DateTimeOffset now, CancellationToken ct) =>
+        Execute(connection, """
+            update ops.jobs set status='Pending',available_at=due_at,attempts=attempts-1,lease_expires_at=null
+            where id=$1 and fencing_token=$2 and status='InFlight' and lease_expires_at>$3 and due_at>$3
+            """, ct, job.Id, job.Token, now);
 
     private async Task CloseRoundAsync(NpgsqlConnection connection, Guid round, CancellationToken ct)
     {
@@ -262,6 +290,10 @@ public sealed partial class ParticipationService
     /// <summary>Só o tipo: a mensagem da exceção pode citar valores do banco. Este giro não consome tentativa e se repete até liberar.</summary>
     [LoggerMessage(Level = LogLevel.Error, Message = "Participation job {JobId} ({Kind}) exhausted its attempts but could not release its open rooms ({Cause}); it will be tried again.")]
     private static partial void LogReleaseRefused(ILogger logger, Guid jobId, string kind, string cause);
+
+    /// <summary>Só o id e o tipo do job: nada da sala nem de quem participa.</summary>
+    [LoggerMessage(Level = LogLevel.Information, Message = "Participation job {JobId} ({Kind}) was delivered before it was due; it returned to the queue without spending an attempt.")]
+    private static partial void LogEarlyJobRequeued(ILogger logger, Guid jobId, string kind);
 
     [LoggerMessage(Level = LogLevel.Error, Message = "Participation job {JobId} ({Kind}) exhausted its attempts ({Cause}); {RoomsReleased} open rooms were released.")]
     private static partial void LogExhausted(ILogger logger, Guid jobId, string kind, string cause, int roomsReleased);
