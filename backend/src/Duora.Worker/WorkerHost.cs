@@ -44,6 +44,7 @@ internal static class WorkerHost
         if (countryDatabase.RetentionEnabled)
         { builder.Services.AddHostedService<CountryDatabaseRetentionWorker>(); }
         builder.Services.AddTransactionalEmailDispatch();
+        builder.Services.AddWaitlistPromotionNotices();
         builder.Services.AddSelfieVerification();
         builder.Services.AddMediaUploads(builder.Configuration, builder.Environment.EnvironmentName);
         builder.Services.AddMediaProcessing();
@@ -54,6 +55,7 @@ internal static class WorkerHost
         builder.Services.AddHostedService<ExternalAuthFlowRetentionService>();
         builder.Services.AddHostedService<HeartbeatService>();
         builder.Services.AddHostedService<TransactionalEmailService>();
+        builder.Services.AddHostedService<WaitlistPromotionNoticeService>();
         builder.Services.AddHostedService<SelfieVerificationProviderService>();
         builder.Services.AddHostedService<SelfieAttemptsSuspensionService>();
         builder.Services.AddHostedService<MediaProcessingService>();

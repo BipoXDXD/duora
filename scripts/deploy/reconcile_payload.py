@@ -78,7 +78,10 @@ def capture_binary(command: list[str], *, max_bytes: int = MAX_CAPTURE_BYTES,
                 for sig in (signal.SIGTERM, signal.SIGKILL):
                     try:
                         os.killpg(process.pid, sig)
-                    except ProcessLookupError:
+                    except (ProcessLookupError, PermissionError):
+                        # PermissionError: o macOS responde EPERM quando todos do grupo já saíram (zumbis ou saindo),
+                        # antes de o waitpid ver o líder. O grupo é nosso; se alguém seguisse vivo, a espera abaixo
+                        # falha fechada com PayloadError.
                         pass
                     if sig == signal.SIGTERM:
                         try:

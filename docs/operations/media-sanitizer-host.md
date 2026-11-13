@@ -203,10 +203,69 @@ ssh root@VPS '! id duora-media-launcher; ! grep duora-media-launcher /etc/subuid
 Para o daemon e o launcher, desliga o linger, remove drop-ins, unidade, código, perfil, autoridade, diretório do socket (`/run/duora-media`), conta (com o home
 e o cache do SDK, que exigirá novo pull), faixa subordinada e grupo. Mantém os pacotes e as evidências.
 
+## Ativação opt-in: ligação do Worker e partida no boot
+
+As duas peças abaixo existem no repositório, mas nada as liga sozinho: o `compose.prod.yml` não tem o sanitizador e
+`media_sanitizer_start_on_boot` é `false`. Só valem dentro da ativação autorizada, depois do aceite da revisão de
+segurança, com o launcher já validado à mão (UID 1654 falando com o socket).
+
+**Ligação do Worker.** `scripts/deploy/media_sanitizer_compose.py` transforma o JSON do Coolify, no mesmo modelo do
+`selfie_compose.py` (docs/operations/deploy.md): só o worker recebe `group_add` com o GID de `duora-media-client`, o
+bind somente leitura de `/run/duora-media` (sem `create_host_path`) e as chaves
+`Media__Processing__Sanitizer__{LauncherSocket,LauncherUid,ProfileSha256}`. O upload continua governado só por
+`DUORA_MEDIA_REVIEW`. Recusa UID/GID root, o UID do Worker como launcher, pin fora de 64 hex minúsculos, valor
+conflitante, qualquer `docker.sock`, `/`, `/var`, `/run` (ou `/var/run`) e qualquer outra coisa sob `/run`, com
+o caminho normalizado (só o worker monta `/run/duora-media`); `disable` remove só as três chaves que `enable`
+acrescenta, o grupo e o bind
+(`test_media_sanitizer_compose.py`, inclusive contra o `compose.prod.yml` renderizado). UID, GID e pin saem do
+"Resumo da instalação inativa" do role (`uid`, `control_gid`, `profile_sha256`). Como root, na VPS, com `SHA` = commit
+da main que contém este script:
+
+```bash
+set -euo pipefail
+SHA=<commit-40-hex>; W=$(mktemp -d /root/media-XXXX)
+test ! -e /var/lib/coolify-release/duora/pending.json
+test "$(sha256sum /opt/duora/compose.coolify.json | cut -d' ' -f1)" = \
+     "$(python3 -I -c 'import json;print(json.load(open("/etc/duora/coolify-deploy.json"))["compose_sha256"])')"
+curl -fsSL "https://raw.githubusercontent.com/BipoXDXD/duora/$SHA/scripts/deploy/media_sanitizer_compose.py" \
+     -o "$W/media_sanitizer_compose.py"
+sha256sum "$W/media_sanitizer_compose.py"
+python3 -I "$W/media_sanitizer_compose.py" enable --launcher-uid <uid> --client-gid <control_gid> \
+     --profile-sha256 <profile_sha256> /opt/duora/compose.coolify.json > "$W/compose.coolify.json"
+# A diferença tem de ser só group_add, o bind de /run/duora-media e as três chaves, todos no worker.
+diff <(python3 -I -m json.tool --sort-keys /opt/duora/compose.coolify.json) \
+     <(python3 -I -m json.tool --sort-keys "$W/compose.coolify.json") || true
+```
+
+A troca e a nova selagem (`compose_sha256`) seguem o passo 3 do procedimento da selfie em deploy.md, sob a trava do
+deploy, com sufixo `.pre-media`. Rollback: devolver os `.pre-media` ou rodar `disable` e selar de novo.
+
+**Trocar o perfil** (imagem nova, pin novo): `enable` recusa um `ProfileSha256` diferente do que já está no compose.
+Rode `disable` no arquivo instalado, depois `enable` com o pin novo, revise o diff e sele de novo, tudo na mesma
+janela e sob a trava.
+
+**Partida no boot.** O template do launcher continua sem `[Install]`. Com `media_sanitizer_start_on_boot: true` (que
+o role recusa sem `media_sanitizer_image` por digest e sem `media_sanitizer_runtime_started: true`), o role liga à mão
+o launcher ao `multi-user.target`, o daemon rootless ao `default.target` da conta e instala o drop-in
+`duora-media-launcher.service.d/50-boot.conf`, que espera `user@<uid>.service` e aguenta as saídas 70 enquanto o
+daemon sobe. Também instala `/etc/tmpfiles.d/duora-media-launcher.conf`, que recria `/run/duora-media` (tmpfs) no
+boot com o dono e o modo da unidade, antes de o Docker do sistema subir o worker que o monta. Com `false` (padrão) o
+role remove os quatro; a desinstalação também.
+
+```bash
+ansible-playbook -i <inventário> media-sanitizer.yml \
+  -e media_sanitizer_image=<digest> -e media_sanitizer_runtime_started=true -e media_sanitizer_start_on_boot=true
+```
+
+**Pin na release (P174-6) continua pendente.** Fixar imagem e perfil no manifesto da release exige mudar o workflow de
+release (área protegida, mudança separada) e o contrato do manifesto em `duora_deploy.py`. Até lá, o pin do perfil
+(que cobre o digest da imagem) fica no compose selado.
+
 ## O que continua pendente
 
 - Aceite de P174-3/4 e do teto do slice (2 GiB/1,5 CPU) no orçamento integral da #86.
 - Nova publicação licenciada a partir de uma main com este role: o bundle precisa carregar o launcher com a nova
   autoridade e o perfil deste host com pin próprio.
-- Ativação (Worker no grupo de controle, socket montado, launcher iniciado), carga com backup concorrente,
-  observação independente, recuperação/rollback/restore e aceite operacional.
+- Pin de imagem e perfil no manifesto da release (P174-6).
+- Ativação real (aplicar a ligação do Worker e a partida no boot acima, launcher iniciado), carga com backup
+  concorrente, observação independente, recuperação/rollback/restore e aceite operacional.

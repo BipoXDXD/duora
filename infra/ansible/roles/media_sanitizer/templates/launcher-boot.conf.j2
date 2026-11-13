@@ -1,0 +1,11 @@
+# {{ ansible_managed }} (role media_sanitizer, ADR-0036/#174)
+# Só existe com media_sanitizer_start_on_boot. O launcher sai com 70 enquanto o daemon rootless não responde; depois
+# do reboot ele espera o gerenciador desta conta e tenta de novo em vez de esgotar o limite de partidas.
+[Unit]
+Wants=user@{{ media_sanitizer_uid }}.service
+After=user@{{ media_sanitizer_uid }}.service
+StartLimitIntervalSec=300
+StartLimitBurst=30
+
+[Service]
+RestartSec=5

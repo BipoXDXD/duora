@@ -58,6 +58,68 @@ class GateTests(unittest.TestCase):
                 gate.validate(self.ci_run, self.jobs, "stillon", sha)
 
 
+class ShardedBackendGateTests(unittest.TestCase):
+    """#510: Duora's backend suite runs in shards; only the exact sharded set qualifies besides the old one."""
+
+    def setUp(self) -> None:
+        self.ci_run = {
+            "head_sha": SHA,
+            "head_branch": "main",
+            "event": "push",
+            "path": ".github/workflows/ci.yml",
+            "head_repository": {"full_name": "BipoXDXD/duora"},
+            "status": "completed",
+            "conclusion": "success",
+        }
+        self.shards = sorted(gate.BACKEND_SHARDS["duora"])
+        self.jobs = [
+            {"name": name, "status": "completed", "conclusion": "success"}
+            for name in sorted(gate.REQUIRED["duora"] | gate.BACKEND_SHARDS["duora"])
+        ]
+
+    def test_legacy_and_sharded_sets_both_qualify(self) -> None:
+        legacy = [job for job in self.jobs if job["name"] not in self.shards]
+        self.assertEqual(gate.validate(self.ci_run, legacy, "duora", SHA), SHA)
+        self.assertEqual(gate.validate(self.ci_run, self.jobs, "duora", SHA), SHA)
+
+    def test_shard_that_did_not_succeed_refuses(self) -> None:
+        for index, job in enumerate(self.jobs):
+            if job["name"] not in self.shards:
+                continue
+            for conclusion in ["skipped", "failure", "cancelled", "neutral"]:
+                jobs = [*self.jobs[:index], {**job, "conclusion": conclusion}, *self.jobs[index + 1:]]
+                with self.subTest(shard=job["name"], conclusion=conclusion), self.assertRaises(ValueError):
+                    gate.validate(self.ci_run, jobs, "duora", SHA)
+
+    def test_running_shard_is_pending(self) -> None:
+        index = next(i for i, job in enumerate(self.jobs) if job["name"] in self.shards)
+        jobs = [*self.jobs[:index], {**self.jobs[index], "status": "in_progress", "conclusion": None},
+                *self.jobs[index + 1:]]
+        with self.assertRaises(gate.PendingJobView):
+            gate.validate(self.ci_run, jobs, "duora", SHA)
+
+    def test_partial_duplicated_or_unknown_shards_refuse(self) -> None:
+        others = [job for job in self.jobs if job["name"] not in self.shards]
+        shard_jobs = [job for job in self.jobs if job["name"] in self.shards]
+        unknown = {"name": "backend (novo)", "status": "completed", "conclusion": "success"}
+        for name, jobs in [
+            ("one shard missing", others + shard_jobs[1:]),
+            ("aggregate missing", [job for job in self.jobs if job["name"] != "backend"]),
+            ("duplicated shard", [*self.jobs, shard_jobs[0]]),
+            ("unknown shard", [*self.jobs, unknown]),
+            ("legacy set plus one shard", others + shard_jobs[:1]),
+        ]:
+            with self.subTest(name), self.assertRaises(ValueError):
+                gate.validate(self.ci_run, jobs, "duora", SHA)
+
+    def test_other_projects_do_not_accept_duora_shards(self) -> None:
+        jobs = [{"name": name, "status": "completed", "conclusion": "success"}
+                for name in sorted(gate.REQUIRED["stillon"] | gate.BACKEND_SHARDS["duora"])]
+        run = {**self.ci_run, "head_repository": {"full_name": "BipoXDXD/stillon"}}
+        with self.assertRaises(ValueError):
+            gate.validate(run, jobs, "stillon", SHA)
+
+
 class SupersededReleaseTests(unittest.TestCase):
     def test_superseded_release_is_successful_noop_before_any_ci_query(self):
         with tempfile.TemporaryDirectory() as temp:
@@ -147,6 +209,18 @@ class ConsistentJobViewTests(unittest.TestCase):
                 self.assertIsInstance(error, ValueError)
                 self.assertFalse(output.exists())
                 self.assertEqual(1, sum('/jobs?' in path for path in calls))
+                self.assertEqual(0, waits)
+
+    def test_main_commit_with_red_ci_never_becomes_eligible(self):
+        # Issue #548: com ou sem strict no ruleset, a CI de push da main é a última barreira da release.
+        red_job = [{**self.jobs[0], 'conclusion': 'failure'}, *self.jobs[1:]]
+        for conclusion, jobs in [('failure', red_job), ('timed_out', red_job),
+                                ('failure', self.jobs), ('success', red_job)]:
+            with self.subTest(conclusion=conclusion, red_job=jobs is red_job):
+                self.ci_run = {**self.ci_run, 'conclusion': conclusion}
+                output, _, waits, error = self.execute([jobs])
+                self.assertIsInstance(error, ValueError)
+                self.assertFalse(output.exists(), 'Red main CI must never write eligible=true')
                 self.assertEqual(0, waits)
 
     def test_failed_job_after_a_pending_job_still_fails_without_waiting(self):

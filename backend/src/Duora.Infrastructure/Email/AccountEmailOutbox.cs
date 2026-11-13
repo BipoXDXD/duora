@@ -27,6 +27,11 @@ internal enum AccountEmailKind
     RecoveryCodeUsedNotice,
     GoogleLinkedNotice,
     GoogleUnlinkedNotice,
+
+    /// <summary>
+    /// Aviso de saída da lista de espera (ADR-0056), sem token e bilíngue; o leitor veio com o gravador.
+    /// </summary>
+    WaitlistPromotionNotice,
 }
 
 /// <summary>
@@ -75,6 +80,9 @@ internal static class AccountEmailOutbox
             or AccountEmailKind.GoogleLinkedNotice
             or AccountEmailKind.GoogleUnlinkedNotice
             or AccountEmailKind.PasswordResetNotice => TimeSpan.FromHours(72),
+
+        // Teto; o prazo real é o menor entre este e o início do evento (CreateWaitlistPromotionNotice).
+        AccountEmailKind.WaitlistPromotionNotice => TimeSpan.FromHours(24),
         _ => throw new ArgumentOutOfRangeException(nameof(kind), kind, "Tipo de e-mail desconhecido."),
     };
 
@@ -108,12 +116,30 @@ internal static class AccountEmailOutbox
         string? preferredTimeZone = null) =>
         Create(new AccountEmailRequested(NoticeKinds[change], to, userId, Token: null, EmailLanguageTag.Format(language), preferredTimeZone), now);
 
-    public static OutboxEvent Create(AccountEmailRequested message, DateTimeOffset now)
+    public static OutboxEvent Create(AccountEmailRequested message, DateTimeOffset now) =>
+        Record(message, now, now + (message.Kind == AccountEmailKind.EmailConfirmation
+            && message.Token is { Length: 8 } code && code.All(char.IsAsciiDigit)
+                ? TimeSpan.FromMinutes(10)
+                : DeliveryWindow(message.Kind)));
+
+    /// <summary>
+    /// Aviso de saída da lista de espera (ADR-0056). Sem token e sem idioma: o texto é bilíngue e só remete ao estado
+    /// atual. O prazo nunca passa do início do evento, quando o aviso já não serve e a entrega expira sem envio.
+    /// </summary>
+    public static OutboxEvent CreateWaitlistPromotionNotice(string to, Guid userId, DateTimeOffset now,
+        DateTimeOffset eventStartsAt)
+    {
+        var message = new AccountEmailRequested(AccountEmailKind.WaitlistPromotionNotice, to, userId, Token: null,
+            Language: null);
+        var cap = now + DeliveryWindow(message.Kind);
+        return Record(message, now, eventStartsAt < cap ? eventStartsAt : cap);
+    }
+
+    private static OutboxEvent Record(AccountEmailRequested message, DateTimeOffset now, DateTimeOffset deadlineAt)
     {
         var identity = new EventIdentity(EventType, SchemaVersion, ResourceType, message.UserId);
         var outboxEvent = OutboxEvent.Record(identity, JsonSerializer.Serialize(message, Json), now);
-        outboxEvent.AddDelivery(Consumer, message.UserId.ToString("D"), now + (message.Kind == AccountEmailKind.EmailConfirmation && message.Token is { Length: 8 } code
-            && code.All(char.IsAsciiDigit) ? TimeSpan.FromMinutes(10) : DeliveryWindow(message.Kind)));
+        outboxEvent.AddDelivery(Consumer, message.UserId.ToString("D"), deadlineAt);
         return outboxEvent;
     }
 

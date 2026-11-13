@@ -5,6 +5,7 @@ import asyncio
 import hashlib
 import json
 import os
+import socket
 import struct
 import sys
 import tempfile
@@ -256,6 +257,9 @@ class SupervisorTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(b"x"*64, await collect_bounded(reader,64))
 
 
+# O ControlServer identifica o par por SO_PEERCRED, que só existe no Linux (o host systemd do launcher). Sem ele
+# toda conexão é recusada, e os testes que esperam recusa passariam sem testar nada.
+@unittest.skipUnless(hasattr(socket, "SO_PEERCRED"), "o ControlServer exige SO_PEERCRED, só do Linux")
 class ControlSocketTests(unittest.IsolatedAsyncioTestCase):
     async def asyncSetUp(self):
         from launcher import ControlServer, Supervisor
@@ -307,12 +311,14 @@ class ControlSocketTests(unittest.IsolatedAsyncioTestCase):
 class RuntimeSafetyTests(unittest.TestCase):
     def test_authority_lock_uses_fixed_state_directory_independent_of_profile_paths(self):
         from launcher import acquire_runtime_lock
-        with tempfile.TemporaryDirectory() as directory, tempfile.TemporaryDirectory() as runtime:
-            with patch("launcher.AUTHORITY_DIRECTORY", Path(directory)):
-                descriptor = acquire_runtime_lock(str(Path(runtime)/"docker.sock"))
+        with tempfile.TemporaryDirectory() as authority, tempfile.TemporaryDirectory() as runtime_root:
+            # resolve(): o lock exige diretórios canônicos, e o temporário do macOS passa pelo symlink /var.
+            directory, runtime = Path(authority).resolve(), Path(runtime_root).resolve()
+            with patch("launcher.AUTHORITY_DIRECTORY", directory):
+                descriptor = acquire_runtime_lock(str(runtime/"docker.sock"))
                 try:
-                    self.assertTrue((Path(directory)/"duora-media-launcher.lock").exists())
-                    self.assertFalse((Path(runtime)/"duora-media-launcher.lock").exists())
+                    self.assertTrue((directory/"duora-media-launcher.lock").exists())
+                    self.assertFalse((runtime/"duora-media-launcher.lock").exists())
                 finally: os.close(descriptor)
 
     def test_only_reviewed_builtin_seccomp_and_rootless_systemd_are_accepted(self):
@@ -331,16 +337,18 @@ class RuntimeSafetyTests(unittest.TestCase):
 
     def test_authority_lock_is_shared_by_all_profiles_for_the_same_daemon(self):
         from launcher import acquire_runtime_lock
-        with tempfile.TemporaryDirectory() as directory, patch("launcher.AUTHORITY_DIRECTORY", Path(directory)):
-            runtime_socket = str(Path(directory)/"docker.sock")
-            first = acquire_runtime_lock(runtime_socket)
-            try:
-                with self.assertRaises(BlockingIOError):
-                    acquire_runtime_lock(runtime_socket)
-            finally:
-                os.close(first)
-            # Releasing the first authority permits a new launcher after recovery.
-            os.close(acquire_runtime_lock(runtime_socket))
+        with tempfile.TemporaryDirectory() as temporary:
+            directory = Path(temporary).resolve()  # sem o symlink /var -> /private/var do macOS
+            with patch("launcher.AUTHORITY_DIRECTORY", directory):
+                runtime_socket = str(directory/"docker.sock")
+                first = acquire_runtime_lock(runtime_socket)
+                try:
+                    with self.assertRaises(BlockingIOError):
+                        acquire_runtime_lock(runtime_socket)
+                finally:
+                    os.close(first)
+                # Releasing the first authority permits a new launcher after recovery.
+                os.close(acquire_runtime_lock(runtime_socket))
 
     def test_launcher_has_no_fallback_to_shared_or_rootful_runtime(self):
         from docker_runtime import DockerRuntime

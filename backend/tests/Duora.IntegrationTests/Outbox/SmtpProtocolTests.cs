@@ -22,6 +22,7 @@ public sealed class SmtpProtocolTests
     [InlineData(true)]
     public async Task RealTlsAuthAndMimePreserveUtf8AndDeliveryMessageId(bool startTls)
     {
+        SkipWhereRootStoreIsReadOnly();
         await using var smtp = new SyntheticSmtp(startTls, trustRoot: true, acceptAuth: true);
         using var services = Services(smtp, startTls);
         Assert.True(EmailAddress.TryParse("recipient@example.invalid", out var to));
@@ -42,6 +43,7 @@ public sealed class SmtpProtocolTests
     [Fact]
     public async Task AuthenticationFailureDoesNotSubmitData()
     {
+        SkipWhereRootStoreIsReadOnly();
         await using var smtp = new SyntheticSmtp(startTls: false, trustRoot: true, acceptAuth: false);
         using var services = Services(smtp, startTls: false);
         Assert.True(EmailAddress.TryParse("recipient@example.invalid", out var to));
@@ -63,6 +65,12 @@ public sealed class SmtpProtocolTests
         Assert.False(smtp.Authenticated);
         Assert.False(smtp.SubmittedData);
     }
+
+    // The product keeps the OS TLS validation, so these tests must trust a synthetic root in the OS store.
+    // On macOS .NET opens the CurrentUser Root store read-only (writing trust needs an interactive Keychain
+    // authorization), so trusting a root is impossible without overriding product validation.
+    private static void SkipWhereRootStoreIsReadOnly() => Assert.SkipWhen(OperatingSystem.IsMacOS(),
+        "macOS denies writing the CurrentUser Root store without a Keychain prompt; this test runs on Linux CI.");
 
     private static ServiceProvider Services(SyntheticSmtp server, bool startTls)
     {

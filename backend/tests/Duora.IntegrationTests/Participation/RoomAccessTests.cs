@@ -1,7 +1,6 @@
 using System.Globalization;
 using System.Net;
 using System.Text.Json;
-using System.Text.RegularExpressions;
 using Duora.Contracts.Participation;
 using Duora.Infrastructure.Participation;
 using Duora.IntegrationTests.Identity;
@@ -12,7 +11,7 @@ using static Duora.Infrastructure.Participation.ParticipationSql;
 namespace Duora.IntegrationTests.Participation;
 
 /// <summary>Quem não está na sala, pelo HTTP e pelo PostgreSQL reais (spec 8.2, TM-24).</summary>
-public sealed partial class RoomAccessTests(PostgresFixture postgres)
+public sealed class RoomAccessTests(PostgresFixture postgres)
 {
     private const string Constellation = "constellation";
     private const string Routes = "routes";
@@ -40,8 +39,10 @@ public sealed partial class RoomAccessTests(PostgresFixture postgres)
         using var unknown = await SendAsync(scene.Third, route, Guid.NewGuid(), version);
 
         Assert.Equal(HttpStatusCode.NotFound, foreign.StatusCode);
+        Assert.Equal(
+            await NeutralResponse.DescribeAsync(unknown, ct),
+            await NeutralResponse.DescribeAsync(foreign, ct));
         var body = await foreign.Content.ReadAsStringAsync(ct);
-        Assert.Equal(WithoutTraceId(await unknown.Content.ReadAsStringAsync(ct)), WithoutTraceId(body));
         foreach (var secret in ForeignTexts(scene))
         {
             Assert.DoesNotContain(secret, body, StringComparison.OrdinalIgnoreCase);
@@ -80,19 +81,13 @@ public sealed partial class RoomAccessTests(PostgresFixture postgres)
             Assert.Equal(HttpStatusCode.OK, status.StatusCode);
             var body = await status.Content.ReadAsStringAsync(ct);
             using var json = JsonDocument.Parse(body);
-            Assert.Equal(["roomId", "state"], json.RootElement.EnumerateObject().Select(p => p.Name).Order(StringComparer.Ordinal));
+            Assert.Equal(["roomId", "roundCancelled", "state"], json.RootElement.EnumerateObject().Select(p => p.Name).Order(StringComparer.Ordinal));
             Assert.Equal("Waiting", json.RootElement.GetProperty("state").GetString());
             Assert.Equal(JsonValueKind.Null, json.RootElement.GetProperty("roomId").ValueKind);
             Assert.DoesNotContain(scene.Room.ToString(), body, StringComparison.Ordinal);
             Assert.DoesNotContain("Unavailable", body, StringComparison.Ordinal);
         }
     }
-
-    // O traceId muda a cada requisição; o resto do problem+json precisa ser igual ao de uma sala que não existe.
-    private static string WithoutTraceId(string body) => TraceId().Replace(body, string.Empty);
-
-    [GeneratedRegex("\"traceId\":\"[^\"]*\"")]
-    private static partial Regex TraceId();
 
     private async Task<RoomScene> SceneAsync(string game, string state, CancellationToken ct)
     {
