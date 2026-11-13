@@ -4,6 +4,7 @@ using DotNet.Testcontainers.Containers;
 using DotNet.Testcontainers.Networks;
 using Duora.Infrastructure.Persistence;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Logging;
 using Npgsql;
 using Testcontainers.PostgreSql;
 
@@ -57,6 +58,9 @@ public sealed class PostgresFixture : IAsyncLifetime
 
     // Explicit test-only POSIX DSM capacity within the existing hosted runner's RAM; no production profile change.
     public const long SharedMemoryBytes = 256L * 1024 * 1024;
+
+    /// <summary>Teto do inventário feito antes da remoção; ele só informa e não pode segurar a limpeza.</summary>
+    private static readonly TimeSpan InventoryCeiling = TimeSpan.FromSeconds(30);
 
     private readonly PostgreSqlContainer _container;
     private readonly ConcurrentDictionary<string, ScratchDatabase> _scratchDatabases = new(StringComparer.Ordinal);
@@ -146,7 +150,8 @@ public sealed class PostgresFixture : IAsyncLifetime
     {
         try
         {
-            await _container.DisposeAsync();
+            await FixtureCleanup.RemoveAfterInventoryAsync("remover o container do PostgreSQL", DescribeForCleanupAsync,
+                InventoryCeiling, _container.DisposeAsync, RecordCleanup);
         }
         finally
         {
@@ -157,6 +162,37 @@ public sealed class PostgresFixture : IAsyncLifetime
             _scratchDatabases.Clear();
         }
     }
+
+    /// <summary>
+    /// Quanto o servidor guarda no fim da suíte, para a falha da remoção do container dizer o tamanho do que estava sendo
+    /// apagado. Bancos avulsos pedidos só pela connection string nunca são removidos e se acumulam até aqui.
+    /// </summary>
+    internal async Task<string> DescribeForCleanupAsync(CancellationToken cancellationToken)
+    {
+        await using var connection = new NpgsqlConnection(_container.GetConnectionString());
+        await connection.OpenAsync(cancellationToken);
+        await using var command = new NpgsqlCommand(
+            "select count(*), coalesce(sum(pg_database_size(oid)), 0)::bigint from pg_database", connection);
+        await using var reader = await command.ExecuteReaderAsync(cancellationToken);
+        await reader.ReadAsync(cancellationToken);
+        var databases = reader.GetInt64(0);
+        var bytes = reader.GetInt64(1);
+        // bash com pipefail: sem ele o pipe devolveria a saída do wc, e um find que falha viraria uma contagem.
+        var files = await _container.ExecAsync(
+            ["bash", "-c", "set -o pipefail; find \"$PGDATA\" -type f | wc -l"], cancellationToken);
+        var fileCount = FixtureCleanup.DescribeFileCount(files.ExitCode, files.Stdout);
+        return $"bancos no servidor: {databases}; tamanho somado: {bytes} bytes; " +
+            $"bancos avulsos ainda registrados: {_scratchDatabases.Count}; arquivos no diretório de dados: {fileCount}";
+    }
+
+    /// <summary>
+    /// Pelo logger do Testcontainers, o mesmo que já escreve "[testcontainers.org] Delete Docker container": uma remoção
+    /// que deu certo perto do limite de 100 s do cliente Docker também deixa rastro.
+    /// </summary>
+    private void RecordCleanup(string record) => LogCleanup(_container.Logger, record, null);
+
+    private static readonly Action<ILogger, string, Exception?> LogCleanup =
+        LoggerMessage.Define<string>(LogLevel.Information, new EventId(1, "FixtureCleanup"), "{Record}");
 
     internal static void TrackScratchPool(string? connectionString) => ScratchDatabaseLifetime.TrackPool(connectionString);
 

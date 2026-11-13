@@ -30,6 +30,24 @@ public sealed class MediaStorageUnavailableTests(PostgresFixture postgres) : IAs
     public async Task AnS3ThatIsUnreachableAnswers503WithRetryAfter() =>
         await ReadApprovedAssetAsync(await FakeS3Server.ClosedUrlAsync(), AssertUnavailableAsync);
 
+    [Fact]
+    public async Task AStreamFailureBeforeTheFirstByteAnswers503WithTheStreamRetryAfter()
+    {
+        await using var fake = await FakeS3Server.StartAsync(FakeS3Server.BodyDropped());
+
+        await ReadApprovedAssetAsync(fake.Url, async response =>
+        {
+            await ProblemAssert.IsProblemAsync(response, HttpStatusCode.ServiceUnavailable, "TEMPORARILY_UNAVAILABLE");
+            Assert.Equal("2", Assert.Single(response.Headers.GetValues("Retry-After")));
+            var text = await response.Content.ReadAsStringAsync(TestContext.Current.CancellationToken);
+            Assert.DoesNotContain("Exception", text, StringComparison.Ordinal);
+            Assert.DoesNotContain("   at ", text, StringComparison.Ordinal);
+            Assert.DoesNotContain("Duora.", text, StringComparison.Ordinal);
+            Assert.DoesNotContain("Amazon", text, StringComparison.Ordinal);
+            Assert.DoesNotContain("System.", text, StringComparison.Ordinal);
+        });
+    }
+
     [Theory]
     [InlineData(HttpStatusCode.Forbidden, "AccessDenied")]
     [InlineData(HttpStatusCode.Forbidden, "InvalidAccessKeyId")]

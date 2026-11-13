@@ -50,6 +50,20 @@ internal sealed class FakeS3Server : IAsyncDisposable
             + "<RequestId>synthetic</RequestId></Error>");
     };
 
+    /// <summary>
+    /// Responde 200 com cabeçalhos de objeto e derruba a conexão antes de enviar qualquer byte do corpo: o
+    /// <c>GetObject</c> retorna, e a falha só aparece quando a API começa a ler o conteúdo.
+    /// </summary>
+    public static Func<HttpContext, Task> BodyDropped() => async context =>
+    {
+        const int PromisedBodyBytes = 1024;
+        context.Response.StatusCode = StatusCodes.Status200OK;
+        context.Response.ContentType = "image/webp";
+        context.Response.ContentLength = PromisedBodyBytes;
+        await context.Response.Body.FlushAsync(context.RequestAborted);
+        context.Abort();
+    };
+
     /// <summary>Aceita a conexão e nunca responde, até o cliente desistir.</summary>
     public static Func<HttpContext, Task> Hang() =>
         context => Task.Delay(Timeout.Infinite, context.RequestAborted);
