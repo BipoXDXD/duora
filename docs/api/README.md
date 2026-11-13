@@ -228,6 +228,15 @@ segue a regra de replay acima (`204` ou `400`); depois, `404`. Na sala `Complete
 reenvio segue a regra de replay (`204` sem gravar de novo, ou `400` com outro corpo) mesmo depois do prazo e do job. Só
 o autor vê isso, e só sobre a própria ação.
 
+Status declarados no OpenAPI: `actions` e `routes-actions` listam `204`, `400`, `401`, `403`, `404`, `409` e
+`503`; `exit`, `accept`, `reject`, `PUT` e `DELETE /events/{eventId}/registration` e
+`POST /events/{eventId}/check-in` listam `204`, `401`, `403`, `404` e `503` (sem corpo nem versão, não têm `400` nem
+`409`). O `503` `TEMPORARILY_UNAVAILABLE` com `Retry-After` vem da contenção de lock (ou, na inscrição, na
+desistência e no check-in, do teto de retentativas quando o plano de locks muda). Antes, as rotas de sala, o
+`PUT` da inscrição e o check-in declaravam só `401` e `403`, e o `DELETE /events/{eventId}/registration`
+declarava `204`, `401`, `403` e `404`; acrescentar respostas é mudança aditiva, sem breaking change no
+`oasdiff`.
+
 ## Idioma do documento aceito (issue #103)
 
 API-A02 (`POST /api/v1/auth/register`) aceita `acceptedTermsLocale` e `acceptedPrivacyLocale`,
@@ -416,3 +425,12 @@ API-ADM28 (`POST /admin/registration-reconciliations/runs/{runId}/units/{unitId}
 sessão normal, com toque. Mudança aditiva, com os códigos novos `409 RUN_CLOSED` e `409 CUTOVER_CHANGED`. Estas rotas
 retiram inscrições: uso real só pelo [runbook](../operations/registration-reconciliation.md), com autorização própria.
 Requer revisão humana de autorização e contrato antes do merge.
+
+## Aceite tardio do convite (#428)
+
+`POST /api/v1/rooms/{roomId}/accept` (API-R01) com o prazo do convite vencido passou de `204` para `404`, o mesmo
+`404` neutro de sala inexistente (corpo e headers iguais, só o `traceId` muda). Antes, o aceite tardio respondia
+`204` sem aceitar nada e só a repetição recebia `404`. O efeito no banco não mudou: a sala vira `Expired` e as
+reservas são liberadas. A recusa tardia (`POST /api/v1/rooms/{roomId}/reject`) continua `204`, porque o pedido já
+cumpre o efeito. Mudança de semântica sem mudança de schema (o OpenAPI passa a declarar `204` e `404` nas duas
+rotas): a SPA trata o `404` com o aviso "Este convite não está mais disponível.", e a SPA e a API são publicadas juntas.

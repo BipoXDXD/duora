@@ -1,6 +1,7 @@
 # Gerenciado pelo Ansible (infra/ansible/roles/backup). Verificação diária do backup das fotos: bucket com File Lock,
-# chave presa a media/, snapshot mais novo com no máximo 26 h e estrutura do repositório (restic check, sem baixar
-# os dados). Falha dispara duora-backup-failed@.
+# chave presa a media/, snapshot mais novo com no máximo 24 h 30 min e estrutura do repositório (restic check, sem
+# baixar os dados). 45 min depois do backup das 03:10: um dia perdido aparece como snapshot de 24 h 45 min e reprova
+# (MAX_MEDIA_SNAPSHOT_AGE_HOURS no duora_backup.py). Falha dispara duora-backup-failed@.
 [Unit]
 Description=Duora: verificação diária do backup das fotos
 
