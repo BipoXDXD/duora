@@ -8398,7 +8398,8 @@
       "ParticipationResponse": {
         "required": [
           "state",
-          "roomId"
+          "roomId",
+          "roundCancelled"
         ],
         "type": "object",
         "properties": {
@@ -8411,6 +8412,9 @@
               "string"
             ],
             "format": "uuid"
+          },
+          "roundCancelled": {
+            "type": "boolean"
           }
         },
         "additionalProperties": false
