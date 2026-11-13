@@ -6975,6 +6975,7 @@ export interface components {
             state: string;
             /** Format: uuid */
             roomId: null | string;
+            roundCancelled: boolean;
         };
         PassedResponse: {
             cardId: string;

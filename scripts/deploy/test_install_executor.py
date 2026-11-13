@@ -19,7 +19,9 @@ class InstallationTests(unittest.TestCase):
     def setUp(self) -> None:
         temporary = tempfile.TemporaryDirectory()
         self.addCleanup(temporary.cleanup)
-        self.root = Path(temporary.name)
+        # resolve(): o temporário do macOS fica sob /var, symlink para /private/var, e a ancestralidade protegida
+        # recusa symlink. No Linux é o próprio caminho.
+        self.root = Path(temporary.name).resolve()
         self.source = self.root / "source"
         self.source.mkdir()
         files = {}
