@@ -31,15 +31,15 @@ env:
   OASDIFF_IMAGE: tufin/oasdiff:v1.33.0@sha256:6263a96dd2ef0726c54e21fea9b8e1607eac4841add0079324b424c1f52b819c
 
 jobs:
-  # A suíte passou de 40 min em um runner só por tamanho, não por teste preso (#507). Soma do tempo de teste no corte
-  # do #503, por shard: Identity A–L ~25 min, Identity M–Z ~26, Media ~29, Participation + Profiles ~23, resto ~30
-  # (Safety e os projetos de unidade, arquitetura e corpus). Identity é um namespace só e divide pela inicial da
-  # classe. Cada shard é um runner próprio. "identity-m-z" e "resto" são complementos (namespace menos o que outro
-  # shard pegou), então classe ou namespace novo cai num deles e nenhum teste fica de fora.
+  # A suíte passou de 40 min em um runner só (#507) e foi dividida em shards. Medido em 12 runs da main em 13/11, com
+  # build: 3 a 8 min por shard; o teto de 20 min deixa mais de 2x de folga e corta cedo um teste preso. Identity é um
+  # namespace só e divide pela inicial da classe. Cada shard é um runner próprio. "identity-m-z" e "resto" são
+  # complementos (namespace menos o que outro shard pegou), então classe ou namespace novo cai num deles; o agregador
+  # "backend" confere pelas listagens que cada caso cai em exatamente um shard (#564).
   backend-tests:
     name: backend (${{ matrix.shard }})
     runs-on: ubuntu-24.04
-    timeout-minutes: 30
+    timeout-minutes: 20
     strategy:
       fail-fast: false
       matrix:
@@ -112,9 +112,14 @@ jobs:
       # Sem limite interno: quem corta é o timeout-minutes do shard.
       # O TRX só é gravado no fim do módulo e não existe no corte; o .diag em Trace identifica o teste que ficou
       # em andamento (InProgress sem resultado).
+      # A listagem usa o mesmo alvo e filtro da execução; o agregador "backend" compara a soma com a suíte (#564).
       - name: Testes
         run: |
           results="$RUNNER_TEMP/backend-test-results"
+          lists="$RUNNER_TEMP/backend-shard-list"
+          mkdir -p "$lists"
+          # shellcheck disable=SC2086 # target e filter são listas de argumentos fixas da matrix.
+          dotnet test ${{ matrix.target }} --no-build --list-tests -- ${{ matrix.filter }} > "$lists/shard-${{ matrix.shard }}.txt"
           # shellcheck disable=SC2086 # target e filter são listas de argumentos fixas da matrix.
           dotnet test ${{ matrix.target }} --no-build \
             --report-xunit-trx --results-directory "$results" \
@@ -128,10 +133,29 @@ jobs:
         if: ${{ matrix.shard == 'media' }}
         run: |
           results="$RUNNER_TEMP/backend-test-results"
+          lists="$RUNNER_TEMP/backend-shard-list"
+          dotnet test --project backend/tests/Duora.MediaCorpusTests/Duora.MediaCorpusTests.csproj --no-build --list-tests \
+            -- --filter-namespace "Duora.IntegrationTests.Media*" >> "$lists/shard-${{ matrix.shard }}.txt"
           dotnet test --project backend/tests/Duora.MediaCorpusTests/Duora.MediaCorpusTests.csproj --no-build \
             --report-xunit-trx --results-directory "$results" \
             --diagnostic --diagnostic-verbosity Trace --diagnostic-output-directory "$results" \
             -- --filter-namespace "Duora.IntegrationTests.Media*"
+
+      # A referência da conferência: a solução inteira, sem filtro (#564).
+      - name: Listar a suíte inteira
+        if: ${{ matrix.shard == 'resto' }}
+        run: |
+          lists="$RUNNER_TEMP/backend-shard-list"
+          dotnet test --solution backend/Duora.slnx --no-build --list-tests > "$lists/all.txt"
+
+      # Só nomes de casos, que já estão no código; sem isso o agregador não confere a partição.
+      - name: Preservar a listagem do shard
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: backend-shard-list-${{ matrix.shard }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/backend-shard-list/
+          if-no-files-found: error
+          retention-days: 1
 
       # Tempo de parede por classe e testes ainda abertos, em verde também (#507): só nomes de teste e tempos vão
       # para o resumo do job, nunca o .diag. Informativo: não muda o veredito.
@@ -189,6 +213,24 @@ jobs:
         run: |
           echo "Shards do backend: $RESULT"
           test "$RESULT" = success
+
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Baixar as listagens dos shards
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          pattern: backend-shard-list-*-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/backend-shard-list
+          merge-multiple: true
+
+      # Falha se um caso não cai em nenhum shard ou cai em dois (#564).
+      - name: Cada caso em exatamente um shard
+        run: |
+          set -o pipefail
+          lists="$RUNNER_TEMP/backend-shard-list"
+          python3 -I scripts/ci/shard_partition.py --all "$lists/all.txt" "$lists"/shard-*.txt | tee -a "$GITHUB_STEP_SUMMARY"
 
   frontend:
     name: frontend
