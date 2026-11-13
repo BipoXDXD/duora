@@ -3,6 +3,7 @@ import importlib.util
 import io
 import json
 import hashlib
+import sys
 import tarfile
 import tempfile
 from pathlib import Path
@@ -10,6 +11,10 @@ import unittest
 from unittest.mock import patch
 
 ROOT = Path(__file__).parent
+# qualify() recusa qualquer host fora do Linux amd64 hospedado. command() mata o grupo inteiro no finally, e no
+# macOS o killpg num grupo que já saiu responde EPERM em vez de ESRCH: fora do Linux o teste mede o SO, não o código.
+LINUX_ONLY = unittest.skipUnless(sys.platform.startswith("linux"),
+                                 "command() só roda no Linux; o killpg do macOS responde EPERM a grupo encerrado")
 
 
 class QualificationTests(unittest.TestCase):
@@ -99,6 +104,7 @@ class QualificationTests(unittest.TestCase):
         with self.assertRaises(module.Refusal):
             module.verify_constructed_admission(receipt, changed)
 
+    @LINUX_ONLY
     def test_public_command_failure_keeps_only_closed_reason_phase_and_library(self):
         module = self.load()
         with tempfile.TemporaryDirectory() as tmp:
@@ -117,6 +123,7 @@ class QualificationTests(unittest.TestCase):
             self.assertNotIn("PRIVATE_SENTINEL", serialized)
             self.assertNotIn("stderr", serialized)
 
+    @LINUX_ONLY
     def test_command_diagnostic_does_not_export_unknown_library_or_change_output_limit(self):
         module = self.load()
         self.assertTrue(hasattr(module, "public_failure_details"), "closed bounded diagnosis missing")
