@@ -24,7 +24,7 @@ internal static class RoutesCatalogEndpoints
             .ProducesProblem(400).ProducesProblem(401).ProducesProblem(403).ProducesProblem(413)
             .WithMetadata(new RequestSizeLimitAttribute(ParticipationService.MaxCatalogBodyBytes))
             .RequireAuthorization(SessionAuthorization.AdministrativeSession)
-            .RequireProductAdministrator().RequireRecentMfa().HandleCatalogContention().ProducesProblem(503);
+            .RequireProductAdministrator().RequireRecentMfa().ProducesProblem(503);
     }
 
     private static async Task<IResult> PublishAsync(HttpContext context, ParticipationService service, CancellationToken ct)

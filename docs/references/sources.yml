@@ -62,7 +62,7 @@ fontes:
     urls:
       - "https://dotnet.microsoft.com/en-us/platform/support/policy/dotnet-core"
       - "https://learn.microsoft.com/en-us/dotnet/core/tools/global-json"
-    versao: ".NET 10 LTS; SDK 10.0.403 em global.json"
+    versao: ".NET 10 LTS; SDK 10.0.404 em global.json"
     consultado: 2026-11-05
     download: "ok"
     requisitos: ["2.1", "2.5", "17.1"]

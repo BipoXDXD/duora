@@ -6,7 +6,8 @@ não altera APIs, estado de participantes nem o fluxo de deploy. O CI existente 
 
 Depois de revisar e integrar o workflow na `main`, execute pela branch `main`, informando o SHA completo
 em `commit`. O commit precisa pertencer ao histórico da `main`; seu último run do workflow `CI` para
-`push` na `main`, na tentativa atual, deve estar concluído com os nove jobs aprovados. Check ausente,
+`push` na `main`, na tentativa atual, deve estar concluído com os nove jobs aprovados (desde o #510, os nove mais os cinco shards
+`backend (…)`, sempre o conjunto exato). Check ausente,
 duplicado, pulado, cancelado ou falho impede a publicação. O teste do verificador também roda no PR.
 
 Cada runner nativo (amd64 e arm64) constrói web, worker, migrator e edge dos Dockerfiles desse commit, reutiliza

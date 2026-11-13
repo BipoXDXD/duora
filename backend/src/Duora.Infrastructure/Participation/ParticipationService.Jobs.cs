@@ -77,6 +77,13 @@ public sealed partial class ParticipationService
         using var linked = CancellationTokenSource.CreateLinkedTokenSource(ct, deadline.Token);
         ct = linked.Token;
         await using var connection = await source.OpenConnectionAsync(ct);
+        // The single read that decides the completion and stamps its effects: rereading later would let a clock that
+        // steps back before due_at turn the job Done without effect. Only the released_at stamps of reservation
+        // releases reread the clock, and they decide nothing (see RequeueEarlyJobAsync and ADR-0021). It happens before
+        // the transaction and its locks, so the instants derived from it (invite_expires_at = now + 60 s in
+        // BuildRoundAsync, completed_at) are older than the commit, by up to about JobTimeLimit (3 s): the token
+        // cancels the work at that limit, but a COMMIT already sent may still land a little after it. The invite window
+        // may be that much shorter. Accepted in ADR-0021.
         var now = Now;
         if (job.DueAt > now)
         {
@@ -93,7 +100,7 @@ public sealed partial class ParticipationService
         var owned = await Execute(connection, """
             update ops.jobs set status='Done',completed_at=$3,lease_expires_at=null
             where id=$1 and fencing_token=$2 and status='InFlight' and lease_expires_at>$3
-            """, ct, job.Id, job.Token, Now);
+            """, ct, job.Id, job.Token, now);
         if (owned == 0)
         {
             return false;
@@ -101,11 +108,11 @@ public sealed partial class ParticipationService
 
         if (job.Kind == "close-round")
         {
-            await CloseRoundAsync(connection, job.AggregateId, ct);
+            await CloseRoundAsync(connection, job.AggregateId, now, ct);
         }
         else if (job.Kind == "build-round")
         {
-            await BuildRoundAsync(connection, job.AggregateId, ct);
+            await BuildRoundAsync(connection, job.AggregateId, now, ct);
         }
         else
         {
@@ -116,20 +123,20 @@ public sealed partial class ParticipationService
             }
 
             var row = user is null ? null : await LoadRoomAsync(connection, job.AggregateId, user.Value, true, ct, authorize: false);
-            if (row is not null && job.Kind == "expire-invite" && row.State == "Invited" && row.Expires == job.DueAt && row.Expires <= Now)
+            if (row is not null && job.Kind == "expire-invite" && row.State == "Invited" && row.Expires == job.DueAt && row.Expires <= now)
             {
                 await ReleaseAsync(connection, row, "Expired", ct);
             }
 
             if (row?.Public is not null && job.Kind == "game-deadline" && row.State == "Active" && row.Kind == "unlikely-routes")
             {
-                await ResolveRoutesDeadlineAsync(connection, row, job.DueAt, ct);
+                await ResolveRoutesDeadlineAsync(connection, row, job.DueAt, now, ct);
             }
             else if (row?.Public is not null && job.Kind == "game-deadline" && row.State == "Active")
             {
                 var content = await ContentAsync(connection, row.ContentId, ct) ?? throw new InvalidOperationException("Pinned catalog missing.");
                 var session = await RestoreAsync(connection, row, content, ct);
-                if (session.Schedule.Deadline == job.DueAt && Engine.HandleDeadline(session, session.Version) is DeadlineOutcome<ConstellationState, ConstellationAction>.Resolved resolved)
+                if (session.Schedule.Deadline == job.DueAt && EngineAt(now).HandleDeadline(session, session.Version) is DeadlineOutcome<ConstellationState, ConstellationAction>.Resolved resolved)
                 {
                     await SaveAsync(connection, row, ConstellationSnapshot.Capture(resolved.Session), ct);
                     await ReleaseReservationsAsync(connection, row.PairingId, ct);
@@ -146,10 +153,10 @@ public sealed partial class ParticipationService
     /// Como o claim e a conclusão usam o mesmo relógio, isso só acontece com <c>available_at</c> mexido à mão ou com o
     /// relógio do processo recuando entre o claim e a conclusão. Volta a <c>Pending</c> no próprio <c>due_at</c>,
     /// devolvendo a tentativa do claim. Um só comando com o fencing do claim: só o dono do token o devolve, uma vez.
-    /// A decisão de reagendar e este UPDATE usam o mesmo <c>now</c>, mas a conclusão normal relê o relógio (no UPDATE
-    /// de <c>Done</c>, nos fechamentos e em <c>BuildRoundAsync</c>). Lacuna conhecida: se o relógio recuar para antes do
-    /// <c>due_at</c> entre a decisão e essas leituras, o job ainda pode virar <c>Done</c> sem efeito. Fecha passando
-    /// <c>now</c> adiante, num follow-up.
+    /// A decisão, este UPDATE e toda a conclusão normal usam o mesmo <c>now</c>: o UPDATE de <c>Done</c>, o fechamento da
+    /// rodada, a expiração do convite, <c>BuildRoundAsync</c> e o motor do jogo no <c>game-deadline</c>. Se o relógio
+    /// recuar para antes do <c>due_at</c> depois da decisão, o job ainda tem efeito; não vira <c>Done</c> vazio. Só os
+    /// carimbos de <c>released_at</c> da liberação de reservas releem o relógio, e eles não decidem nada.
     /// </summary>
     private static Task<int> RequeueEarlyJobAsync(NpgsqlConnection connection, ParticipationJob job, DateTimeOffset now, CancellationToken ct) =>
         Execute(connection, """
@@ -157,11 +164,11 @@ public sealed partial class ParticipationService
             where id=$1 and fencing_token=$2 and status='InFlight' and lease_expires_at>$3 and due_at>$3
             """, ct, job.Id, job.Token, now);
 
-    private async Task CloseRoundAsync(NpgsqlConnection connection, Guid round, CancellationToken ct)
+    private async Task CloseRoundAsync(NpgsqlConnection connection, Guid round, DateTimeOffset now, CancellationToken ct)
     {
         await LockRoundAsync(connection, round, ct);
         List<(Guid Room, Guid User)> rooms = [];
-        await using (var q = Command(connection, "select s.id,p.user_low from experiences.game_sessions s join events.pairings p on p.id=s.pairing_id join events.rounds r on r.id=p.round_id where r.id=$1 and r.deadline_at<=$2 order by s.id", round, Now))
+        await using (var q = Command(connection, "select s.id,p.user_low from experiences.game_sessions s join events.pairings p on p.id=s.pairing_id join events.rounds r on r.id=p.round_id where r.id=$1 and r.deadline_at<=$2 order by s.id", round, now))
         await using (var reader = await q.ExecuteReaderAsync(ct))
         {
             while (await reader.ReadAsync(ct))
@@ -177,17 +184,17 @@ public sealed partial class ParticipationService
                 await ReleaseAsync(connection, row, "Expired", ct);
             }
         }
-        await FinishRoundAsync(connection, round, ct);
+        await FinishRoundAsync(connection, round, now, ct);
     }
 
-    private async Task FinishRoundAsync(NpgsqlConnection connection, Guid round, CancellationToken ct)
+    private static async Task FinishRoundAsync(NpgsqlConnection connection, Guid round, DateTimeOffset now, CancellationToken ct)
     {
         // Same rule as Round.Close and Round.Resume: only a round in progress closes (no writer persists Running, so that is
         // Inviting), one that never started is cancelled, and a finished round never changes.
         await Execute(connection, """
             update events.rounds set state=case state when 'Inviting' then 'Closed' else 'Cancelled' end,version=version+1
             where id=$1 and deadline_at<=$2 and state in ('Scheduled','Inviting')
-            """, ct, round, Now);
+            """, ct, round, now);
         await Execute(connection, """
             update events.events set state='Completed',version=version+1 where id=(select event_id from events.rounds where id=$1)
               and not exists(select 1 from events.rounds r where r.event_id=events.events.id and r.state not in ('Closed','Cancelled'))
@@ -245,6 +252,7 @@ public sealed partial class ParticipationService
         using var deadline = new CancellationTokenSource(JobTimeLimit, time);
         using var linked = CancellationTokenSource.CreateLinkedTokenSource(ct, deadline.Token);
         await LockRoundAsync(connection, job.AggregateId, linked.Token);
+        var now = Now;
         await using var release = Command(connection, """
             with rooms as (
               update experiences.game_sessions s set state='Expired',version=s.version+1
@@ -258,9 +266,9 @@ public sealed partial class ParticipationService
               update events.pairing_participants set released_at=coalesce(released_at,$2)
               where pairing_id in (select pairing_id from rooms) returning user_id)
             select count(*)::integer from rooms
-            """, job.AggregateId, Now);
+            """, job.AggregateId, now);
         var released = (int)(await release.ExecuteScalarAsync(linked.Token))!;
-        await FinishRoundAsync(connection, job.AggregateId, linked.Token);
+        await FinishRoundAsync(connection, job.AggregateId, now, linked.Token);
         return released;
     }
 

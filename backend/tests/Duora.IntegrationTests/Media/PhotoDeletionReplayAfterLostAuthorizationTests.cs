@@ -2,6 +2,7 @@ using System.Net;
 using Duora.Core.Media;
 using Duora.Infrastructure.Media;
 using Duora.IntegrationTests.Identity;
+using Duora.IntegrationTests.Safety;
 using Microsoft.Extensions.DependencyInjection;
 
 namespace Duora.IntegrationTests.Media;
@@ -54,8 +55,7 @@ public sealed class PhotoDeletionReplayAfterLostAuthorizationTests : IAsyncDispo
         using var replay = await PhotoDeletionTests.DeleteAsync(browser, photoId, tag, key);
 
         var body = (await ProblemAssert.IsProblemAsync(replay, expectedStatus, expectedCode)).ToJsonString();
-        Assert.DoesNotContain(photoId.ToString(), body, StringComparison.OrdinalIgnoreCase);
-        Assert.DoesNotContain(photoId.ToString("N"), body, StringComparison.OrdinalIgnoreCase);
+        ReplayLeakAssert.ContainsNone(replay, body, photoId);
         Assert.Null(replay.Headers.ETag);
         await AssertSingleEffectAsync(photoId);
     }
