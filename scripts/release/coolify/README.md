@@ -17,7 +17,8 @@ Instalação coordenada, reconciliação, limites e testes estão em [ISOLATION.
 
 No Duora, a publicação automática recebe `workflow_run` de CI concluída com sucesso na main.
 O SHA vem do evento, mas o gate consulta a API e exige novamente o push da main deste repositório,
-com os nove jobs aprovados na tentativa atual. Eventos de PR, fork, CI incompleta ou com falha
+com os nove jobs aprovados na tentativa atual (desde o #510, os nove mais os cinco shards `backend (…)`,
+sempre o conjunto exato). Eventos de PR, fork, CI incompleta ou com falha
 não liberam imagens nem segredos de produção. A execução manual continua aceitando o SHA completo.
 
 A fila de produção é separada dos checks de PR, mantém as execuções pendentes (`queue: max`)

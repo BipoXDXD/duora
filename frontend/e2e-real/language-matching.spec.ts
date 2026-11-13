@@ -128,7 +128,7 @@ test('real PostgreSQL: no common language, either participant declines, then loc
       const rejecting = index === 1 ? alice : bob
       await rejecting.goto(`/rooms/${id}`)
       await rejecting.getByRole('button', { name: 'Decline invitation' }).click()
-      await expect(rejecting.getByText('This encounter has ended.')).toBeVisible()
+      await expect(rejecting.getByText('This room has been closed.')).toBeVisible()
       const other = index === 1 ? bob : alice
       expect((await json<Room>(other, `/api/v1/rooms/${id}`)).state).toBe('Aborted')
     }

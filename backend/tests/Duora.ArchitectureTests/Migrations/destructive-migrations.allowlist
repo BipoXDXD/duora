@@ -1,0 +1,29 @@
+# Operações destrutivas revisadas no Up das migrations (RepositoryMigrationsTests, job backend do CI).
+# Critério: DestructiveMigrationGuard.cs. Formato: <id da migration> | <operação> | <justificativa>.
+# Migration nova que apaga dado, troca tipo, renomeia ou troca constraint só passa com linha nova aqui, no mesmo
+# PR, com o porquê (expand/contract, contract revisado, backup). Linha sem operação correspondente reprova o teste.
+#
+# Itens iniciais (2026-11-09): migrations anteriores à guarda, já na main em e191af8a e revisadas nos PRs de origem.
+
+20261015202005_UserNameFollowsEmail | DropIndex | anterior à guarda: troca o índice único do user name pelo do e-mail
+20261016062749_AgeVerificationWithoutExpiry | DropCheckConstraint | anterior à guarda: retira o CHECK de validade (ADR-0024, adendo de 2026-10-16)
+20261016102312_AdminBootstrap | DropCheckConstraint | anterior à guarda: troca os CHECKs de ator do audit_events
+20261021150000_OperationalRetention | SQL DROP CONSTRAINT | anterior à guarda: amplia o CHECK jobs_kind_check com o novo kind
+20261021170000_RegionalMatchingV3 | SQL DROP CONSTRAINT | anterior à guarda: amplia os CHECKs de algorithm_version
+20261021200000_CountryDatabaseUpdates | SQL DROP CONSTRAINT | anterior à guarda: amplia o CHECK jobs_kind_check com o novo kind
+20261022070000_MediaReviewReaders | SQL DROP CONSTRAINT | anterior à guarda: troca os CHECKs de estado e rejeição de media.uploads
+20261022070000_MediaReviewReaders | SQL DROP INDEX | anterior à guarda: troca o índice de uploads pendentes
+20261022220000_PhotoReviewApprovals | SQL DROP CONSTRAINT | anterior à guarda: troca os CHECKs de photo_review_decisions
+20261025040000_PhotoReviewAppealAssignments | SQL DROP CONSTRAINT | anterior à guarda: troca o CHECK de versão do recurso
+20261025120000_PhotoReviewAppealDecisions | SQL DROP CONSTRAINT | anterior à guarda: troca os CHECKs de status e retenção do recurso
+20261028074839_ProfileRegionContract | DropCheckConstraint | anterior à guarda: contract da issue #78 (retira region_code)
+20261028074839_ProfileRegionContract | DropColumn | anterior à guarda: contract da issue #78 (retira region_code)
+20261028074839_ProfileRegionContract | SQL DROP FUNCTION | anterior à guarda: contract da issue #78 (retira a ponte do expand)
+20261028074839_ProfileRegionContract | SQL DROP TRIGGER | anterior à guarda: contract da issue #78 (retira a ponte do expand)
+20261028120000_PhotoReviewWithoutAppeals | SQL DROP CONSTRAINT | anterior à guarda: troca o CHECK de retenção do candidato
+20261028151040_SelfieResultFollowsAccount | SQL DROP CONSTRAINT | anterior à guarda: troca a FK da selfie para seguir a conta
+20261029120000_PhotoReviewSevenDayWait | SQL DROP CONSTRAINT | anterior à guarda: troca o CHECK de prazo do caso
+20261101180000_PrivateGenerationAuthority | SQL DROP CONSTRAINT | anterior à guarda: troca os CHECKs de remoção de candidatos e promoções (ADR-0047)
+
+# Revisadas depois da guarda.
+20261109120000_VoluntaryRegistrationWithdrawal | SQL DROP CONSTRAINT | amplia ck_registrations_withdrawal para a retirada voluntária (API-E04, ADR-0053, opção B do dono); toda linha válida antes segue válida; duas revisões no PR #436

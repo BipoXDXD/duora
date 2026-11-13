@@ -10,6 +10,7 @@ namespace Duora.Infrastructure.Participation;
 public sealed partial class ParticipationService
 {
     private ExperienceEngine<UnlikelyRoutesContent, UnlikelyRoutesState, UnlikelyRoutesAction, UnlikelyRoutesView> RoutesEngine => new(new UnlikelyRoutesRules(new UnlikelyRoutesSettings(1)), new PreciseClock(time));
+    private static ExperienceEngine<UnlikelyRoutesContent, UnlikelyRoutesState, UnlikelyRoutesAction, UnlikelyRoutesView> RoutesEngineAt(DateTimeOffset now) => new(new UnlikelyRoutesRules(new UnlikelyRoutesSettings(1)), new FrozenClock(now));
 
     private async Task StartRoutesAsync(NpgsqlConnection connection, RoomRow row, CancellationToken ct)
     {
@@ -78,11 +79,11 @@ public sealed partial class ParticipationService
         return ParticipationOutcome.Done;
     }
 
-    private async Task ResolveRoutesDeadlineAsync(NpgsqlConnection connection, RoomRow row, DateTimeOffset due, CancellationToken ct)
+    private async Task ResolveRoutesDeadlineAsync(NpgsqlConnection connection, RoomRow row, DateTimeOffset due, DateTimeOffset now, CancellationToken ct)
     {
         var content = await RoutesContentAsync(connection, row.ContentId, ct) ?? throw new InvalidOperationException("Pinned catalog missing.");
         var session = await RestoreRoutesAsync(connection, row, content, ct);
-        if (session.Schedule.Deadline == due && RoutesEngine.HandleDeadline(session, session.Version) is DeadlineOutcome<UnlikelyRoutesState, UnlikelyRoutesAction>.Resolved resolved)
+        if (session.Schedule.Deadline == due && RoutesEngineAt(now).HandleDeadline(session, session.Version) is DeadlineOutcome<UnlikelyRoutesState, UnlikelyRoutesAction>.Resolved resolved)
         {
             await SaveRoutesAsync(connection, row, UnlikelyRoutesSnapshot.Capture(resolved.Session), ct);
             await ReleaseReservationsAsync(connection, row.PairingId, ct);
