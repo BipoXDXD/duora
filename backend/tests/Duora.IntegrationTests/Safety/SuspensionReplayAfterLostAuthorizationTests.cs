@@ -18,6 +18,12 @@ public sealed class SuspensionReplayAfterLostAuthorizationTests : IAsyncDisposab
     /// <summary>O motivo padrão de <see cref="AccountSuspensionScenario.SuspendBody"/>: só a mesma intenção vira replay.</summary>
     private const string Reason = "Ofensas repetidas contra os Termos.";
 
+    /// <summary>
+    /// Os únicos headers da recusa, em minúsculas e ordenados: nenhum <c>ETag</c> ou <c>Location</c> da suspensão
+    /// guardada, nem header novo que possa carregá-los.
+    /// </summary>
+    private static readonly string[] RefusalHeaders = ["cache-control", "content-type", "pragma"];
+
     private static CancellationToken Ct => TestContext.Current.CancellationToken;
 
     private readonly FakeTimeProvider _time = new(DateTimeOffset.FromUnixTimeSeconds(DateTimeOffset.UtcNow.ToUnixTimeSeconds()));
@@ -56,8 +62,8 @@ public sealed class SuspensionReplayAfterLostAuthorizationTests : IAsyncDisposab
             AccountSuspensionScenario.SuspendBody(Reason), AccountSuspensionScenario.WithKey(key));
 
         var body = (await ProblemAssert.IsProblemAsync(replay, expectedStatus, expectedCode)).ToJsonString();
-        Assert.Null(replay.Headers.ETag);
-        Assert.Null(replay.Headers.Location);
+        Assert.Equal(RefusalHeaders, replay.Headers.Concat(replay.Content.Headers)
+            .Select(header => header.Key.ToLowerInvariant()).Order(StringComparer.Ordinal));
         var headers = string.Join('\n', replay.Headers.Concat(replay.Content.Headers)
             .Select(header => $"{header.Key}: {string.Join(',', header.Value)}"));
         foreach (var id in new[] { Guid.Parse(suspensionId), participant.UserId })
