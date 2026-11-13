@@ -2,7 +2,7 @@ import { testPrivateOperation } from '@/test/private-context'
 import { http, HttpResponse } from 'msw'
 import { describe, expect, it } from 'vitest'
 import { API, server } from '@/test/msw'
-import { fetchEvents } from './participation-api'
+import { fetchEvents, withdraw } from './participation-api'
 
 function events(startsAt: string) {
   server.use(
@@ -41,5 +41,21 @@ describe('instantes de eventos na fronteira da API', () => {
         state: 'Published',
       },
     ])
+  })
+})
+
+describe('retirada da inscrição (API-E04)', () => {
+  it('manda DELETE sem corpo no path codificado da própria inscrição', async () => {
+    const requests: Request[] = []
+    server.use(
+      http.delete(`${API}/events/:eventId/registration`, ({ request }) => {
+        requests.push(request.clone())
+        return new HttpResponse(null, { status: 204 })
+      }),
+    )
+    await withdraw(testPrivateOperation(), 'a/b')
+    expect(requests).toHaveLength(1)
+    expect(new URL(requests[0]?.url ?? '').pathname).toBe('/api/v1/events/a%2Fb/registration')
+    expect(await requests[0]?.text()).toBe('')
   })
 })

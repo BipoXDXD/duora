@@ -38,7 +38,8 @@ public sealed partial class AccountBusyLogTests(PostgresFixture postgres)
 
         using var response = await IdentityScenario.LoginAsync(browser, account.Email, account.Password);
 
-        var body = await ProblemAssert.IsProblemAsync(response, HttpStatusCode.ServiceUnavailable, "TEMPORARILY_UNAVAILABLE");
+        var body = await ProblemAssert.IsProblemAsync(
+            response, HttpStatusCode.ServiceUnavailable, "TEMPORARILY_UNAVAILABLE");
         Assert.Equal(30, ProblemAssert.RetryAfterSeconds(response));
         var entry = SingleAccountBusyLog(logs);
         Assert.Equal(LogLevel.Warning, entry.Level);
@@ -105,7 +106,8 @@ public sealed partial class AccountBusyLogTests(PostgresFixture postgres)
         };
         using var browser = new Browser(factory);
 
-        using var response = await IdentityScenario.LoginAsync(browser, $"{canary}@example.com", "senha qualquer longa");
+        using var response = await IdentityScenario.LoginAsync(
+            browser, $"{canary}@example.com", "senha qualquer longa");
 
         await ProblemAssert.IsProblemAsync(response, HttpStatusCode.ServiceUnavailable, "TEMPORARILY_UNAVAILABLE");
         var entry = SingleAccountBusyLog(logs);
@@ -158,7 +160,8 @@ public sealed partial class AccountBusyLogTests(PostgresFixture postgres)
         using var counter = new AccountBusyCounter(factory.Services.GetRequiredService<IMeterFactory>());
         using var browser = new Browser(factory);
 
-        using var response = await IdentityScenario.LoginAsync(browser, IdentityScenario.NewEmail(), "senha qualquer longa");
+        using var response = await IdentityScenario.LoginAsync(
+            browser, IdentityScenario.NewEmail(), "senha qualquer longa");
 
         Assert.Equal(HttpStatusCode.ServiceUnavailable, response.StatusCode);
         var measurement = Assert.Single(counter.Measurements);
@@ -262,7 +265,8 @@ public sealed partial class AccountBusyLogTests(PostgresFixture postgres)
     {
         public string HashPassword(DuoraUser user, string password) => throw busy;
 
-        public PasswordVerificationResult VerifyHashedPassword(DuoraUser user, string hashedPassword, string providedPassword) =>
+        public PasswordVerificationResult VerifyHashedPassword(
+            DuoraUser user, string hashedPassword, string providedPassword) =>
             throw busy;
     }
 
