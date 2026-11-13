@@ -462,6 +462,35 @@ bloqueio pede confirmação própria com a primária destrutiva "Bloquear pessoa
 | Conexão formada | "Vocês dois têm interesse. A conversa está em Conversas." + "Abrir conversa"; alteração dá lugar a "Encerrar conexão" em Conversas |
 | `loading` / `error` / `offline` | Conforme as convenções; `error` preserva a escolha não salva na tela |
 
+## Foto da outra pessoa (proposta)
+
+> **Proposta pendente de aceite do [ADR-0050](../architecture/adr/0050-foto-de-perfil-para-outra-pessoa-api-p04.md),
+> rascunho da #370.** O ADR continua `Proposed`: nada desta seção é requisito de implementação, não autoriza rota,
+> migração, flag nem upload (#69) e pode mudar ou sair no aceite. Vale como texto a emendar se o dono aceitar o
+> contrato e a migração, o risco residual R e a cobertura da política de privacidade (conflito 3 do ADR).
+
+- **Propósito:** mostrar à pessoa pareada a foto de perfil escolhida pela outra, só no contexto que autoriza a
+  leitura (D1 e D2 do ADR, escolhas do dono de 06/11/2026).
+- **Onde aparece:** na [Experiência](#experiência-rotas-improváveis), com a sala `Active`, ao lado do nome de
+  exibição da outra pessoa no cabeçalho do chat; e na [Decisão privada](#decisão-privada), acima da pergunta,
+  enquanto a janela de 24 h da sala `Completed` estiver aberta. Em nenhum outro lugar: sem diretório, lista de
+  eventos, sala de espera ou convite. Conexão é acréscimo futuro, quando o módulo Connections existir.
+- **Conteúdo:** a foto na posição 1 do perfil da outra pessoa (até 6 escolhidas por ela, D5), em contêiner de
+  tamanho fixo, com `alt` "Foto de perfil de Bia". Sem faixa etária e sem rótulo "18+" (D3). Sem idade, região ou
+  qualquer campo além do que a projeção do P04 permitir.
+- **Ações:** nenhuma. Sem baixar, ampliar em nova aba, copiar endereço ou "ver todas"; o menu "Denunciar" da sala
+  continua o caminho para foto imprópria.
+- **Regras:** a tela não guarda a imagem (resposta `no-store`, TM-25) e relê a cada abertura. Quando a leitura
+  deixa de ser autorizada (bloqueio, exclusão ou rejeição da foto, fim da janela), a foto some na próxima leitura.
+
+| Estado | Apresentação |
+|---|---|
+| Com foto | A imagem no contêiner fixo, com o `alt` |
+| Sem foto | Iniciais do nome de exibição no mesmo contêiner, sem texto que explique a ausência |
+| Recusada (404) | Igual a "Sem foto": a tela não distingue sem relação, bloqueio, foto excluída ou fim da janela (TM-24) |
+| `loading` | Contêiner em skeleton; o resto da tela não espera a foto |
+| `error` / `offline` | Iniciais, sem mensagem própria; a sala ou a decisão seguem funcionando sem a foto |
+
 ## Conversas
 
 ### Lista
