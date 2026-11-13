@@ -21,6 +21,7 @@ public sealed partial class SelfieVerificationDispatcher
     private static readonly TimeSpan CallTimeout = TimeSpan.FromSeconds(10);
 
     private const string AnswerAfterDeadline = "Selfie provider answered after the call deadline.";
+    private const string CallCut = "Selfie provider call cut at the deadline.";
     private static readonly TimeSpan TransientDataRetention = TimeSpan.FromHours(24);
 
     /// <summary>
@@ -213,41 +214,55 @@ public sealed partial class SelfieVerificationDispatcher
     }
 
     /// <summary>
-    /// O corte em duas camadas, no relógio injetado. O timer cancela o token no prazo mesmo que a chamada ainda não tenha
-    /// devolvido a tarefa (o SDK da AWS lê o corpo da resposta de forma síncrona). O <c>WaitAsync</c> devolve o controle
-    /// mesmo que o fornecedor ignore o token. A chamada que segue rodando fica abandonada: ninguém lê a resposta dela, e
-    /// ela leva a vaga até terminar. Um bloqueio síncrono que também ignore o token não é interrompido: o
-    /// <c>WaitAsync</c> só age sobre a tarefa devolvida, e devolve pronta até com prazo zero. Por isso a resposta que volta
-    /// depois do prazo é recusada aqui, com o mesmo efeito do corte.
+    /// O corte em duas camadas, no relógio injetado, as duas presas a um único timer armado antes da chamada: o prazo
+    /// fica fixo quando a chamada sai, e um salto do relógio enquanto a espera é montada não o adia. O timer cancela o
+    /// token no prazo mesmo que a chamada ainda não tenha devolvido a tarefa (o SDK da AWS lê o corpo da resposta de
+    /// forma síncrona). A espera pelo mesmo token devolve o controle mesmo que o fornecedor ignore o cancelamento. A
+    /// chamada que segue rodando fica abandonada: ninguém lê a resposta dela, e ela leva a vaga até terminar. Um
+    /// bloqueio síncrono que também ignore o token não é interrompido: a espera só age sobre a tarefa devolvida, e a
+    /// recebe pronta mesmo depois do prazo. Por isso a resposta que volta depois do prazo é recusada aqui, com o mesmo
+    /// efeito do corte.
     /// </summary>
     private async Task<T> CallProviderAsync<T>(Func<CancellationToken, Task<T>> call, CancellationToken cancellationToken)
     {
         var deadline = _time.GetUtcNow() + CallTimeout;
-        using var cooperative = new CancellationTokenSource(CallTimeout, _time);
-        using var linked = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, cooperative.Token);
+        using var cut = new CancellationTokenSource(CallTimeout, _time);
+        using var linked = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, cut.Token);
         var pending = call(linked.Token);
         try
         {
-            var answer = await pending.WaitAsync(RemainingUntil(deadline), _time, cancellationToken);
+            var answer = await WaitWithinTheCutAsync(pending, linked.Token, cancellationToken);
             return _time.GetUtcNow() < deadline ? answer : throw new TimeoutException(AnswerAfterDeadline);
         }
         finally
         {
             if (!pending.IsCompleted)
             {
-                // O WaitAsync pode vencer o timer: sem cancelar aqui, o token seria descartado sem avisar o fornecedor. A
-                // vaga vem antes, para uma exceção em callback do token não a devolver com a chamada viva; se o
-                // cancelamento encerrar a chamada, a vaga trata a tarefa concluída.
+                // A espera pode vencer o cancelamento do fornecedor: sem cancelar aqui, o token seria descartado sem
+                // avisar o fornecedor. A vaga vem antes, para uma exceção em callback do token não a devolver com a
+                // chamada viva; se o cancelamento encerrar a chamada, a vaga trata a tarefa concluída.
                 _abandonedCall = pending;
                 await linked.CancelAsync();
             }
         }
     }
 
-    private TimeSpan RemainingUntil(DateTimeOffset deadline)
+    /// <summary>
+    /// Quem chama vê o mesmo de antes: o desfecho do próprio fornecedor quando ele terminou, a
+    /// <see cref="TimeoutException"/> quando o corte encerrou a espera com a chamada ainda viva, e o cancelamento do
+    /// worker como cancelamento.
+    /// </summary>
+    private static async Task<T> WaitWithinTheCutAsync<T>(Task<T> pending, CancellationToken cutOrShutdown,
+        CancellationToken shutdown)
     {
-        var remaining = deadline - _time.GetUtcNow();
-        return remaining > TimeSpan.Zero ? remaining : TimeSpan.Zero;
+        try
+        {
+            return await pending.WaitAsync(cutOrShutdown);
+        }
+        catch (OperationCanceledException) when (!shutdown.IsCancellationRequested)
+        {
+            return pending.IsCompleted ? await pending : throw new TimeoutException(CallCut);
+        }
     }
 
     private async Task ExpireAsync(SelfieVerificationRecord row, ClaimedDelivery delivery, string? feedbackCode,

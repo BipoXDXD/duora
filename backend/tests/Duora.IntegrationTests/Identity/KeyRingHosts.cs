@@ -17,11 +17,14 @@ internal sealed class KeyRingHosts(PostgresFixture postgres, Diag455Recorder? di
     public const string SessionCookie = "__Host-duora";
     public const string MePath = "/api/v1/me";
 
-    public DuoraWebFactory HostOn(DirectoryInfo keyRing, IReadOnlyDictionary<string, string?>? settings = null)
+    public DuoraWebFactory HostOn(
+        DirectoryInfo keyRing,
+        IReadOnlyDictionary<string, string?>? settings = null,
+        ILoggerProvider? logs = null)
     {
         if (diagnostics is null)
         {
-            return new(postgres.ConnectionString)
+            return new(postgres.ConnectionString, logs)
             {
                 SharedKeyRing = keyRing,
                 Settings = settings ?? new Dictionary<string, string?>(),
@@ -29,8 +32,8 @@ internal sealed class KeyRingHosts(PostgresFixture postgres, Diag455Recorder? di
         }
 
         var label = diagnostics.NextHostLabel();
-        var logs = diagnostics.Provider(label);
-        return new(postgres.ConnectionString, logs)
+        var diagnosticLogs = diagnostics.Provider(label);
+        return new(postgres.ConnectionString, diagnosticLogs)
         {
             SharedKeyRing = keyRing,
             Settings = settings ?? new Dictionary<string, string?>(),
@@ -38,6 +41,11 @@ internal sealed class KeyRingHosts(PostgresFixture postgres, Diag455Recorder? di
             {
                 WithNpgsqlLogs(services);
                 services.AddSingleton<IStartupFilter>(new Diag455ResponseProbe(diagnostics, label));
+                if (logs is not null)
+                {
+                    // O provider do teste recebe os eventos ao lado do diagnóstico, como no host sem diagnóstico.
+                    services.AddLogging(logging => logging.AddProvider(logs));
+                }
             },
         };
     }

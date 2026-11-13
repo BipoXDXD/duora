@@ -14,6 +14,9 @@ public sealed class KeyRingCertificateTests : IDisposable
     private const string PreviousCertificates = "DataProtection:PreviousCertificates";
     private const string RequireCertificate = "DataProtection:RequireCertificate";
 
+    private const string DefaultKeyResolverCategory =
+        "Microsoft.AspNetCore.DataProtection.KeyManagement.DefaultKeyResolver";
+
     private static readonly TimeSpan DefaultKeyLifetime = TimeSpan.FromDays(90);
 
     private readonly PostgresFixture _postgres;
@@ -67,6 +70,31 @@ public sealed class KeyRingCertificateTests : IDisposable
         using var response = await GetMeAsync(otherCertificate, cookie);
 
         await ProblemAssert.IsProblemAsync(response, HttpStatusCode.Unauthorized, "UNAUTHENTICATED");
+    }
+
+    /// <summary>
+    /// Sem o certificado a falha de decifrar a chave é definitiva. O resolvedor do Data Protection só repete a
+    /// tentativa com <c>Thread.Sleep</c> (10 × 200 ms por resolução do key ring), o que prende uma thread do pool por
+    /// cerca de 2 s e atrasa as continuações das outras requisições do processo de testes. Aqui o teste prova que o
+    /// host sem o certificado desiste na primeira falha e continua respondendo 401 limpo.
+    /// </summary>
+    [Fact]
+    public async Task KeyThatCannotBeDecryptedIsNotRetriedWithBlockingSleeps()
+    {
+        var cookie = await _hosts.SignInOnAFreshHostAsync(_volume, With(_first));
+        var logs = new CapturingLoggerProvider();
+
+        await using var withoutCertificate = _hosts.HostOn(_volume, logs: logs);
+        using var response = await GetMeAsync(withoutCertificate, cookie);
+
+        await ProblemAssert.IsProblemAsync(response, HttpStatusCode.Unauthorized, "UNAUTHENTICATED");
+        var failures = logs.Entries
+            .Where(log => log.Category == DefaultKeyResolverCategory
+                && log.EventId.Name == "KeyIsIneligibleToBeTheDefaultKeyBecauseItsMethodFailed")
+            .ToList();
+        Assert.NotEmpty(failures);
+        // Com retries o resolvedor agrega uma exceção por tentativa (11); sem retries loga a primeira e única falha.
+        Assert.All(failures, failure => Assert.Equal(1, AttemptsOf(failure.Exception)));
     }
 
     [Fact]
@@ -155,6 +183,9 @@ public sealed class KeyRingCertificateTests : IDisposable
 
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);
     }
+
+    private static int AttemptsOf(Exception? failure) =>
+        failure is AggregateException aggregate ? aggregate.InnerExceptions.Count : 1;
 
     private static Dictionary<string, string?> With(TestCertificate current, TestCertificate? previous = null) =>
         new()

@@ -85,8 +85,13 @@ jobs:
             -o "Dir::Etc::sourceparts=$apt_root/sources"
             -o "Dir::State::lists=$apt_root/lists"
             -o "APT::Update::Error-Mode=any")
-          sudo apt-get "${apt_options[@]}" update -qq
-          sudo apt-get "${apt_options[@]}" install -y uidmap dbus-user-session slirp4netns docker-ce-rootless-extras
+          # Mirror com falha transitória de DNS não derruba o passo: 3 tentativas (15 s, 45 s); a persistente falha.
+          source "$GITHUB_WORKSPACE/scripts/ci/apt-retry.sh"
+          # Teto por tentativa: em 11/11 o update travou sem erro até o timeout do job; estourado o teto,
+          # a nova tentativa já vai para o espelho de fallback.
+          export CI_RETRY_ATTEMPT_TIMEOUT=300
+          apt_retry "${apt_options[@]}" update -qq
+          apt_retry "${apt_options[@]}" install -y uidmap dbus-user-session slirp4netns docker-ce-rootless-extras
           sudo useradd --create-home --shell /bin/bash duora-sanitizer-ci
           uid=$(id -u duora-sanitizer-ci)
           # Keep image IDs as config digests in the dedicated rootless daemon.
@@ -131,7 +136,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          image='mcr.microsoft.com/dotnet/sdk:10.0.403-noble@sha256:de4fe90a98845d75910b9769662465c84de1a934665c431279d1382b2bddc02b'
+          image='mcr.microsoft.com/dotnet/sdk:10.0.404-noble@sha256:fe0fd4e93bd2fbb47c883b7a6369e5c8d3db8bf01cdc5981f6ee35fbdf3ff4fb'
           host="unix:///run/user/$LAUNCHER_UID/docker.sock"
           sudo -Hu duora-sanitizer-ci docker --host "$host" pull "$image"
           sudo -Hu duora-sanitizer-ci docker --host "$host" run --rm --pull never --network none --read-only \
@@ -143,7 +148,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          image='mcr.microsoft.com/dotnet/sdk:10.0.403-noble@sha256:de4fe90a98845d75910b9769662465c84de1a934665c431279d1382b2bddc02b'
+          image='mcr.microsoft.com/dotnet/sdk:10.0.404-noble@sha256:fe0fd4e93bd2fbb47c883b7a6369e5c8d3db8bf01cdc5981f6ee35fbdf3ff4fb'
           host="unix:///run/user/$LAUNCHER_UID/docker.sock"
           name="duora-corpus-no-api-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
           kit=$(mktemp -d /tmp/duora-corpus-kit.XXXXXX)

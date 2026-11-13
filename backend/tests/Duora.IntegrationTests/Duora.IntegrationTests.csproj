@@ -19,6 +19,14 @@
     <PackageReference Include="Testcontainers.PostgreSql" />
     <PackageReference Include="xunit.v3" />
   </ItemGroup>
+  <!-- Chave do key ring sem o certificado: a falha é definitiva, mas o DefaultKeyResolver do Data Protection repete a
+       decifragem 10 vezes com Thread.Sleep(200 ms), prendendo uma thread do pool por cerca de 2 s a cada resolução
+       (#455). 0 desliga os retries só no processo de testes; a produção continua com o padrão do framework. É a
+       chave de AppContext que o próprio framework lê (KeyManagementOptions é internal), entregue pelo runtimeconfig. -->
+  <ItemGroup>
+    <RuntimeHostConfigurationOption Include="Microsoft.AspNetCore.DataProtection.KeyManagement.MaximumTotalDefaultKeyResolverRetries"
+                                    Value="0" />
+  </ItemGroup>
   <!-- The SDK's dotnet test console suppresses successful test-host output. Record this synthetic
        experiment directly on the hosted backend runner, then keep the full existing test gate unchanged.
        Ordinary/local builds and every other CI job do not execute this target. -->

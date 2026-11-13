@@ -88,6 +88,10 @@ internal static class MediaAssetEndpoints
         return Task.CompletedTask;
     }
 
+    // A leitura do derivado falhou (I/O ou cancelamento, em geral do storage) antes do primeiro byte. Sem a exceção
+    // do Npgsql a causa não se distingue, então o prazo é próprio da entrega.
+    private static readonly TimeSpan StreamFailureRetryAfter = TimeSpan.FromSeconds(2);
+
     private sealed class ApprovedMediaResult(AuthorizedMedia media) : IResult
     {
         public async Task ExecuteAsync(HttpContext http)
@@ -111,7 +115,7 @@ internal static class MediaAssetEndpoints
                 }
 
                 http.Response.ContentType = null;
-                ApiProblems.SetRetryAfter(http, TimeSpan.FromSeconds(2));
+                ApiProblems.SetRetryAfter(http, StreamFailureRetryAfter);
                 await ApiProblems.Problem(StatusCodes.Status503ServiceUnavailable, ApiProblems.TemporarilyUnavailable).ExecuteAsync(http);
             }
         }
