@@ -694,7 +694,7 @@ def install_bundle(source: Path, *, expected_commit: str, manifest_sha256: str,
                 raise InstallError("Relative previous executor target requires explicit administrative review")
             if _sha(paths.entry) != expected_executor_sha256: raise InstallError("Executor preimage changed")
             inventory = inspect_runtime()
-            guard.require_preserved(inventory["profile"], inventory["profile"])
+            _require_profile_shape(inventory["profile"])
             actual_inventory = guard.digest({"profile": inventory["profile"], "audit": inventory["audit"]})
             readonly_cohort = cohort is not None and not apply and reviewed_inventory_sha256 is None
             if (actual_inventory != inventory["inventorySha256"]
@@ -1050,8 +1050,8 @@ def rehost_runtime(*, paths: InstallPaths, expected_executor_sha256: str | None,
                     raise InstallError("Previous seal differs from the reviewed evidence: " + key)
             inventory = inspect_runtime()
             profile = inventory["profile"]
-            # Only the shape: a new host has no previous profile to preserve; the human-reviewed digest binds it.
-            guard.require_preserved(profile, profile)
+            # A new host has no previous profile to preserve; the human-reviewed inventory digest binds it.
+            _require_profile_shape(profile)
             actual = guard.digest({"profile": profile, "audit": inventory["audit"]})
             if actual != inventory["inventorySha256"]:
                 raise InstallError("Inventory digest is not its own content")
@@ -1071,6 +1071,11 @@ def rehost_runtime(*, paths: InstallPaths, expected_executor_sha256: str | None,
                                  require_idle=require_idle, tool_commit=tool_commit, now=now)
     except Exception as error:
         raise InstallError("Executor rehost refused; no code installed and no release deployed") from error
+
+
+def _require_profile_shape(profile: dict) -> None:
+    """Schema and field formats only; the installed runtime_guard exposes no public validator, and must not change."""
+    guard.require_preserved(profile, profile)
 
 
 def _rehost_previous(paths: InstallPaths, expected_executor_sha256: str | None) -> dict:
