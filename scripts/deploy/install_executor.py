@@ -1002,7 +1002,7 @@ def _reconverge_recreate(host: ReconvergeHost) -> None:
 
 # --- Rehost: the installed executor, unchanged, sealed on a different host with evidence of the previous seal ------
 
-def rehost_runtime(*, paths: InstallPaths, expected_executor_sha256: str, previous_baseline_sha256: str | None,
+def rehost_runtime(*, paths: InstallPaths, expected_executor_sha256: str | None, previous_baseline_sha256: str | None,
                    previous_receipt_sha256: str | None, reviewed_inventory_sha256: str | None,
                    inspect_runtime: Callable[[], dict], require_idle: Callable[[], None], tool_commit: str,
                    apply: bool = False, now: Callable[[], float] = time.time) -> dict:
@@ -1044,7 +1044,7 @@ def rehost_runtime(*, paths: InstallPaths, expected_executor_sha256: str, previo
         raise InstallError("Executor rehost refused; no code installed and no release deployed") from error
 
 
-def _rehost_previous(paths: InstallPaths, expected_executor_sha256: str) -> dict:
+def _rehost_previous(paths: InstallPaths, expected_executor_sha256: str | None) -> dict:
     """Proof of the previous seal: receipt and baseline agree, and the entry is exactly the receipt's version."""
     baseline_raw = _protected_bytes(paths.state / guard.BASELINE_NAME)
     receipt_raw = _protected_bytes(paths.state / RECEIPT_NAME)
@@ -1055,7 +1055,8 @@ def _rehost_previous(paths: InstallPaths, expected_executor_sha256: str) -> dict
     version = paths.versions / receipt["sourceCommit"]
     validate_bundle(version, expected_commit=receipt["sourceCommit"], manifest_sha256=receipt["manifestSha256"])
     if (not paths.entry.is_symlink() or os.readlink(paths.entry) != str(version / "duora_deploy.py")
-            or _sha(paths.entry) != receipt["executorSha256"] or receipt["executorSha256"] != expected_executor_sha256):
+            or _sha(paths.entry) != receipt["executorSha256"]
+            or expected_executor_sha256 not in (None, receipt["executorSha256"])):
         raise InstallError("Rehost keeps exactly the executor installed by the previous receipt")
     return {"sourceCommit": receipt["sourceCommit"], "manifestSha256": receipt["manifestSha256"],
             "executorSha256": receipt["executorSha256"], "previousBaselineSha256": baseline_sha256,
@@ -1193,20 +1194,38 @@ def _inspect_runtime(module, release: Any, deploy_paths: Any, runtime_env: Path,
     return inventory
 
 
-def _requalify(args: argparse.Namespace, manifest: dict, paths: InstallPaths) -> dict:
-    """Administrative host requalification; it installs no code and deploys no release."""
+def _requalify_mode(args: argparse.Namespace) -> str:
     if args.reconverge_runtime == args.rehost or args.cohort_receiver is not None or args.reviewed_cohort_sha256 is not None:
         raise InstallError("Choose exactly one requalification step, separate from installation, cohort and recovery")
     if (args.rehost and args.reviewed_plan_sha256 is not None) or (args.reconverge_runtime and (
             args.previous_baseline_sha256 or args.previous_receipt_sha256 or args.reviewed_inventory_sha256
             or args.expected_executor_sha256)):
         raise InstallError("Argument belongs to the other requalification step")
+    return "rehost" if args.rehost else "reconverge"
+
+
+def _installed_version(paths: InstallPaths) -> Path:
+    """The receipt's immutable version behind the entry, whose runtime guard is the one loaded here."""
+    receipt = guard.decode_json(_protected_bytes(paths.state / RECEIPT_NAME))
+    version = paths.versions / receipt["sourceCommit"]
+    validate_bundle(version, expected_commit=receipt["sourceCommit"], manifest_sha256=receipt["manifestSha256"])
+    if not paths.entry.is_symlink() or os.readlink(paths.entry) != str(version / "duora_deploy.py"):
+        raise InstallError("Installed entry is not the receipt's immutable version")
+    if _sha(Path(guard.__file__)) != _sha(version / "runtime_guard.py"):
+        raise InstallError("Rehost needs a bundle whose runtime guard is byte-identical to the installed one")
+    return version
+
+
+def _requalify(args: argparse.Namespace, manifest: dict, paths: InstallPaths) -> dict:
+    """Administrative host requalification; it installs no code and deploys no release."""
+    mode = _requalify_mode(args)
     _verify_provenance(manifest, args.artifact_id)
+    version = _installed_version(paths) if mode == "rehost" else None
     pinned = Path("/etc/duora/coolify-deploy.json")
     pin = guard.decode_json(_protected_bytes(pinned))
     current = guard.decode_json(_protected_bytes(paths.state / "current.json"))["releaseId"]
     raw = _protected_bytes(paths.state / "releases" / (current + ".json")).decode("utf-8")
-    if args.reconverge_runtime:
+    if version is None:
         if args.apply and not args.reviewed_plan_sha256:
             raise InstallError("Reconvergence apply requires the explicitly reviewed plan digest")
         executor = _module(args.bundle / "duora_deploy.py", "duora_candidate_executor")
@@ -1222,13 +1241,6 @@ def _requalify(args: argparse.Namespace, manifest: dict, paths: InstallPaths) ->
             reviewed_plan_sha256=args.reviewed_plan_sha256, require_idle=lambda: _production_idle(
                 paths, expected_commit=args.source_commit, manifest_sha256=args.manifest_sha256))
     # Rehost inspects with the installed executor itself, never with the candidate bundle's copy.
-    receipt = guard.decode_json(_protected_bytes(paths.state / RECEIPT_NAME))
-    version = paths.versions / receipt["sourceCommit"]
-    validate_bundle(version, expected_commit=receipt["sourceCommit"], manifest_sha256=receipt["manifestSha256"])
-    if not paths.entry.is_symlink() or os.readlink(paths.entry) != str(version / "duora_deploy.py"):
-        raise InstallError("Installed entry is not the receipt's immutable version")
-    if _sha(Path(guard.__file__)) != _sha(version / "runtime_guard.py"):
-        raise InstallError("Rehost needs a bundle whose runtime guard is byte-identical to the installed one")
     sys.path.insert(0, str(version))
     installed = _module(paths.entry, "duora_activated_executor")
     release = installed.parse_manifest(raw, image_prefix=IMAGE_PREFIX)
@@ -1244,7 +1256,7 @@ def _requalify(args: argparse.Namespace, manifest: dict, paths: InstallPaths) ->
         if receiver.api("deployments") != []:
             raise InstallError("Coolify global queue is active or unknown")
 
-    return rehost_runtime(paths=paths, expected_executor_sha256=args.expected_executor_sha256 or _sha(paths.entry),
+    return rehost_runtime(paths=paths, expected_executor_sha256=args.expected_executor_sha256,
         previous_baseline_sha256=args.previous_baseline_sha256, previous_receipt_sha256=args.previous_receipt_sha256,
         reviewed_inventory_sha256=args.reviewed_inventory_sha256, tool_commit=args.source_commit, apply=args.apply,
         inspect_runtime=lambda: _inspect_runtime(installed, release, deploy_paths,

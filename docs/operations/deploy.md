@@ -571,7 +571,7 @@ depois da troca.
 | `<manifestSha256>` | `sha256sum /root/requalify-N/bundle.json` |
 | `<planSha256>` | saída da inspeção do passo 1 |
 | `<inventorySha256>`, `previousBaselineSha256`, `previousReceiptSha256` | saída da inspeção do passo 2 |
-| `<executorSha256>` | campo `executorSha256` de `/var/lib/duora/executor-install-receipt.json`, que tem de ser o `sha256sum` de `/usr/local/sbin/duora-deploy` resolvido |
+| `<executorSha256>` | saída da inspeção do passo 2; confira que é o `executorSha256` de `/var/lib/duora/executor-install-receipt.json` e o `sha256sum` de `/usr/local/sbin/duora-deploy` resolvido. O apply não tem valor padrão para ele |
 
 Antes de começar, guarde fora do host uma cópia root-only do baseline, do recibo e do pin, com os sha256. Confira também
 que não existe `pending.json` sob `/var/lib/coolify-release/` nem journal em `/var/lib/duora/postgres-swap/`.
@@ -583,7 +583,7 @@ I() { python3 -I "$B/install_executor.py" --bundle "$B" --source-commit N \
 
 I --reconverge-runtime                                          # plano: recreate, pin.stage, imageId, planSha256
 I --reconverge-runtime --apply --reviewed-plan-sha256 <planSha256>
-I --rehost                                                      # inventário, hostIdSha256 antigo e novo, shas anteriores
+I --rehost                                                      # inventário, hosts antigo e novo, shas anteriores, executor
 I --rehost --apply --reviewed-inventory-sha256 <inventorySha256> --expected-executor-sha256 <executorSha256> \
   --previous-baseline-sha256 <previousBaselineSha256> --previous-receipt-sha256 <previousReceiptSha256>
 ```

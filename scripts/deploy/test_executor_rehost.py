@@ -1,7 +1,9 @@
 """Host requalification (--rehost, --reconverge-runtime) with real temporary files and locks; Docker is a fake."""
+import argparse
 import copy
 import hashlib
 import json
+import os
 import subprocess
 import unittest
 from pathlib import Path
@@ -60,7 +62,8 @@ class RehostTests(InstallationFixture):
         self.assertEqual(_sha(self.entry.read_bytes()), self.executor_sha)
 
     def test_preflight_prints_the_plan_and_inventory_without_writing(self) -> None:
-        result = self.rehost()
+        result = self.rehost(expected_executor_sha256=None)
+        self.assertEqual(result["executorSha256"], self.executor_sha)
         self.assertEqual(result["status"], "rehost-preflight")
         self.assertEqual(result["inventorySha256"], self.new_inventory["inventorySha256"])
         self.assertEqual(result["previousBaselineSha256"], _sha(self.old_baseline))
@@ -144,7 +147,8 @@ class RehostTests(InstallationFixture):
         self.assertSealUnchanged()
 
     def test_apply_requires_every_reviewed_value(self) -> None:
-        for key in ("previous_baseline_sha256", "previous_receipt_sha256", "reviewed_inventory_sha256"):
+        for key in ("previous_baseline_sha256", "previous_receipt_sha256", "reviewed_inventory_sha256",
+                    "expected_executor_sha256"):
             with self.subTest(key=key):
                 with self.assertRaises(installer.InstallError): self.rehost(apply=True, **{key: None})
                 self.assertSealUnchanged()
@@ -195,6 +199,128 @@ class RehostTests(InstallationFixture):
         self.assertEqual((archive / installer.RECEIPT_NAME).read_bytes(), self.old_receipt)
         self.assertEqual(json.loads(self.baseline_path.read_text()), self.new_inventory["profile"])
         self.assertFalse(self.fence.exists())
+
+    def test_inventory_whose_digest_is_not_its_own_content_is_refused(self) -> None:
+        forged = dict(self.new_inventory, inventorySha256="f" * 64)
+        for apply in (False, True):
+            with self.assertRaises(installer.InstallError):
+                self.rehost(apply=apply, inspect_runtime=lambda: forged, reviewed_inventory_sha256="f" * 64)
+        self.assertSealUnchanged()
+
+    def test_entry_that_is_not_the_receipts_version_symlink_is_refused_even_with_the_same_bytes(self) -> None:
+        target = os.readlink(self.entry)
+        copy_path = self.root / "same-bytes-executor"
+        copy_path.write_bytes(self.entry.read_bytes())
+        for name, replace in (("regular file", lambda: self.entry.write_bytes(copy_path.read_bytes())),
+                              ("other symlink", lambda: self.entry.symlink_to(copy_path))):
+            with self.subTest(name):
+                self.entry.unlink()
+                replace()
+                try:
+                    with self.assertRaises(installer.InstallError): self.rehost(apply=True)
+                    installed_guard = self.paths.versions / json.loads(self.old_receipt)["sourceCommit"] / "runtime_guard.py"
+                    with patch.object(installer.guard, "__file__", str(installed_guard)):
+                        with self.assertRaisesRegex(installer.InstallError, "entry"):
+                            installer._installed_version(self.paths)
+                    self.assertSealUnchanged()
+                finally:
+                    self.entry.unlink()
+                    self.entry.symlink_to(target)
+
+    def test_installed_version_requires_the_loaded_runtime_guard_byte_for_byte(self) -> None:
+        version = self.paths.versions / json.loads(self.old_receipt)["sourceCommit"]
+        with patch.object(installer.guard, "__file__", str(version / "runtime_guard.py")):
+            self.assertEqual(installer._installed_version(self.paths), version)
+        other = self.root / "other_runtime_guard.py"
+        other.write_bytes(b"# a different guard\n")
+        with patch.object(installer.guard, "__file__", str(other)):
+            with self.assertRaisesRegex(installer.InstallError, "byte-identical"):
+                installer._installed_version(self.paths)
+
+    def test_runtime_changed_after_sealing_keeps_the_fence_for_review(self) -> None:
+        changed = self._inventory(dict(self.new_inventory["profile"], schema=2))
+        snapshots = iter([self.new_inventory, self.new_inventory, changed])
+        with self.assertRaises(installer.InstallError):
+            self.rehost(apply=True, inspect_runtime=lambda: next(snapshots))
+        self.assertTrue(self.fence.exists())
+        self.assertEqual(json.loads(self.baseline_path.read_text()), self.new_inventory["profile"])
+
+    def interrupt(self, target: Path) -> Path:
+        real_write = installer._write
+
+        def crash(path, raw, **kwargs):
+            if path == target: raise OSError("synthetic crash")
+            return real_write(path, raw, **kwargs)
+        with patch.object(installer, "_write", crash):
+            with self.assertRaises(installer.InstallError): self.rehost(apply=True)
+        self.assertTrue(self.fence.exists())
+        return self.paths.state / installer.REHOST_HISTORY_DIRECTORY / json.loads(self.fence.read_text())["archive"]
+
+    def assertResumeRefused(self) -> None:
+        with self.assertRaises(installer.InstallError): self.rehost(apply=True)
+        self.assertTrue(self.fence.exists())
+
+    def test_resume_never_archives_a_live_seal_that_is_neither_the_previous_nor_the_new(self) -> None:
+        archive = self.interrupt(self.baseline_path)
+        tampered = self.old_receipt.replace(b"\n", b" \n")
+        installer._write(self.receipt_path, tampered)
+        self.assertResumeRefused()
+        self.assertEqual(self.receipt_path.read_bytes(), tampered)
+        self.assertFalse((archive / installer.RECEIPT_NAME).exists())
+
+    def test_resume_never_renames_over_an_already_archived_file(self) -> None:
+        archive = self.interrupt(self.baseline_path)
+        installer._write(archive / installer.RECEIPT_NAME, b"{}")
+        self.assertResumeRefused()
+        self.assertEqual((archive / installer.RECEIPT_NAME).read_bytes(), b"{}")
+        self.assertEqual(self.receipt_path.read_bytes(), self.old_receipt)
+
+    def test_resume_never_seals_over_a_divergent_archived_previous(self) -> None:
+        archive = self.interrupt(self.receipt_path)
+        installer._write(archive / installer.RECEIPT_NAME, b"{}")
+        self.assertResumeRefused()
+        self.assertFalse(self.receipt_path.exists())
+
+    def test_resume_never_writes_a_staged_file_changed_under_the_fence(self) -> None:
+        archive = self.interrupt(self.receipt_path)
+        installer._write(archive / "new-receipt.json", b"{}")
+        self.assertResumeRefused()
+        self.assertFalse(self.receipt_path.exists())
+
+    def test_unknown_fence_or_changed_journal_is_refused_even_for_inspection(self) -> None:
+        archive = self.interrupt(self.receipt_path)
+        fence_raw, journal_raw = self.fence.read_bytes(), (archive / "journal.json").read_bytes()
+        unknown = dict(json.loads(fence_raw), extra=1)
+        for name, path, raw in (("fence", self.fence, installer._json(unknown)),
+                                ("journal", archive / "journal.json", journal_raw.replace(b"\n", b" \n"))):
+            with self.subTest(name):
+                original = path.read_bytes()
+                installer._write(path, raw)
+                with self.assertRaises(installer.InstallError): self.rehost()
+                self.assertResumeRefused()
+                installer._write(path, original)
+        self.assertEqual(self.fence.read_bytes(), fence_raw)
+        self.assertEqual(self.rehost(apply=True)["status"], "rehosted")
+
+    def test_resume_requires_private_fence_and_archive_directories(self) -> None:
+        archive = self.interrupt(self.receipt_path)
+        for directory in (self.fence.parent, archive):
+            with self.subTest(directory=directory.name):
+                directory.chmod(0o755)
+                try:
+                    with self.assertRaises(installer.InstallError): self.rehost()
+                    self.assertResumeRefused()
+                finally:
+                    directory.chmod(0o700)
+        self.assertEqual(self.rehost(apply=True)["status"], "rehosted")
+
+    def test_resume_refuses_an_executor_changed_during_the_rehost(self) -> None:
+        self.interrupt(self.receipt_path)
+        other = self.root / "other-executor"
+        other.write_text("another executor\n")
+        self.entry.unlink()
+        self.entry.symlink_to(other)
+        self.assertResumeRefused()
 
     def test_installer_refuses_another_host_until_rehost_and_reseals_on_the_same_host_after(self) -> None:
         self.inventory, self.old_hash = self.new_inventory, self.executor_sha
@@ -336,6 +462,11 @@ class ReconvergeTests(InstallationFixture):
         with self.assertRaises(installer.InstallError): self.reconverge()
         self.assertUntouched()
 
+    def test_more_than_one_container_per_role_is_refused(self) -> None:
+        self.containers["backup"]["id"] = "2" * 64 + "\n" + "5" * 64
+        with self.assertRaises(installer.InstallError): self.reconverge()
+        self.assertUntouched()
+
     def test_writable_backup_mount_is_refused(self) -> None:
         real = self._container
         self._container = lambda role: dict(real(role), Mounts=[dict(real(role)["Mounts"][0], RW=True)])
@@ -413,3 +544,37 @@ class ReconvergeTests(InstallationFixture):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class RequalifyModeTests(unittest.TestCase):
+    @staticmethod
+    def arguments(**values) -> argparse.Namespace:
+        defaults = dict(reconverge_runtime=False, rehost=False, cohort_receiver=None, reviewed_cohort_sha256=None,
+                        reviewed_plan_sha256=None, previous_baseline_sha256=None, previous_receipt_sha256=None,
+                        reviewed_inventory_sha256=None, expected_executor_sha256=None)
+        defaults.update(values)
+        return argparse.Namespace(**defaults)
+
+    def test_each_mode_accepts_only_its_own_arguments(self) -> None:
+        self.assertEqual(installer._requalify_mode(self.arguments(rehost=True, previous_baseline_sha256="a" * 64,
+            previous_receipt_sha256="b" * 64, reviewed_inventory_sha256="c" * 64, expected_executor_sha256="d" * 64)),
+            "rehost")
+        self.assertEqual(installer._requalify_mode(self.arguments(reconverge_runtime=True,
+                                                                  reviewed_plan_sha256="e" * 64)), "reconverge")
+
+    def test_both_or_neither_mode_or_a_cohort_is_refused(self) -> None:
+        for values in ({}, {"rehost": True, "reconverge_runtime": True},
+                       {"rehost": True, "cohort_receiver": Path("/x")}, {"rehost": True, "reviewed_cohort_sha256": "f"}):
+            with self.subTest(values=values):
+                with self.assertRaisesRegex(installer.InstallError, "exactly one"):
+                    installer._requalify_mode(self.arguments(**values))
+
+    def test_argument_of_the_other_mode_is_refused(self) -> None:
+        cases = [{"rehost": True, "reviewed_plan_sha256": "e" * 64}] + [
+            {"reconverge_runtime": True, key: "a" * 64} for key in (
+                "previous_baseline_sha256", "previous_receipt_sha256", "reviewed_inventory_sha256",
+                "expected_executor_sha256")]
+        for values in cases:
+            with self.subTest(values=values):
+                with self.assertRaisesRegex(installer.InstallError, "other requalification step"):
+                    installer._requalify_mode(self.arguments(**values))
