@@ -5,6 +5,7 @@ import json
 import os
 import re
 import time
+from pathlib import Path
 from typing import Any
 
 REPOSITORIES = {
@@ -128,6 +129,30 @@ def api(path: Any) -> Any:
         connection.close()
 
 
+# A reviewed file in main suspends every release until a later reviewed merge removes it. The gates job reads it from
+# main, so a hold also stops older queued runs and manual dispatches; refusing here never reaches the host.
+HOLD = Path(__file__).with_name("release-hold.json")
+
+
+def release_hold() -> dict | None:
+    if not HOLD.exists() and not HOLD.is_symlink():
+        return None
+    hold = json.loads(HOLD.read_text(encoding="utf-8"))
+    if (not isinstance(hold, dict) or set(hold) != {"schema", "reason", "refs"} or hold["schema"] != 1
+            or not isinstance(hold["reason"], str) or not hold["reason"].strip()
+            or not isinstance(hold["refs"], str) or not re.fullmatch(r"#[0-9]+", hold["refs"])):
+        raise ValueError("Malformed release hold")
+    return hold
+
+
+def held(hold: dict) -> None:
+    if os.environ.get("SKIP_SUPERSEDED") != "true":
+        raise ValueError("Releases are on hold; refusing deployment")
+    with open(os.environ["GITHUB_OUTPUT"], "a") as output:
+        output.write("eligible=false\n")
+    print(f"::warning::Releases on hold ({hold['refs']}): {hold['reason']}; no images or deployment requested")
+
+
 def current_main(repository: str, commit: str) -> bool:
     if api(f"repos/{repository}/commits/main")["sha"] == commit:
         return True
@@ -176,6 +201,10 @@ def main() -> None:
     commit = os.environ.get("RELEASE_COMMIT", "")
     if not re.fullmatch("[0-9a-f]{40}", commit):
         raise ValueError("Full commit required")
+    hold = release_hold()
+    if hold is not None:
+        held(hold)
+        return
     if not current_main(repository, commit):
         return
     run_id = os.environ.get("CI_RUN_ID", "")

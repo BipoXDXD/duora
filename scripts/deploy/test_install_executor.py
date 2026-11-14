@@ -15,7 +15,8 @@ from test_runtime_guard import reviewed_profile
 COMMIT = "a" * 40
 
 
-class InstallationTests(unittest.TestCase):
+class InstallationFixture(unittest.TestCase):
+    """Synthetic bundle, state, ingress and locks; shared with the host requalification tests."""
     def setUp(self) -> None:
         temporary = tempfile.TemporaryDirectory()
         self.addCleanup(temporary.cleanup)
@@ -49,6 +50,13 @@ class InstallationTests(unittest.TestCase):
             expected_executor_sha256=self.old_hash, paths=self.paths,
             inspect_runtime=inspect or (lambda: self.inventory), require_idle=idle or (lambda: None), apply=apply)
 
+    def _swap_receiver(self):
+        receiver = installer._module(Path(__file__).resolve().parents[1] / "release/coolify/receiver.py", "swap_fence_receiver")
+        setattr(receiver, "STATE", self.paths.ingress)
+        return receiver
+
+
+class InstallationTests(InstallationFixture):
     def test_closed_bundle_requires_every_exact_member_and_hash(self) -> None:
         self.assertEqual(installer.validate_bundle(self.source, expected_commit=COMMIT,
                          manifest_sha256=self.manifest_hash)["sourceCommit"], COMMIT)
@@ -189,11 +197,6 @@ class InstallationTests(unittest.TestCase):
             arbitrary = self.root / "unrelated-config-link"
             arbitrary.symlink_to(target)
             with self.assertRaises(installer.InstallError): installer.installation_context(self.paths, (arbitrary,))
-
-    def _swap_receiver(self):
-        receiver = installer._module(Path(__file__).resolve().parents[1] / "release/coolify/receiver.py", "swap_fence_receiver")
-        setattr(receiver, "STATE", self.paths.ingress)
-        return receiver
 
     def _arm_swap(self, phase: str = "awaiting-reseal", *, commit: str = COMMIT, manifest: str | None = None) -> dict:
         """Fence and journal in the exact shape duora_deploy writes; the entry was installed by the real apply."""

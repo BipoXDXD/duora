@@ -1,5 +1,11 @@
-"""Single static executor installer; apply never invokes product deployment."""
+"""Single static executor installer; apply never invokes product deployment.
+
+Two administrative host requalification steps live here too, each an inspection followed by an apply bound to a
+reviewed digest: --reconverge-runtime re-references the current release's postgres/backup containers to the same image by
+digest and restores the observer pin, and --rehost seals the installed executor's baseline on a different host.
+"""
 from collections.abc import Callable
+from typing import Any
 from dataclasses import dataclass
 from pathlib import Path
 import argparse
@@ -11,6 +17,7 @@ import json
 import os
 import platform
 import re
+import secrets
 import shutil
 import stat
 import sys
@@ -30,6 +37,11 @@ SWAP_RESEAL_PHASES = {"awaiting-reseal", "aborted-awaiting-reseal"}
 RECEIVER_PATH = Path("/opt/coolify-release/receiver.py")
 RECEIVER_SHA256 = "e9af03f08162ecf2bda094d38511b44b810043863d3104f60ea1046ae687f3b3"
 LEGACY_RECEIVER_SHA256 = "1ccd1ada4777c80081c4f9bb2a64a500b1e221f794406319504d9e66cbb975cb"
+RECEIPT_NAME = "executor-install-receipt.json"
+REHOST_FENCE_DIRECTORY = "duora-executor-rehost"
+REHOST_HISTORY_DIRECTORY = "executor-rehost-history"
+RECONVERGE_ROLES = ("postgres", "backup")
+IMAGE_PREFIX = "ghcr.io/bipoxdxd/duora-"
 
 
 class InstallError(ValueError):
@@ -687,6 +699,7 @@ def install_bundle(source: Path, *, expected_commit: str, manifest_sha256: str,
             if (actual_inventory != inventory["inventorySha256"]
                     or (not readonly_cohort and actual_inventory != reviewed_inventory_sha256)):
                 raise InstallError("Inventory differs from the explicitly reviewed reference")
+            _require_sealed_host(paths, inventory["profile"])
             cohort_result = {}
             if cohort is not None:
                 cohort["inventorySha256"] = actual_inventory
@@ -827,6 +840,314 @@ def transition_cohort(source: Path, receiver_source: Path, *, expected_commit: s
     return {**result, "status": "cohort-installed" if apply else "cohort-preflight"}
 
 
+def _require_sealed_host(paths: InstallPaths, profile: dict) -> None:
+    """An install or reseal never moves the seal to another host; that is the separate, evidenced --rehost."""
+    raw = _optional(paths.state / guard.BASELINE_NAME)
+    if raw is not None and guard.decode_json(raw)["context"]["hostIdSha256"] != profile["context"]["hostIdSha256"]:
+        raise InstallError("Host differs from the sealed baseline; requalify it with --rehost first")
+
+
+def _require_no_open_operation(paths: InstallPaths) -> None:
+    """Host requalification never runs under an installation, a PostgreSQL swap or another requalification."""
+    for path in (paths.state / "executor-install-pending.json", paths.ingress / FENCE_DIRECTORY / "pending.json",
+                 paths.ingress / SWAP_FENCE_DIRECTORY / "pending.json",
+                 paths.state / SWAP_JOURNAL_DIRECTORY / "attempt.json"):
+        if path.exists() or path.is_symlink():
+            raise InstallError("An executor installation or PostgreSQL swap is open; resolve it with its own command")
+
+
+# --- Reconvergence: same release, same image id, digest reference and observer pin restored -------------------------
+
+@dataclass(frozen=True)
+class ReconvergeHost:
+    """Host boundaries of --reconverge-runtime; production binds the verified candidate executor (core)."""
+    core: Any
+    compose: list[str]
+    compose_file: Path
+    runtime_env: Path
+    capture: Callable[[list[str]], bytes]
+    run: Callable[[list[str]], Any]
+    read_protected: Callable[[Path], bytes]
+    verify_runtime: Callable[[], dict]
+    pin_path: Path = Path("/etc/duora/coolify-deploy.json")
+    releases_root: Path = Path("/opt/duora/releases")
+    sleep: Callable[[float], None] = time.sleep
+
+
+def reconverge_runtime(release: Any, host: ReconvergeHost, *, paths: InstallPaths, require_idle: Callable[[], None],
+                       apply: bool = False, reviewed_plan_sha256: str | None = None) -> dict:
+    try:
+        with _locks(paths):
+            _require_no_open_operation(paths)
+            if (paths.ingress / REHOST_FENCE_DIRECTORY / "pending.json").exists():
+                raise InstallError("An executor rehost is open; finish it with the same --rehost --apply first")
+            require_idle()
+            plan, restored_pin = _reconverge_plan(release, host)
+            if not apply:
+                return {**plan, "status": "reconverge-preflight"}
+            if plan["planSha256"] != reviewed_plan_sha256:
+                raise InstallError("Reconvergence plan differs from the explicitly reviewed plan")
+            require_idle()
+            pin = {"status": "current", "sha256": plan["pin"]["afterSha256"]}
+            if plan["pin"]["stage"] == "restore":
+                pin = host.core._recovery_apply_pin(host.pin_path, expected_current_sha256=plan["pin"]["beforeSha256"],
+                                                    restored_raw=restored_pin, nonce=secrets.token_hex(16))
+            if plan["recreate"]:
+                _reconverge_recreate(host)
+            after = _reconverge_containers(release, host)
+            if after["recreate"] or after["imageId"] != plan["imageId"] or after["volume"] != plan["volume"]:
+                raise InstallError("Runtime did not converge to the digest reference on the same image and volume")
+            host.verify_runtime()
+            return {"status": "reconverged", "planSha256": plan["planSha256"], "pin": pin,
+                    "containers": after["containers"]}
+    except Exception as error:
+        raise InstallError("Runtime reconvergence refused; no release deployed") from error
+
+
+def _reconverge_plan(release: Any, host: ReconvergeHost) -> tuple[dict, bytes]:
+    if host.read_protected(host.runtime_env) != host.core._release_env_text(release).encode():
+        raise InstallError("Recorded runtime environment is not exactly the current release's")
+    pin, restored = _reconverge_pin(release, host)
+    plan = {"schema": 1, "kind": "duora-runtime-reconverge", "releaseId": release.release_id,
+            "postgresReference": release.images["postgres"], "compose": host.compose,
+            "composeSha256": hashlib.sha256(host.read_protected(host.compose_file)).hexdigest(),
+            **_reconverge_containers(release, host), "pin": pin}
+    return {**plan, "planSha256": guard.digest(plan)}, restored
+
+
+def _reconverge_pin(release: Any, host: ReconvergeHost) -> tuple[dict, bytes]:
+    """Undo only the receiver's three-field rewrite for a later release, through the executor's own inverse."""
+    actual_raw = host.read_protected(host.pin_path)
+    pin = guard.decode_json(actual_raw)
+    if pin["compose"] != str(host.compose_file):
+        raise InstallError("Observer pin does not describe the Compose file in use")
+    manifest_path = host.releases_root / (release.release_id + ".json")
+    manifest_raw = host.read_protected(manifest_path)
+    if guard.decode_json(manifest_raw) != release.raw:
+        raise InstallError("Observer manifest of the current release differs from the recorded release")
+    restored = json.loads(actual_raw)
+    restored["manifest"], restored["manifest_sha256"] = str(manifest_path), hashlib.sha256(manifest_raw).hexdigest()
+    restored["observer_environment"]["DUORA_OBSERVER_IMAGE"] = release.images["edge"]
+    restored_raw = host.core._recovery_pin_bytes(restored)
+    summary = {"beforeSha256": hashlib.sha256(actual_raw).hexdigest(),
+               "afterSha256": hashlib.sha256(restored_raw).hexdigest()}
+    if actual_raw == restored_raw:
+        return {**summary, "stage": "current"}, restored_raw
+    incoming_path = Path(pin["manifest"])
+    if incoming_path.parent != host.releases_root or incoming_path == manifest_path:
+        raise InstallError("Observer pin points outside the recorded releases")
+    incoming_raw = host.read_protected(incoming_path)
+    incoming = host.core.parse_manifest(incoming_raw.decode("utf-8"), image_prefix=IMAGE_PREFIX)
+    baseline = {"currentReleaseId": release.release_id, "manifestPath": str(manifest_path),
+                "manifestSha256": restored["manifest_sha256"], "edgeImage": release.images["edge"],
+                "applicationUuid": pin["application_uuid"], "pinSha256": summary["afterSha256"]}
+    inverse = host.core._recovery_pin_inverse(release, incoming, baseline, actual_raw,
+        incoming_manifest_sha256=hashlib.sha256(incoming_raw).hexdigest(),
+        admitted_incoming_pin_sha256=summary["beforeSha256"])
+    if inverse["stage"] != "incoming" or inverse["restoredRaw"] != restored_raw:
+        raise InstallError("Observer pin is not the exact rewrite for a later release")
+    return {**summary, "stage": "restore", "incomingReleaseId": incoming.release_id}, restored_raw
+
+
+def _reconverge_containers(release: Any, host: ReconvergeHost) -> dict:
+    """Accept a raw image id only when it is the id the release's digest reference resolves to on this host."""
+    def read(command: list[str]) -> dict:
+        return guard.decode_json(host.capture(command))
+
+    reference = release.images["postgres"]
+    image_id = read(["docker", "image", "inspect", "--format", "{{json .}}", reference])["Id"]
+    if not isinstance(image_id, str) or not re.fullmatch(r"sha256:[a-f0-9]{64}", image_id):
+        raise InstallError("Digest reference does not resolve to a local image id")
+    config = read(host.compose + ["config", "--format", "json"])
+    containers = {}
+    for role in RECONVERGE_ROLES:
+        if config["services"][role]["image"] != reference:
+            raise InstallError("Compose with the release environment does not resolve to the digest reference")
+        identifier = host.capture(host.compose + ["ps", "--all", "--quiet", role]).decode("ascii").strip()
+        if not re.fullmatch(r"[a-f0-9]{64}", identifier):
+            raise InstallError("Exactly one container per database role is required")
+        item = read(["docker", "container", "inspect", "--format", "{{json .}}", identifier])
+        labels = item["Config"]["Labels"]
+        mounts = [mount for mount in item["Mounts"] if mount["Type"] == "volume"]
+        if (item["Id"] != identifier or labels.get("com.docker.compose.project") != "duora"
+                or labels.get("com.docker.compose.service") != role):
+            raise InstallError("Container is not the Compose database role")
+        if item["Image"] != image_id:
+            raise InstallError("Container runs another image; reconvergence only re-references the same image")
+        if item["Config"]["Image"] not in (reference, image_id):
+            raise InstallError("Only the raw id of the same image can be re-referenced by digest")
+        if (len(mounts) != 1 or mounts[0]["Name"] != "duora_pgdata" or mounts[0]["Destination"] != "/var/lib/postgresql"
+                or mounts[0]["RW"] is not (role == "postgres")):
+            raise InstallError("Unexpected data volume mount")
+        containers[role] = {"id": identifier, "configImage": item["Config"]["Image"], "state": item["State"]["Status"]}
+    volume = read(["docker", "volume", "inspect", "--format", "{{json .}}", "duora_pgdata"])
+    return {"imageId": image_id, "containers": containers,
+            "volume": {"name": volume["Name"], "createdAt": volume["CreatedAt"]},
+            "recreate": [role for role in RECONVERGE_ROLES if containers[role]["configImage"] != reference]}
+
+
+def _reconverge_recreate(host: ReconvergeHost) -> None:
+    # Same order as the swap: the backup receives WAL, so it stops after postgres and starts before it. Never "down"/"-v".
+    def step(arguments: list[str], what: str) -> None:
+        host.core._check(host.run(host.compose + arguments), what)
+
+    for service in ("worker", "web", "postgres", "backup"):
+        step(["stop", service], "stop " + service)
+    for service in ("backup", "postgres"):
+        step(["up", "--detach", "--wait", "--no-deps", "--force-recreate", service], "recreate " + service)
+    step(["up", "--detach", "--wait", "--no-deps", "web", "worker"], "start web and worker")
+    host.core._wait_ready(host.compose, host.run, host.core.DEFAULT_READINESS_TIMEOUT_SECONDS, host.sleep)
+    host.core._require_services_running(host.compose, host.run)
+
+
+# --- Rehost: the installed executor, unchanged, sealed on a different host with evidence of the previous seal ------
+
+def rehost_runtime(*, paths: InstallPaths, expected_executor_sha256: str, previous_baseline_sha256: str | None,
+                   previous_receipt_sha256: str | None, reviewed_inventory_sha256: str | None,
+                   inspect_runtime: Callable[[], dict], require_idle: Callable[[], None], tool_commit: str,
+                   apply: bool = False, now: Callable[[], float] = time.time) -> dict:
+    reviewed = {"previousBaselineSha256": previous_baseline_sha256, "previousReceiptSha256": previous_receipt_sha256,
+                "inventorySha256": reviewed_inventory_sha256, "executorSha256": expected_executor_sha256}
+    try:
+        with _locks(paths):
+            _require_no_open_operation(paths)
+            fence = paths.ingress / REHOST_FENCE_DIRECTORY / "pending.json"
+            if fence.exists() or fence.is_symlink():
+                return _rehost_resume(paths, fence, reviewed, inspect_runtime=inspect_runtime,
+                                      require_idle=require_idle, apply=apply)
+            require_idle()
+            previous = _rehost_previous(paths, expected_executor_sha256)
+            for key in ("previousBaselineSha256", "previousReceiptSha256"):
+                if reviewed[key] is not None and reviewed[key] != previous[key]:
+                    raise InstallError("Previous seal differs from the reviewed evidence: " + key)
+            inventory = inspect_runtime()
+            profile = inventory["profile"]
+            guard.require_preserved(profile, profile)
+            actual = guard.digest({"profile": profile, "audit": inventory["audit"]})
+            if actual != inventory["inventorySha256"]:
+                raise InstallError("Inventory digest is not its own content")
+            if profile["context"]["hostIdSha256"] == previous["previousHostIdSha256"]:
+                raise InstallError("Same host as the sealed baseline: rehost refused; reseal with the normal installer")
+            new_baseline = _json(profile)
+            plan = {"schema": 1, "kind": "executor-rehost", **{key: previous[key] for key in (
+                        "sourceCommit", "manifestSha256", "executorSha256", "previousBaselineSha256",
+                        "previousReceiptSha256", "previousHostIdSha256")},
+                    "hostIdSha256": profile["context"]["hostIdSha256"], "inventorySha256": actual,
+                    "baselineSha256": hashlib.sha256(new_baseline).hexdigest()}
+            if not apply:
+                return {**plan, "status": "rehost-preflight", "inventory": inventory}
+            if None in reviewed.values() or actual != reviewed_inventory_sha256:
+                raise InstallError("Rehost apply requires the reviewed previous seal, inventory and executor")
+            return _rehost_apply(paths, plan, previous["receipt"], new_baseline, inspect_runtime=inspect_runtime,
+                                 require_idle=require_idle, tool_commit=tool_commit, now=now)
+    except Exception as error:
+        raise InstallError("Executor rehost refused; no code installed and no release deployed") from error
+
+
+def _rehost_previous(paths: InstallPaths, expected_executor_sha256: str) -> dict:
+    """Proof of the previous seal: receipt and baseline agree, and the entry is exactly the receipt's version."""
+    baseline_raw = _protected_bytes(paths.state / guard.BASELINE_NAME)
+    receipt_raw = _protected_bytes(paths.state / RECEIPT_NAME)
+    receipt = guard.decode_json(receipt_raw)
+    baseline_sha256 = hashlib.sha256(baseline_raw).hexdigest()
+    if receipt["status"] != "installed" or receipt["baselineSha256"] != baseline_sha256:
+        raise InstallError("Previous receipt does not seal the previous baseline")
+    version = paths.versions / receipt["sourceCommit"]
+    validate_bundle(version, expected_commit=receipt["sourceCommit"], manifest_sha256=receipt["manifestSha256"])
+    if (not paths.entry.is_symlink() or os.readlink(paths.entry) != str(version / "duora_deploy.py")
+            or _sha(paths.entry) != receipt["executorSha256"] or receipt["executorSha256"] != expected_executor_sha256):
+        raise InstallError("Rehost keeps exactly the executor installed by the previous receipt")
+    return {"sourceCommit": receipt["sourceCommit"], "manifestSha256": receipt["manifestSha256"],
+            "executorSha256": receipt["executorSha256"], "previousBaselineSha256": baseline_sha256,
+            "previousReceiptSha256": hashlib.sha256(receipt_raw).hexdigest(),
+            "previousHostIdSha256": guard.decode_json(baseline_raw)["context"]["hostIdSha256"], "receipt": receipt}
+
+
+def _rehost_apply(paths: InstallPaths, plan: dict, receipt: dict, new_baseline: bytes, *,
+                  inspect_runtime: Callable[[], dict], require_idle: Callable[[], None], tool_commit: str,
+                  now: Callable[[], float]) -> dict:
+    history = paths.state / REHOST_HISTORY_DIRECTORY
+    history.mkdir(mode=0o700, exist_ok=True)
+    _private_directory(history)
+    applied_at = int(now())
+    archive = history / ("rehost-" + time.strftime("%Y%m%dT%H%M%SZ", time.gmtime(applied_at)) + "-"
+                         + plan["previousHostIdSha256"][:12])
+    archive.mkdir(mode=0o700)
+    _sync(history)
+    new_receipt = {**receipt, "inventorySha256": plan["inventorySha256"], "baselineSha256": plan["baselineSha256"],
+                   "appliedAt": applied_at, "rehost": {"archive": str(archive), "toolCommit": tool_commit, **{
+                       key: plan[key] for key in ("previousBaselineSha256", "previousReceiptSha256",
+                                                  "previousHostIdSha256", "hostIdSha256")}}}
+    receipt_raw = _json(new_receipt)
+    journal_raw = _json({**plan, "archive": archive.name, "receiptSha256": hashlib.sha256(receipt_raw).hexdigest()})
+    _write(archive / "new-baseline.json", new_baseline)
+    _write(archive / "new-receipt.json", receipt_raw)
+    _write(archive / "journal.json", journal_raw)
+    if inspect_runtime()["inventorySha256"] != plan["inventorySha256"]:
+        raise InstallError("Runtime changed while staging the rehost")
+    require_idle()
+    # The receiver refuses any pending.json under ingress: the fence blocks every release until the rehost completes.
+    fence_dir = paths.ingress / REHOST_FENCE_DIRECTORY
+    fence_dir.mkdir(mode=0o700, exist_ok=True)
+    _private_directory(fence_dir)
+    _write(fence_dir / "pending.json", _json({"schema": 1, "kind": "executor-rehost", "archive": archive.name,
+                                             "journalSha256": hashlib.sha256(journal_raw).hexdigest()}))
+    return _rehost_complete(paths, archive, guard.decode_json(journal_raw), inspect_runtime=inspect_runtime)
+
+
+def _rehost_resume(paths: InstallPaths, fence: Path, reviewed: dict, *, inspect_runtime: Callable[[], dict],
+                   require_idle: Callable[[], None], apply: bool) -> dict:
+    """Forward-only completion of an interrupted rehost, under the same reviewed arguments."""
+    _private_directory(fence.parent)
+    pending = guard.decode_json(_protected_bytes(fence))
+    if (set(pending) != {"schema", "kind", "archive", "journalSha256"} or pending["kind"] != "executor-rehost"
+            or not re.fullmatch(r"rehost-[0-9]{8}T[0-9]{6}Z-[a-f0-9]{12}", pending["archive"])):
+        raise InstallError("Unknown rehost fence")
+    archive = paths.state / REHOST_HISTORY_DIRECTORY / pending["archive"]
+    _private_directory(archive)
+    journal_raw = _protected_bytes(archive / "journal.json")
+    if hashlib.sha256(journal_raw).hexdigest() != pending["journalSha256"]:
+        raise InstallError("Rehost journal changed under its fence")
+    journal = guard.decode_json(journal_raw)
+    if not apply:
+        return {**journal, "status": "rehost-interrupted"}
+    if any(journal[key] != value for key, value in reviewed.items()):
+        raise InstallError("Resume must repeat exactly the reviewed rehost arguments")
+    require_idle()
+    return _rehost_complete(paths, archive, journal, inspect_runtime=inspect_runtime)
+
+
+def _rehost_complete(paths: InstallPaths, archive: Path, journal: dict, *, inspect_runtime: Callable[[], dict]) -> dict:
+    """Archive each previous file by rename, never delete, then write the new one; every step is idempotent."""
+    for name, staged, previous_sha256, new_sha256 in (
+            (guard.BASELINE_NAME, "new-baseline.json", journal["previousBaselineSha256"], journal["baselineSha256"]),
+            (RECEIPT_NAME, "new-receipt.json", journal["previousReceiptSha256"], journal["receiptSha256"])):
+        new_raw = _protected_bytes(archive / staged)
+        if hashlib.sha256(new_raw).hexdigest() != new_sha256:
+            raise InstallError("Staged rehost file changed")
+        live, archived = paths.state / name, archive / name
+        live_raw = _optional(live)
+        if live_raw is not None and hashlib.sha256(live_raw).hexdigest() == new_sha256:
+            continue
+        if live_raw is not None:
+            if hashlib.sha256(live_raw).hexdigest() != previous_sha256 or archived.exists() or archived.is_symlink():
+                raise InstallError("Live seal is neither the reviewed previous nor the new one")
+            live.rename(archived)
+            _sync(archive)
+            _sync(paths.state)
+        if hashlib.sha256(_protected_bytes(archived)).hexdigest() != previous_sha256:
+            raise InstallError("Archived previous seal differs from the reviewed evidence")
+        _write(live, new_raw)
+    if _sha(paths.entry) != journal["executorSha256"]:
+        raise InstallError("Installed executor changed during the rehost")
+    if inspect_runtime()["inventorySha256"] != journal["inventorySha256"]:
+        raise InstallError("Runtime changed after sealing; the fence stays for administrative review")
+    fence = paths.ingress / REHOST_FENCE_DIRECTORY / "pending.json"
+    fence.unlink()
+    _sync(fence.parent)
+    return {**journal, "status": "rehosted"}
+
+
 def build_bundle(source: Path, destination: Path, *, commit: str, run_url: str) -> str:
     destination.mkdir(mode=0o700)
     files = {}
@@ -851,6 +1172,84 @@ def _module(path: Path, name: str):
     sys.modules[name] = module
     loader.exec_module(module)
     return module
+
+
+def _inspect_runtime(module, release: Any, deploy_paths: Any, runtime_env: Path, paths: InstallPaths, context: dict,
+                     preserved: tuple[Path, ...]) -> dict:
+    require_installation_context(context, paths, preserved)
+    inventory = module.runtime_inventory(release, deploy_paths)
+    # Schema and legacy identity remain read-only; no external SQL container is materialized here.
+    compose = module._compose_command(deploy_paths, runtime_env)
+    head = module._read_migration_head(compose, module.run_command)
+    sql_hash = ""
+    if release.contract_version == "v1":
+        pg = inventory["profile"]["services"]["postgres"]["id"]
+        sql_hash = module._payload.capture_binary(["docker", "exec", pg, "sha256sum", "/usr/local/share/duora/reconcile-privileges.sql"]).decode().split()[0]
+    guard.require_contract(release.raw, schema_head=head, legacy_sql_sha256=sql_hash)
+    require_installation_context(context, paths, preserved)
+    inventory["audit"]["preservationStateSha256"] = guard.digest(context)
+    inventory["audit"]["preservationFiles"] = context
+    inventory["inventorySha256"] = guard.digest({"profile": inventory["profile"], "audit": inventory["audit"]})
+    return inventory
+
+
+def _requalify(args: argparse.Namespace, manifest: dict, paths: InstallPaths) -> dict:
+    """Administrative host requalification; it installs no code and deploys no release."""
+    if args.reconverge_runtime == args.rehost or args.cohort_receiver is not None or args.reviewed_cohort_sha256 is not None:
+        raise InstallError("Choose exactly one requalification step, separate from installation, cohort and recovery")
+    if (args.rehost and args.reviewed_plan_sha256 is not None) or (args.reconverge_runtime and (
+            args.previous_baseline_sha256 or args.previous_receipt_sha256 or args.reviewed_inventory_sha256
+            or args.expected_executor_sha256)):
+        raise InstallError("Argument belongs to the other requalification step")
+    _verify_provenance(manifest, args.artifact_id)
+    pinned = Path("/etc/duora/coolify-deploy.json")
+    pin = guard.decode_json(_protected_bytes(pinned))
+    current = guard.decode_json(_protected_bytes(paths.state / "current.json"))["releaseId"]
+    raw = _protected_bytes(paths.state / "releases" / (current + ".json")).decode("utf-8")
+    if args.reconverge_runtime:
+        if args.apply and not args.reviewed_plan_sha256:
+            raise InstallError("Reconvergence apply requires the explicitly reviewed plan digest")
+        executor = _module(args.bundle / "duora_deploy.py", "duora_candidate_executor")
+        release = executor.parse_manifest(raw, image_prefix=IMAGE_PREFIX)
+        deploy_paths = executor.Paths(pinned_compose(pin), Path("/etc/duora/duora.env"), paths.state)
+        runtime_env = paths.state / "releases" / (current + ".env")
+        host = ReconvergeHost(core=executor, compose=executor._compose_command(deploy_paths, runtime_env),
+            compose_file=deploy_paths.compose_file, runtime_env=runtime_env,
+            capture=lambda command: executor._payload.capture_binary(command), run=executor.run_command,
+            read_protected=_protected_bytes, pin_path=pinned,
+            verify_runtime=lambda: executor._collect_runtime(release, runtime_env, deploy_paths))
+        return reconverge_runtime(release, host, paths=paths, apply=args.apply,
+            reviewed_plan_sha256=args.reviewed_plan_sha256, require_idle=lambda: _production_idle(
+                paths, expected_commit=args.source_commit, manifest_sha256=args.manifest_sha256))
+    # Rehost inspects with the installed executor itself, never with the candidate bundle's copy.
+    receipt = guard.decode_json(_protected_bytes(paths.state / RECEIPT_NAME))
+    version = paths.versions / receipt["sourceCommit"]
+    validate_bundle(version, expected_commit=receipt["sourceCommit"], manifest_sha256=receipt["manifestSha256"])
+    if not paths.entry.is_symlink() or os.readlink(paths.entry) != str(version / "duora_deploy.py"):
+        raise InstallError("Installed entry is not the receipt's immutable version")
+    if _sha(Path(guard.__file__)) != _sha(version / "runtime_guard.py"):
+        raise InstallError("Rehost needs a bundle whose runtime guard is byte-identical to the installed one")
+    sys.path.insert(0, str(version))
+    installed = _module(paths.entry, "duora_activated_executor")
+    release = installed.parse_manifest(raw, image_prefix=IMAGE_PREFIX)
+    deploy_paths = installed.Paths(pinned_compose(pin), Path("/etc/duora/duora.env"), paths.state)
+    preserved = (deploy_paths.compose_file, deploy_paths.host_env, pinned, Path(pin["caddy"]), Path(pin["manifest"]),
+                 RECEIVER_PATH, paths.ingress / "duora/current.json")
+    context = installation_context(paths, preserved)
+
+    def idle() -> None:
+        receiver = _module(Path(receiver_binding()["resolvedTarget"]), "duora_installer_reviewed_receiver")
+        own = paths.ingress / REHOST_FENCE_DIRECTORY
+        _require_other_ingress_idle(receiver, paths, {own} if (own / "pending.json").exists() else set())
+        if receiver.api("deployments") != []:
+            raise InstallError("Coolify global queue is active or unknown")
+
+    return rehost_runtime(paths=paths, expected_executor_sha256=args.expected_executor_sha256 or _sha(paths.entry),
+        previous_baseline_sha256=args.previous_baseline_sha256, previous_receipt_sha256=args.previous_receipt_sha256,
+        reviewed_inventory_sha256=args.reviewed_inventory_sha256, tool_commit=args.source_commit, apply=args.apply,
+        inspect_runtime=lambda: _inspect_runtime(installed, release, deploy_paths,
+                                                 paths.state / "releases" / (current + ".env"), paths, context, preserved),
+        require_idle=idle)
 
 
 def _production_idle(paths: InstallPaths, *, expected_commit: str, manifest_sha256: str,
@@ -936,6 +1335,11 @@ def main() -> int:
     parser.add_argument("--recover-attempt-sha256")
     parser.add_argument("--cohort-receiver", type=Path)
     parser.add_argument("--reviewed-cohort-sha256")
+    parser.add_argument("--reconverge-runtime", action="store_true")
+    parser.add_argument("--reviewed-plan-sha256")
+    parser.add_argument("--rehost", action="store_true")
+    parser.add_argument("--previous-baseline-sha256")
+    parser.add_argument("--previous-receipt-sha256")
     args = parser.parse_args()
     try:
         if os.geteuid() != 0: raise InstallError("Administrative root entry required")
@@ -948,6 +1352,12 @@ def main() -> int:
         paths = InstallPaths(Path("/usr/local/sbin/duora-deploy"), Path("/opt/duora-executor/releases"),
             Path("/opt/duora-executor/preimages"), Path("/var/lib/duora"), Path("/var/lib/coolify-release"))
         recovering = bool(args.recover_attempt or args.recover_attempt_sha256)
+        if args.reconverge_runtime or args.rehost:
+            if recovering: raise InstallError("Requalification is separate from recovery")
+            print(json.dumps(_requalify(args, manifest, paths), sort_keys=True))
+            return 0
+        if args.reviewed_plan_sha256 or args.previous_baseline_sha256 or args.previous_receipt_sha256:
+            raise InstallError("Requalification arguments require --reconverge-runtime or --rehost")
         pending = None
         cohort_mode = args.cohort_receiver is not None
         if recovering:
@@ -988,26 +1398,12 @@ def main() -> int:
         release = executor.parse_manifest(raw, image_prefix="ghcr.io/bipoxdxd/duora-")
         require_installation_context(context, paths, preserved)
         def inspect() -> dict:
-            require_installation_context(context, paths, preserved)
             # Cohort inspection must never import an active entry by a matching directory basename.
             # Both pre/post snapshots use the candidate whose complete bundle is already authenticated.
             module = executor if cohort_mode else (_module(paths.entry, "duora_activated_executor")
                 if paths.entry.is_symlink() and paths.entry.resolve().parent.name == args.source_commit else executor)
-            inventory = module.runtime_inventory(release, deploy_paths)
-            # Schema and legacy identity remain read-only; no external SQL container is materialized here.
-            runtime_env = paths.state / "releases" / (current + ".env")
-            compose = module._compose_command(deploy_paths, runtime_env)
-            head = module._read_migration_head(compose, module.run_command)
-            sql_hash = ""
-            if release.contract_version == "v1":
-                pg = inventory["profile"]["services"]["postgres"]["id"]
-                sql_hash = module._payload.capture_binary(["docker", "exec", pg, "sha256sum", "/usr/local/share/duora/reconcile-privileges.sql"]).decode().split()[0]
-            guard.require_contract(release.raw, schema_head=head, legacy_sql_sha256=sql_hash)
-            require_installation_context(context, paths, preserved)
-            inventory["audit"]["preservationStateSha256"] = guard.digest(context)
-            inventory["audit"]["preservationFiles"] = context
-            inventory["inventorySha256"] = guard.digest({"profile": inventory["profile"], "audit": inventory["audit"]})
-            return inventory
+            return _inspect_runtime(module, release, deploy_paths, paths.state / "releases" / (current + ".env"),
+                                    paths, context, preserved)
         if recovering:
             assert pending is not None and cohort_mode
             result = recover_installation(paths=paths, pending=pending, require_idle=idle,
