@@ -27,6 +27,9 @@ import urllib.request
 from contextlib import ExitStack, contextmanager
 
 sys.dont_write_bytecode = True
+# Under python3 -I the script's directory is not on sys.path; its sibling modules ship in the same verified bundle.
+_BUNDLE_DIRECTORY = str(Path(__file__).resolve().parent)
+if _BUNDLE_DIRECTORY not in sys.path: sys.path.insert(0, _BUNDLE_DIRECTORY)
 import runtime_guard as guard
 
 FILES = ("duora_deploy.py", "postgres_swap.py", "reconcile_payload.py", "runtime_guard.py", "install_executor.py")
@@ -1491,8 +1494,24 @@ def main() -> int:
         print(json.dumps(result, sort_keys=True))
         return 0
     except (InstallError, OSError, ValueError) as error:
-        print("Static executor operation refused: " + str(error), file=sys.stderr)
+        print("Static executor operation refused: " + _refusal_reason(error), file=sys.stderr)
         return 1
+
+
+def _refusal_reason(error: BaseException) -> str:
+    """Refusals are wrapped at each boundary; the operator needs every cause, down to the innermost one.
+
+    Only curated installer and guard refusals print their text. Any other cause, such as an OSError carrying a path or a
+    parser error quoting its input, prints just its type, so the chain exposes nothing the refusal itself did not.
+    """
+    reasons = [str(error)]
+    seen = {id(error)}
+    cause = error.__cause__
+    while cause is not None and id(cause) not in seen:
+        seen.add(id(cause))
+        reasons.append(str(cause) if isinstance(cause, (InstallError, guard.GuardError)) else type(cause).__name__)
+        cause = cause.__cause__
+    return ": ".join(reasons)
 
 
 if __name__ == "__main__":

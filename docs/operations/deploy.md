@@ -220,13 +220,14 @@ opção B aplicada e ressalada **e** com o `infra/caddy/Caddyfile` da `main` já
 (`context.composeSha256`). Sem selar de novo, o `duora-deploy` recusa a release com "Database/backup runtime changed".
 O instalador sela de novo no modo comum, com o bundle já ativo (os valores vêm de
 `/var/lib/duora/executor-install-receipt.json`): primeiro só a inspeção, revisando que no `profile` só mudou
-`composeSha256`; depois `--apply`. Não edite o baseline nem o recibo à mão.
+`composeSha256`; depois `--apply`. Não edite o baseline nem o recibo à mão. Use `python3 -E -s`, não `-I`: com `-I` o
+diretório do script sai do `sys.path`, e o instalador de bundles anteriores não acha o `runtime_guard` ao lado dele.
 
 ```bash
 B=/opt/duora-executor/releases/<sourceCommit do recibo>
-python3 -I "$B/install_executor.py" --bundle "$B" --source-commit <sourceCommit> \
+python3 -E -s "$B/install_executor.py" --bundle "$B" --source-commit <sourceCommit> \
   --manifest-sha256 <manifestSha256> --artifact-id <qualificationArtifactId>          # inspeção: anote inventorySha256
-python3 -I "$B/install_executor.py" --bundle "$B" --source-commit <sourceCommit> \
+python3 -E -s "$B/install_executor.py" --bundle "$B" --source-commit <sourceCommit> \
   --manifest-sha256 <manifestSha256> --artifact-id <qualificationArtifactId> --apply \
   --reviewed-inventory-sha256 <inventorySha256 revisado> --expected-executor-sha256 <executorSha256>
 ```
@@ -567,8 +568,8 @@ depois da troca.
 |---|---|
 | `N` | commit da main com esta ferramenta (o merge do PR) |
 | `<run>` e `<artifactId>` | run do CI de push de `N` com todos os jobs verdes; artefato `duora-executor-amd64` dela |
-| bundle | o artefato, extraído em diretório root-only (0700) no host, por exemplo `/root/requalify-N` |
-| `<manifestSha256>` | `sha256sum /root/requalify-N/bundle.json` |
+| bundle | o artefato, extraído em diretório root-only (0700) no host, por exemplo `/root/requalify-N`; o bundle é a pasta `bundle/` dele (ao lado de `qualification.json`) |
+| `<manifestSha256>` | `sha256sum /root/requalify-N/bundle/bundle.json` |
 | `<planSha256>` | saída da inspeção do passo 1 |
 | `<inventorySha256>`, `previousBaselineSha256`, `previousReceiptSha256` | saída da inspeção do passo 2 |
 | `<executorSha256>` | saída da inspeção do passo 2; confira que é o `executorSha256` de `/var/lib/duora/executor-install-receipt.json` e o `sha256sum` de `/usr/local/sbin/duora-deploy` resolvido. O apply não tem valor padrão para ele |
@@ -577,8 +578,8 @@ Antes de começar, guarde fora do host uma cópia root-only do baseline, do reci
 que não existe `pending.json` sob `/var/lib/coolify-release/` nem journal em `/var/lib/duora/postgres-swap/`.
 
 ```bash
-B=/root/requalify-N
-I() { python3 -I "$B/install_executor.py" --bundle "$B" --source-commit N \
+B=/root/requalify-N/bundle
+I() { python3 -E -s "$B/install_executor.py" --bundle "$B" --source-commit N \
   --manifest-sha256 <manifestSha256> --artifact-id <artifactId> "$@"; }
 
 I --reconverge-runtime                                          # plano: recreate, pin.stage, imageId, planSha256
@@ -617,9 +618,11 @@ novo a ele é a sua revisão do `inventorySha256`. Revise o inventário inteiro 
 - a env do Coolify `DUORA_OBSERVER_IMAGE` diferente do `edge` da release corrente. O reconverge não toca no Coolify; a
   release que falhou pode ter reescrito essa env. Acerte pelo painel antes da troca, revisando o valor.
 
-**Interrupção.** Um apply do reconverge que caiu no meio não grava estado próprio: rode de novo a inspeção. O plano novo
-mostra o que já convergiu, e só o restante é refeito: com `postgres` e `backup` já recriados, `recreate` vem vazio e
-`start` lista os serviços que ficaram parados, na ordem `backup`, `postgres`, `web`, `worker`; o apply só os religa e
+**Interrupção.** Um apply do reconverge que caiu no meio não grava estado próprio: rode de novo a inspeção. O primeiro
+efeito do apply é o pin do observer, antes de parar qualquer container; uma queda nessa escrita pode deixar
+`/etc/duora/.duora-recovery-pin-<nonce>.tmp`, que fica de propósito: revise-o à mão antes de repetir. O plano novo mostra
+o que já convergiu. Se `postgres` ou `backup` ainda estiver no id cru, `recreate` o lista e o apply recria os dois de
+novo. Com os dois já recriados, `recreate` vem vazio e `start` lista os serviços que ficaram parados, na ordem `backup`, `postgres`, `web`, `worker`; o apply só os religa e
 espera a saúde. Um rehost interrompido deixa
 `/var/lib/coolify-release/duora-executor-rehost/pending.json`, e esse arquivo trava toda release, de qualquer projeto. A
 inspeção mostra `rehost-interrupted`, mesmo que a queda tenha sido entre arquivar o recibo antigo e gravar o novo (a

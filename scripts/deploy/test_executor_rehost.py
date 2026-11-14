@@ -1,10 +1,14 @@
 """Host requalification (--rehost, --reconverge-runtime) with real temporary files and locks; Docker is a fake."""
 import argparse
+import contextlib
 import copy
 import hashlib
+import io
 import json
 import os
 import subprocess
+import sys
+import tempfile
 import unittest
 from pathlib import Path
 from unittest.mock import patch
@@ -23,6 +27,21 @@ APPLIED_AT = 1_763_100_000
 
 def _sha(raw: bytes) -> str:
     return hashlib.sha256(raw).hexdigest()
+
+
+def printed_refusal(error: BaseException) -> str:
+    """What the operator reads on stderr when main meets this refusal."""
+    def refuse(*_args, **_kwargs):
+        raise error
+
+    argv = ["install_executor.py", "--bundle", "/nonexistent", "--source-commit", "a" * 40,
+            "--manifest-sha256", "b" * 64, "--artifact-id", "1"]
+    stderr = io.StringIO()
+    with patch.object(sys, "argv", argv), patch.object(installer.os, "geteuid", return_value=0), \
+            patch.object(installer.os, "umask"), patch.object(installer, "_require_root_path", refuse), \
+            contextlib.redirect_stderr(stderr):
+        if installer.main() != 1: raise AssertionError("main accepted a refusal")
+    return stderr.getvalue()
 
 
 class RehostTests(InstallationFixture):
@@ -124,6 +143,8 @@ class RehostTests(InstallationFixture):
         with self.assertRaises(installer.InstallError) as refused:
             self.rehost(apply=True, inspect_runtime=lambda: same, reviewed_inventory_sha256=same["inventorySha256"])
         self.assertIn("Same host", str(refused.exception.__cause__))
+        self.assertIn(": Same host as the sealed baseline: rehost refused; reseal with the normal installer\n",
+                      printed_refusal(refused.exception))
         self.assertSealUnchanged()
 
     def test_open_swap_or_installation_is_refused(self) -> None:
@@ -341,6 +362,8 @@ class RehostTests(InstallationFixture):
         with self.assertRaises(installer.InstallError) as refused:
             self.invoke(apply=True)
         self.assertIn("--rehost", str(refused.exception.__cause__))
+        self.assertIn(": Host differs from the sealed baseline; requalify it with --rehost first\n",
+                      printed_refusal(refused.exception))
         self.assertSealUnchanged()
         self.rehost(apply=True)
         self.assertEqual(self.invoke(apply=True)["status"], "installed")
@@ -696,6 +719,32 @@ class RequalifyModeTests(unittest.TestCase):
                                              installer.InstallPaths(*[Path("/nonexistent")] * 5))
                 self.assertEqual(calls, expected)
 
+
+class OperatorEntryTests(unittest.TestCase):
+    def test_the_documented_isolated_invocation_imports_the_bundle_modules(self) -> None:
+        with tempfile.TemporaryDirectory() as elsewhere:
+            completed = subprocess.run([sys.executable, "-I", str(Path(installer.__file__).resolve()), "--help"],
+                                       cwd=elsewhere, capture_output=True, text=True, timeout=60, check=False)
+        self.assertEqual((completed.returncode, completed.stderr), (0, ""))
+        self.assertIn("--rehost", completed.stdout)
+
+    def test_a_refusal_shows_every_wrapped_cause(self) -> None:
+        try:
+            try:
+                raise installer.guard.GuardError("Runtime differs from the reviewed profile")
+            except installer.guard.GuardError as guard_refusal:
+                raise installer.InstallError("Same host as the sealed baseline: rehost refused") from guard_refusal
+        except installer.InstallError as cause:
+            error = installer.InstallError("Rehost inspection failed")
+            error.__cause__ = cause
+        self.assertEqual(printed_refusal(error), "Static executor operation refused: Rehost inspection failed: "
+                         "Same host as the sealed baseline: rehost refused: Runtime differs from the reviewed profile\n")
+
+    def test_a_cause_that_is_not_a_curated_refusal_shows_only_its_type(self) -> None:
+        error = installer.InstallError("Cannot bind the protected qualified receiver")
+        error.__cause__ = PermissionError(13, "Permission denied", "/etc/duora/duora.env")
+        self.assertEqual(printed_refusal(error), "Static executor operation refused: "
+                                                 "Cannot bind the protected qualified receiver: PermissionError\n")
 
 if __name__ == "__main__":
     unittest.main()
