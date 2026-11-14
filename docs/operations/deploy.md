@@ -614,12 +614,14 @@ novo a ele é a sua revisão do `inventorySha256`. Revise o inventário inteiro 
 - serviço `paused`, `dead` ou `removing`, ou mais de um container por serviço da aplicação: o `up` não resolve isso;
 - baseline ou recibo diferentes dos sha256 revisados, recibo que não sela o baseline, entrada fora da versão do recibo;
 - `Same host as the sealed baseline` (é ressela comum) ou `Host differs from the sealed baseline` (é rehost);
+- recusa terminada em `DeployError` (passo do executor, como o `up` do compose): o motivo é a saída do Docker logo
+  acima no terminal; a recusa mostra só o tipo para não repetir metadados do host;
 - backup em andamento: espere terminar;
 - a env do Coolify `DUORA_OBSERVER_IMAGE` diferente do `edge` da release corrente. O reconverge não toca no Coolify; a
   release que falhou pode ter reescrito essa env. Acerte pelo painel antes da troca, revisando o valor.
 
-**Interrupção.** Um apply do reconverge que caiu no meio não grava estado próprio: rode de novo a inspeção. O primeiro
-efeito do apply é o pin do observer, antes de parar qualquer container; uma queda nessa escrita pode deixar
+**Interrupção.** Um apply do reconverge que caiu no meio não grava estado próprio: rode de novo a inspeção. Quando
+`pin.stage` é `restore`, o primeiro efeito do apply é o pin do observer, antes de parar qualquer container; uma queda nessa escrita pode deixar
 `/etc/duora/.duora-recovery-pin-<nonce>.tmp`, que fica de propósito: revise-o à mão antes de repetir. O plano novo mostra
 o que já convergiu. Se `postgres` ou `backup` ainda estiver no id cru, `recreate` o lista e o apply recria os dois de
 novo. Com os dois já recriados, `recreate` vem vazio e `start` lista os serviços que ficaram parados, na ordem `backup`, `postgres`, `web`, `worker`; o apply só os religa e

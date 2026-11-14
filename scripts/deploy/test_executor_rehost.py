@@ -746,5 +746,6 @@ class OperatorEntryTests(unittest.TestCase):
         self.assertEqual(printed_refusal(error), "Static executor operation refused: "
                                                  "Cannot bind the protected qualified receiver: PermissionError\n")
 
+
 if __name__ == "__main__":
     unittest.main()
