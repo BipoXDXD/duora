@@ -2,9 +2,21 @@ import unittest
 import os
 import tempfile
 from pathlib import Path
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 import gate
+
+# The repository may carry a real hold; every other test exercises the gate as if no hold were present.
+REPOSITORY_HOLD = gate.HOLD
+_no_hold = patch.object(gate, 'HOLD', Path(__file__).with_name('no-release-hold-in-tests.json'))
+
+
+def setUpModule() -> None:
+    _no_hold.start()
+
+
+def tearDownModule() -> None:
+    _no_hold.stop()
 
 SHA = "a" * 40
 
@@ -139,6 +151,48 @@ class SupersededReleaseTests(unittest.TestCase):
                 patch.object(gate, 'api', return_value={'sha': 'b' * 40}):
             with self.assertRaises(ValueError):
                 gate.main()
+
+
+class ReleaseHoldTests(unittest.TestCase):
+    def run_gate(self, hold: str | None, **env: str) -> tuple[Path, MagicMock]:
+        directory = tempfile.TemporaryDirectory()
+        self.addCleanup(directory.cleanup)
+        temp = Path(directory.name)
+        output, hold_path = temp / 'output', temp / 'release-hold.json'
+        output.touch()
+        if hold is not None:
+            hold_path.write_text(hold)
+        base = {'RELEASE_PROJECT': 'duora', 'GITHUB_REPOSITORY': 'BipoXDXD/duora', 'RELEASE_COMMIT': SHA,
+                'GITHUB_OUTPUT': str(output), 'SKIP_SUPERSEDED': 'true'}
+        with patch.dict(os.environ, {**base, **env}, clear=True), patch.object(gate, 'HOLD', hold_path), \
+                patch.object(gate, 'api', side_effect=AssertionError('a held release never queries GitHub')) as api:
+            gate.main()
+        return output, api
+
+    def test_hold_makes_every_release_ineligible_before_any_query(self):
+        output, api = self.run_gate('{"schema": 1, "reason": "requalification", "refs": "#567"}')
+        self.assertEqual(output.read_text(), 'eligible=false\n')
+        self.assertEqual(api.call_count, 0)
+
+    def test_strict_callers_refuse_while_held(self):
+        with self.assertRaisesRegex(ValueError, 'hold'):
+            self.run_gate('{"schema": 1, "reason": "requalification", "refs": "#567"}', SKIP_SUPERSEDED='false')
+
+    def test_malformed_hold_fails_closed(self):
+        for raw in ('', '[]', '{"schema": 1, "reason": " ", "refs": "#567"}', '{"schema": 2, "reason": "x", "refs": "#5"}',
+                    '{"schema": 1, "reason": "x", "refs": "567"}', '{"schema": 1, "reason": "x", "refs": "#5", "until": 1}'):
+            with self.subTest(raw=raw), self.assertRaises(ValueError):
+                self.run_gate(raw)
+
+    def test_without_hold_the_gate_proceeds_to_the_exact_main_checks(self):
+        with self.assertRaisesRegex(AssertionError, 'never queries'):
+            self.run_gate(None)
+
+    def test_repository_hold_is_the_reviewed_requalification_hold(self):
+        with patch.object(gate, 'HOLD', REPOSITORY_HOLD):
+            hold = gate.release_hold()
+        assert hold is not None
+        self.assertEqual((hold['schema'], hold['refs']), (1, '#567'))
 
 
 class ConsistentJobViewTests(unittest.TestCase):

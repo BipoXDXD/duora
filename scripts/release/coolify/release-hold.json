@@ -1,0 +1,1 @@
+{"schema": 1, "reason": "executor requalification on the new host before the PostgreSQL digest swap; a reviewed merge removing this file is the next release (R'')", "refs": "#567"}

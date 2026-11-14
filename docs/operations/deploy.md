@@ -220,13 +220,14 @@ opção B aplicada e ressalada **e** com o `infra/caddy/Caddyfile` da `main` já
 (`context.composeSha256`). Sem selar de novo, o `duora-deploy` recusa a release com "Database/backup runtime changed".
 O instalador sela de novo no modo comum, com o bundle já ativo (os valores vêm de
 `/var/lib/duora/executor-install-receipt.json`): primeiro só a inspeção, revisando que no `profile` só mudou
-`composeSha256`; depois `--apply`. Não edite o baseline nem o recibo à mão.
+`composeSha256`; depois `--apply`. Não edite o baseline nem o recibo à mão. Use `python3 -E -s`, não `-I`: com `-I` o
+diretório do script sai do `sys.path`, e o instalador de bundles anteriores não acha o `runtime_guard` ao lado dele.
 
 ```bash
 B=/opt/duora-executor/releases/<sourceCommit do recibo>
-python3 -I "$B/install_executor.py" --bundle "$B" --source-commit <sourceCommit> \
+python3 -E -s "$B/install_executor.py" --bundle "$B" --source-commit <sourceCommit> \
   --manifest-sha256 <manifestSha256> --artifact-id <qualificationArtifactId>          # inspeção: anote inventorySha256
-python3 -I "$B/install_executor.py" --bundle "$B" --source-commit <sourceCommit> \
+python3 -E -s "$B/install_executor.py" --bundle "$B" --source-commit <sourceCommit> \
   --manifest-sha256 <manifestSha256> --artifact-id <qualificationArtifactId> --apply \
   --reviewed-inventory-sha256 <inventorySha256 revisado> --expected-executor-sha256 <executorSha256>
 ```
@@ -531,6 +532,111 @@ para a anterior não tem restrição por esse campo.
 | Migrador | Web anterior no ar, **worker parado** | A saída do migrador está na própria sessão do `duora-deploy` (o `run --rm` apaga o container e os logs junto); corrigir e repetir, ou religar o worker anterior com o env da release corrente |
 | Readiness ou serviço fora de `running` | Release nova no ar, `current.json` ainda aponta a anterior | Logs do web/edge; rollback se o schema permitir |
 | Web recusa o boot sem marcador (`Media:Storage:FileSystemRoot em Production ...` no log) | Migrations aplicadas, web em restart. O worker não confere o marcador: só falha ao subir se a origem do bind mount (`$DUORA_MEDIA_DIR/quarantine` ou `derivatives`) não existir no host | O preflight conferiu os marcadores, então a área sumiu ou foi desmontada depois dele, ou o Compose instalado monta outro caminho que o `DUORA_MEDIA_DIR` do `duora.env`. Reaplicar `app_dirs`, conferir `docker compose ... config` e repetir o deploy; rollback não resolve, porque o Compose é o mesmo |
+
+### Requalificação do executor num host novo
+
+Depois de migrar a VPS, o executor instalado não qualifica o runtime novo. O baseline selado
+(`/var/lib/duora/executor-runtime-baseline.json`) descreve outro host, e o `collect_runtime` recusa container recriado
+com `Config.Image` em id cru (`sha256:…`), em vez da referência por digest da release. A troca do PostgreSQL e toda
+release ficam presas. São dois passos administrativos, nesta ordem, cada um com inspeção e `--apply` preso ao digest
+revisado. Nenhum dos dois instala código nem faz deploy de release:
+
+1. `--reconverge-runtime` recria `postgres` e `backup` na referência por digest da release corrente, com o env registrado
+   dela. A imagem é a mesma: só se aceita id cru igual ao id local que essa referência resolve. Também desfaz no pin do
+   observer a reescrita de três campos (`manifest`, `manifest_sha256`, `DUORA_OBSERVER_IMAGE`) deixada pela release que
+   falhou, pela mesma inversa do executor (`_recovery_pin_inverse`), em bytes canônicos.
+2. `--rehost` sela no host novo o executor já instalado, sem trocar o código. Exige a prova do selo anterior: recibo
+   `installed` cujo `baselineSha256` é o baseline vivo, versão imutável íntegra, entrada apontando para ela e os dois
+   sha256 conferidos com os informados. O runtime é qualificado pelo próprio executor instalado, com o mesmo
+   `collect_runtime`. O baseline e o recibo anteriores vão por rename para
+   `/var/lib/duora/executor-rehost-history/rehost-<UTC>-<host antigo>/`; nada é apagado.
+
+**Rehost não é ressela.** O `hostIdSha256` é o sha256 de `/etc/machine-id`. O rehost recusa o mesmo host. O instalador
+comum, por sua vez, recusa um host diferente do selado e manda usar `--rehost`. Assim nenhum dos dois caminhos sela outra
+coisa: no mesmo host vale só a ressela comum, que revisa o diff do `profile`; em host novo, só o rehost, que guarda a
+evidência do selo anterior. Se a migração copiou o `machine-id`, o host é o mesmo para o selo: pule o rehost e use a
+ressela comum.
+
+**Releases suspensas.** O merge desta ferramenta pôs `scripts/release/coolify/release-hold.json` na main. Enquanto ele
+existir, o job `gates` (que roda o `gate.py` da main) responde `eligible=false` para qualquer commit, inclusive runs
+antigas da fila e `workflow_dispatch`, sem tocar o host. A próxima release (R'') é o merge do PR que remove o arquivo,
+depois da troca.
+
+**De onde vêm os valores.**
+
+| Valor | Origem |
+|---|---|
+| `N` | commit da main com esta ferramenta (o merge do PR) |
+| `<run>` e `<artifactId>` | run do CI de push de `N` com todos os jobs verdes; artefato `duora-executor-amd64` dela |
+| bundle | o artefato, extraído em diretório root-only (0700) no host, por exemplo `/root/requalify-N`; o bundle é a pasta `bundle/` dele (ao lado de `qualification.json`) |
+| `<manifestSha256>` | `sha256sum /root/requalify-N/bundle/bundle.json` |
+| `<planSha256>` | saída da inspeção do passo 1 |
+| `<inventorySha256>`, `previousBaselineSha256`, `previousReceiptSha256` | saída da inspeção do passo 2 |
+| `<executorSha256>` | saída da inspeção do passo 2; confira que é o `executorSha256` de `/var/lib/duora/executor-install-receipt.json` e o `sha256sum` de `/usr/local/sbin/duora-deploy` resolvido. O apply não tem valor padrão para ele |
+
+Antes de começar, guarde fora do host uma cópia root-only do baseline, do recibo e do pin, com os sha256. Confira também
+que não existe `pending.json` sob `/var/lib/coolify-release/` nem journal em `/var/lib/duora/postgres-swap/`.
+
+```bash
+B=/root/requalify-N/bundle
+I() { python3 -E -s "$B/install_executor.py" --bundle "$B" --source-commit N \
+  --manifest-sha256 <manifestSha256> --artifact-id <artifactId> "$@"; }
+
+I --reconverge-runtime                                          # plano: recreate, pin.stage, imageId, planSha256
+I --reconverge-runtime --apply --reviewed-plan-sha256 <planSha256>
+I --rehost                                                      # inventário, hosts antigo e novo, shas anteriores, executor
+I --rehost --apply --reviewed-inventory-sha256 <inventorySha256> --expected-executor-sha256 <executorSha256> \
+  --previous-baseline-sha256 <previousBaselineSha256> --previous-receipt-sha256 <previousReceiptSha256>
+```
+
+**Revise no plano do passo 1.** `recreate` lista só `postgres` e `backup`, cada um com `configImage` igual ao id cru ou à
+referência; `imageId` é o id local da referência do manifesto corrente; o volume é `duora_pgdata`, com o `createdAt`
+esperado. `pin.stage` vem como `restore`, com `incomingReleaseId` igual à release que falhou, ou como `current`. O apply
+para worker, web, postgres e backup, sobe `backup` e depois `postgres` com `--force-recreate --no-deps` (nunca `down` nem
+`-v`), religa web e worker, espera a saúde e, no fim, exige o `collect_runtime` limpo. A queda é curta, mas é uma queda:
+faça numa janela do dono.
+
+**Revise na inspeção do passo 2.** Entre o `profile` e o baseline antigo, mudam o `context` do host (`hostIdSha256`,
+versões e hashes de Docker e Compose) e os `services.*` recriados no passo 1. Volume e `configHashes` devem bater com o
+Compose em uso. O `previousHostIdSha256` é o do baseline antigo, e o `hostIdSha256` é o do host novo.
+Num host novo não há perfil anterior a preservar: o rehost confere só a forma do `profile`, e quem liga o selo
+novo a ele é a sua revisão do `inventorySha256`. Revise o inventário inteiro antes do apply.
+
+**Pare e não force** quando qualquer um destes recusar; a mensagem diz qual:
+
+- `pending.json` em qualquer diretório do ingresso, journal ou fence da troca, instalação pendente: reconcilie antes, pelo
+  [ISOLATION.md](../../scripts/release/coolify/ISOLATION.md) ou pelo comando dono;
+- fila global do Coolify ocupada;
+- env registrado da release corrente diferente do `_release_env_text` dela, ou manifesto do pin diferente do registrado;
+- pin com `compose` diferente do Compose em uso, ou que não seja exatamente a reescrita da release seguinte à corrente;
+- container com imagem diferente do id da referência, `Config.Image` com outra tag, mais de um container por papel,
+  montagem diferente de `duora_pgdata` (RW só no `postgres`), `edge` fora de `running` (o reconverge nunca o para);
+- serviço `paused`, `dead` ou `removing`, ou mais de um container por serviço da aplicação: o `up` não resolve isso;
+- baseline ou recibo diferentes dos sha256 revisados, recibo que não sela o baseline, entrada fora da versão do recibo;
+- `Same host as the sealed baseline` (é ressela comum) ou `Host differs from the sealed baseline` (é rehost);
+- recusa terminada em `DeployError` (passo do executor, como o `up` do compose): o motivo é a saída do Docker logo
+  acima no terminal; a recusa mostra só o tipo para não repetir metadados do host;
+- backup em andamento: espere terminar;
+- a env do Coolify `DUORA_OBSERVER_IMAGE` diferente do `edge` da release corrente. O reconverge não toca no Coolify; a
+  release que falhou pode ter reescrito essa env. Acerte pelo painel antes da troca, revisando o valor.
+
+**Interrupção.** Um apply do reconverge que caiu no meio não grava estado próprio: rode de novo a inspeção. Quando
+`pin.stage` é `restore`, o primeiro efeito do apply é o pin do observer, antes de parar qualquer container; uma queda nessa escrita pode deixar
+`/etc/duora/.duora-recovery-pin-<nonce>.tmp`, que fica de propósito: revise-o à mão antes de repetir. O plano novo mostra
+o que já convergiu. Se `postgres` ou `backup` ainda estiver no id cru, `recreate` o lista e o apply recria os dois de
+novo. Com os dois já recriados, `recreate` vem vazio e `start` lista os serviços que ficaram parados, na ordem `backup`, `postgres`, `web`, `worker`; o apply só os religa e
+espera a saúde. Um rehost interrompido deixa
+`/var/lib/coolify-release/duora-executor-rehost/pending.json`, e esse arquivo trava toda release, de qualquer projeto. A
+inspeção mostra `rehost-interrupted`, mesmo que a queda tenha sido entre arquivar o recibo antigo e gravar o novo (a
+versão instalada vem então do journal sob a fence). Repita o mesmo `--apply` com os mesmos argumentos; ele é idempotente
+por arquivo, nunca apaga nada e só remove a fence depois de reinspecionar o runtime.
+
+**Depois.** Siga a [troca](#troca-do-digest-do-postgresql) como está: `troca --preflight-only` agora passa por
+`_swap_recorded_pin`, porque o pin descreve a release corrente. A ressela da troca é no mesmo host, pelo instalador comum
+com o bundle ativo. Depois de `troca --resume`, abra o PR que remove `release-hold.json` e o teste
+`test_repository_hold_is_the_reviewed_requalification_hold`, que prende o hold em `#567` para ele não sumir por
+acidente. O merge desse PR é a R'', a primeira release no host novo com o lock da main. Só então volta a fila normal
+de PRs.
 
 ### Troca do digest do PostgreSQL
 
