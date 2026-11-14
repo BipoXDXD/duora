@@ -381,11 +381,12 @@ class ReconvergeTests(InstallationFixture):
         self.recreated = {"postgres": "3" * 64, "backup": "4" * 64}
         self.commands: list[list[str]] = []
         self.verified = []
+        self.ready: list[bool] = []
         self.compose = ["docker", "compose", "--file", str(self.compose_file)]
         self.host = installer.ReconvergeHost(core=deploy, compose=self.compose, compose_file=self.compose_file,
             runtime_env=self.runtime_env, capture=self._capture, run=self._run, read_protected=self.files.__getitem__,
             verify_runtime=lambda: self.verified.append(True) or {}, pin_path=self.pin_path, sleep=lambda _: None)
-        for name, value in (("_recovery_apply_pin", self._apply_pin), ("_wait_ready", lambda *a: None),
+        for name, value in (("_recovery_apply_pin", self._apply_pin), ("_wait_ready", lambda *a: self.ready.append(True)),
                             ("_require_services_running", lambda *a: None)):
             patcher = patch.object(deploy, name, value)
             patcher.start()
@@ -491,7 +492,7 @@ class ReconvergeTests(InstallationFixture):
         self.assertEqual((replan["recreate"], replan["start"], replan["pin"]["stage"]), ([], ["web", "worker"], "current"))
         self.assertEqual(self.reconverge(apply=True, reviewed=replan["planSha256"])["status"], "reconverged")
         self.assertEqual(self.commands, [["up", "--detach", "--wait", "--no-deps", "web", "worker"]])
-        self.assertEqual(self.verified, [True])
+        self.assertEqual((self.ready, self.verified), ([True], [True]))
 
     def test_stopped_database_roles_start_before_the_application(self) -> None:
         for item in self.containers.values(): item["config"] = self.reference
@@ -503,6 +504,48 @@ class ReconvergeTests(InstallationFixture):
         self.assertEqual(self.commands, [["up", "--detach", "--wait", "--no-deps", "backup"],
                                          ["up", "--detach", "--wait", "--no-deps", "postgres"],
                                          ["up", "--detach", "--wait", "--no-deps", "web"]])
+
+    def test_every_startable_state_is_planned_to_start(self) -> None:
+        for state in ("exited", "created", "restarting", "missing"):
+            with self.subTest(state=state):
+                self.states["web"] = state
+                self.containers["backup"]["state"] = "missing" if state == "missing" else state
+                self.assertEqual(self.reconverge()["start"], ["backup", "web"])
+
+    def test_paused_dead_or_unknown_state_is_refused_before_any_change(self) -> None:
+        for state in ("paused", "dead", "removing", "unknown"):
+            for target in ("web", "postgres"):
+                with self.subTest(state=state, target=target):
+                    if target == "web": self.states["web"] = state
+                    else: self.containers["postgres"]["state"] = state
+                    with self.assertRaises(installer.InstallError) as refused: self.reconverge()
+                    self.assertIn("requires administrative review", str(refused.exception.__cause__))
+                    self.assertUntouched()
+                    self.states["web"] = self.containers["postgres"]["state"] = "running"
+
+    def test_more_than_one_container_per_application_service_is_refused(self) -> None:
+        original = self._capture
+
+        def duplicated(command):
+            raw = original(command)
+            return raw + b"\nweb=exited" if "{{.Service}}={{.State}}" in command else raw
+        self.host = self.host.__class__(**{**self.host.__dict__, "capture": duplicated})
+        with self.assertRaises(installer.InstallError) as refused: self.reconverge()
+        self.assertIn("More than one container", str(refused.exception.__cause__))
+
+    def test_database_role_that_does_not_stay_running_after_start_is_refused(self) -> None:
+        for item in self.containers.values(): item["config"] = self.reference
+        self.files[self.pin_path] = self.failed_pin = self.restored_pin
+        self.containers["postgres"]["state"] = "exited"
+        plan = self.reconverge()
+
+        def start_without_effect(command):
+            self.commands.append(command[len(self.compose):])
+            return subprocess.CompletedProcess(command, 0, "", "")
+        self.host = self.host.__class__(**{**self.host.__dict__, "run": start_without_effect})
+        with self.assertRaises(installer.InstallError):
+            self.reconverge(apply=True, reviewed=plan["planSha256"])
+        self.assertEqual(self.commands, [["up", "--detach", "--wait", "--no-deps", "postgres"]])
 
     def test_stopped_edge_is_outside_reconvergence(self) -> None:
         self.states["edge"] = "exited"

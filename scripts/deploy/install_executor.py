@@ -42,6 +42,8 @@ REHOST_FENCE_DIRECTORY = "duora-executor-rehost"
 REHOST_HISTORY_DIRECTORY = "executor-rehost-history"
 RECONVERGE_ROLES = ("postgres", "backup")
 START_ORDER = ("backup", "postgres", "web", "worker")
+# Compose "up" starts these; paused, dead or removing containers need an administrator, not a start.
+STARTABLE_STATES = ("running", "exited", "created", "restarting", "missing")
 IMAGE_PREFIX = "ghcr.io/bipoxdxd/duora-"
 
 
@@ -988,6 +990,8 @@ def _reconverge_containers(release: Any, host: ReconvergeHost) -> dict:
     states = {role: containers[role]["state"] for role in RECONVERGE_ROLES} | _service_states(host)
     if states["edge"] != "running":
         raise InstallError("Edge is not running; reconvergence never stops it, so this is outside its scope")
+    if any(state not in STARTABLE_STATES for state in states.values()):
+        raise InstallError("Paused, dead or unknown service state requires administrative review")
     return {"imageId": image_id, "containers": containers,
             "volume": {"name": volume["Name"], "createdAt": volume["CreatedAt"]},
             "recreate": [role for role in RECONVERGE_ROLES if containers[role]["configImage"] != reference],
@@ -997,7 +1001,10 @@ def _reconverge_containers(release: Any, host: ReconvergeHost) -> dict:
 
 def _service_states(host: ReconvergeHost) -> dict:
     raw = host.capture(host.compose + ["ps", "--all", "--format", "{{.Service}}={{.State}}", "web", "worker", "edge"])
-    states = dict(line.split("=", 1) for line in raw.decode("utf-8").split() if "=" in line)
+    pairs = [line.split("=", 1) for line in raw.decode("utf-8").split() if "=" in line]
+    if len({service for service, _ in pairs}) != len(pairs):
+        raise InstallError("More than one container per application service")
+    states = dict(pairs)
     return {service: states.get(service, "missing") for service in ("web", "worker", "edge")}
 
 

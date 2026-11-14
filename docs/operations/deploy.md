@@ -610,6 +610,7 @@ novo a ele é a sua revisão do `inventorySha256`. Revise o inventário inteiro 
 - pin com `compose` diferente do Compose em uso, ou que não seja exatamente a reescrita da release seguinte à corrente;
 - container com imagem diferente do id da referência, `Config.Image` com outra tag, mais de um container por papel,
   montagem diferente de `duora_pgdata` (RW só no `postgres`), `edge` fora de `running` (o reconverge nunca o para);
+- serviço `paused`, `dead` ou `removing`, ou mais de um container por serviço da aplicação: o `up` não resolve isso;
 - baseline ou recibo diferentes dos sha256 revisados, recibo que não sela o baseline, entrada fora da versão do recibo;
 - `Same host as the sealed baseline` (é ressela comum) ou `Host differs from the sealed baseline` (é rehost);
 - backup em andamento: espere terminar;
