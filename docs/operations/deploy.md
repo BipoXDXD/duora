@@ -598,6 +598,8 @@ faça numa janela do dono.
 **Revise na inspeção do passo 2.** Entre o `profile` e o baseline antigo, mudam o `context` do host (`hostIdSha256`,
 versões e hashes de Docker e Compose) e os `services.*` recriados no passo 1. Volume e `configHashes` devem bater com o
 Compose em uso. O `previousHostIdSha256` é o do baseline antigo, e o `hostIdSha256` é o do host novo.
+Num host novo não há perfil anterior a preservar: o rehost confere só a forma do `profile`, e quem liga o selo
+novo a ele é a sua revisão do `inventorySha256`. Revise o inventário inteiro antes do apply.
 
 **Pare e não force** quando qualquer um destes recusar; a mensagem diz qual:
 
@@ -607,7 +609,7 @@ Compose em uso. O `previousHostIdSha256` é o do baseline antigo, e o `hostIdSha
 - env registrado da release corrente diferente do `_release_env_text` dela, ou manifesto do pin diferente do registrado;
 - pin com `compose` diferente do Compose em uso, ou que não seja exatamente a reescrita da release seguinte à corrente;
 - container com imagem diferente do id da referência, `Config.Image` com outra tag, mais de um container por papel,
-  montagem diferente de `duora_pgdata` (RW só no `postgres`);
+  montagem diferente de `duora_pgdata` (RW só no `postgres`), `edge` fora de `running` (o reconverge nunca o para);
 - baseline ou recibo diferentes dos sha256 revisados, recibo que não sela o baseline, entrada fora da versão do recibo;
 - `Same host as the sealed baseline` (é ressela comum) ou `Host differs from the sealed baseline` (é rehost);
 - backup em andamento: espere terminar;
@@ -615,10 +617,13 @@ Compose em uso. O `previousHostIdSha256` é o do baseline antigo, e o `hostIdSha
   release que falhou pode ter reescrito essa env. Acerte pelo painel antes da troca, revisando o valor.
 
 **Interrupção.** Um apply do reconverge que caiu no meio não grava estado próprio: rode de novo a inspeção. O plano novo
-mostra o que já convergiu, e só o restante é refeito. Um rehost interrompido deixa
+mostra o que já convergiu, e só o restante é refeito: com `postgres` e `backup` já recriados, `recreate` vem vazio e
+`start` lista os serviços que ficaram parados, na ordem `backup`, `postgres`, `web`, `worker`; o apply só os religa e
+espera a saúde. Um rehost interrompido deixa
 `/var/lib/coolify-release/duora-executor-rehost/pending.json`, e esse arquivo trava toda release, de qualquer projeto. A
-inspeção mostra `rehost-interrupted`. Repita o mesmo `--apply` com os mesmos argumentos; ele é idempotente por arquivo,
-nunca apaga nada e só remove a fence depois de reinspecionar o runtime.
+inspeção mostra `rehost-interrupted`, mesmo que a queda tenha sido entre arquivar o recibo antigo e gravar o novo (a
+versão instalada vem então do journal sob a fence). Repita o mesmo `--apply` com os mesmos argumentos; ele é idempotente
+por arquivo, nunca apaga nada e só remove a fence depois de reinspecionar o runtime.
 
 **Depois.** Siga a [troca](#troca-do-digest-do-postgresql) como está: `troca --preflight-only` agora passa por
 `_swap_recorded_pin`, porque o pin descreve a release corrente. A ressela da troca é no mesmo host, pelo instalador comum

@@ -41,6 +41,7 @@ RECEIPT_NAME = "executor-install-receipt.json"
 REHOST_FENCE_DIRECTORY = "duora-executor-rehost"
 REHOST_HISTORY_DIRECTORY = "executor-rehost-history"
 RECONVERGE_ROLES = ("postgres", "backup")
+START_ORDER = ("backup", "postgres", "web", "worker")
 IMAGE_PREFIX = "ghcr.io/bipoxdxd/duora-"
 
 
@@ -894,8 +895,11 @@ def reconverge_runtime(release: Any, host: ReconvergeHost, *, paths: InstallPath
                                                     restored_raw=restored_pin, nonce=secrets.token_hex(16))
             if plan["recreate"]:
                 _reconverge_recreate(host)
+            elif plan["start"]:
+                _reconverge_start(host, plan["start"])
             after = _reconverge_containers(release, host)
-            if after["recreate"] or after["imageId"] != plan["imageId"] or after["volume"] != plan["volume"]:
+            if (after["recreate"] or after["start"] or after["imageId"] != plan["imageId"]
+                    or after["volume"] != plan["volume"]):
                 raise InstallError("Runtime did not converge to the digest reference on the same image and volume")
             host.verify_runtime()
             return {"status": "reconverged", "planSha256": plan["planSha256"], "pin": pin,
@@ -981,9 +985,20 @@ def _reconverge_containers(release: Any, host: ReconvergeHost) -> dict:
             raise InstallError("Unexpected data volume mount")
         containers[role] = {"id": identifier, "configImage": item["Config"]["Image"], "state": item["State"]["Status"]}
     volume = read(["docker", "volume", "inspect", "--format", "{{json .}}", "duora_pgdata"])
+    states = {role: containers[role]["state"] for role in RECONVERGE_ROLES} | _service_states(host)
+    if states["edge"] != "running":
+        raise InstallError("Edge is not running; reconvergence never stops it, so this is outside its scope")
     return {"imageId": image_id, "containers": containers,
             "volume": {"name": volume["Name"], "createdAt": volume["CreatedAt"]},
-            "recreate": [role for role in RECONVERGE_ROLES if containers[role]["configImage"] != reference]}
+            "recreate": [role for role in RECONVERGE_ROLES if containers[role]["configImage"] != reference],
+            # An apply interrupted after recreating leaves services stopped: the re-plan starts only those.
+            "start": [service for service in START_ORDER if states[service] != "running"]}
+
+
+def _service_states(host: ReconvergeHost) -> dict:
+    raw = host.capture(host.compose + ["ps", "--all", "--format", "{{.Service}}={{.State}}", "web", "worker", "edge"])
+    states = dict(line.split("=", 1) for line in raw.decode("utf-8").split() if "=" in line)
+    return {service: states.get(service, "missing") for service in ("web", "worker", "edge")}
 
 
 def _reconverge_recreate(host: ReconvergeHost) -> None:
@@ -995,7 +1010,20 @@ def _reconverge_recreate(host: ReconvergeHost) -> None:
         step(["stop", service], "stop " + service)
     for service in ("backup", "postgres"):
         step(["up", "--detach", "--wait", "--no-deps", "--force-recreate", service], "recreate " + service)
-    step(["up", "--detach", "--wait", "--no-deps", "web", "worker"], "start web and worker")
+    _reconverge_start(host, ["web", "worker"])
+
+
+def _reconverge_start(host: ReconvergeHost, services: list[str]) -> None:
+    """Start stopped services in the swap order (backup before postgres, the application last), then require health."""
+    def step(arguments: list[str], what: str) -> None:
+        host.core._check(host.run(host.compose + arguments), what)
+
+    for service in ("backup", "postgres"):
+        if service in services:
+            step(["up", "--detach", "--wait", "--no-deps", service], "start " + service)
+    application = [service for service in ("web", "worker") if service in services]
+    if application:
+        step(["up", "--detach", "--wait", "--no-deps", *application], "start " + " and ".join(application))
     host.core._wait_ready(host.compose, host.run, host.core.DEFAULT_READINESS_TIMEOUT_SECONDS, host.sleep)
     host.core._require_services_running(host.compose, host.run)
 
@@ -1022,6 +1050,7 @@ def rehost_runtime(*, paths: InstallPaths, expected_executor_sha256: str | None,
                     raise InstallError("Previous seal differs from the reviewed evidence: " + key)
             inventory = inspect_runtime()
             profile = inventory["profile"]
+            # Only the shape: a new host has no previous profile to preserve; the human-reviewed digest binds it.
             guard.require_preserved(profile, profile)
             actual = guard.digest({"profile": profile, "audit": inventory["audit"]})
             if actual != inventory["inventorySha256"]:
@@ -1099,6 +1128,16 @@ def _rehost_apply(paths: InstallPaths, plan: dict, receipt: dict, new_baseline: 
 def _rehost_resume(paths: InstallPaths, fence: Path, reviewed: dict, *, inspect_runtime: Callable[[], dict],
                    require_idle: Callable[[], None], apply: bool) -> dict:
     """Forward-only completion of an interrupted rehost, under the same reviewed arguments."""
+    archive, journal = _rehost_fence_journal(paths, fence)
+    if not apply:
+        return {**journal, "status": "rehost-interrupted"}
+    if any(journal[key] != value for key, value in reviewed.items()):
+        raise InstallError("Resume must repeat exactly the reviewed rehost arguments")
+    require_idle()
+    return _rehost_complete(paths, archive, journal, inspect_runtime=inspect_runtime)
+
+
+def _rehost_fence_journal(paths: InstallPaths, fence: Path) -> tuple[Path, dict]:
     _private_directory(fence.parent)
     pending = guard.decode_json(_protected_bytes(fence))
     if (set(pending) != {"schema", "kind", "archive", "journalSha256"} or pending["kind"] != "executor-rehost"
@@ -1109,13 +1148,7 @@ def _rehost_resume(paths: InstallPaths, fence: Path, reviewed: dict, *, inspect_
     journal_raw = _protected_bytes(archive / "journal.json")
     if hashlib.sha256(journal_raw).hexdigest() != pending["journalSha256"]:
         raise InstallError("Rehost journal changed under its fence")
-    journal = guard.decode_json(journal_raw)
-    if not apply:
-        return {**journal, "status": "rehost-interrupted"}
-    if any(journal[key] != value for key, value in reviewed.items()):
-        raise InstallError("Resume must repeat exactly the reviewed rehost arguments")
-    require_idle()
-    return _rehost_complete(paths, archive, journal, inspect_runtime=inspect_runtime)
+    return archive, guard.decode_json(journal_raw)
 
 
 def _rehost_complete(paths: InstallPaths, archive: Path, journal: dict, *, inspect_runtime: Callable[[], dict]) -> dict:
@@ -1206,9 +1239,12 @@ def _requalify_mode(args: argparse.Namespace) -> str:
 
 def _installed_version(paths: InstallPaths) -> Path:
     """The receipt's immutable version behind the entry, whose runtime guard is the one loaded here."""
-    receipt = guard.decode_json(_protected_bytes(paths.state / RECEIPT_NAME))
-    version = paths.versions / receipt["sourceCommit"]
-    validate_bundle(version, expected_commit=receipt["sourceCommit"], manifest_sha256=receipt["manifestSha256"])
+    fence = paths.ingress / REHOST_FENCE_DIRECTORY / "pending.json"
+    # An interrupted rehost may have archived the receipt before writing the new one; its journal keeps the version.
+    seal = (_rehost_fence_journal(paths, fence)[1] if fence.exists() or fence.is_symlink()
+            else guard.decode_json(_protected_bytes(paths.state / RECEIPT_NAME)))
+    version = paths.versions / seal["sourceCommit"]
+    validate_bundle(version, expected_commit=seal["sourceCommit"], manifest_sha256=seal["manifestSha256"])
     if not paths.entry.is_symlink() or os.readlink(paths.entry) != str(version / "duora_deploy.py"):
         raise InstallError("Installed entry is not the receipt's immutable version")
     if _sha(Path(guard.__file__)) != _sha(version / "runtime_guard.py"):

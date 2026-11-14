@@ -237,6 +237,20 @@ class RehostTests(InstallationFixture):
             with self.assertRaisesRegex(installer.InstallError, "byte-identical"):
                 installer._installed_version(self.paths)
 
+    def test_cli_resume_finds_the_version_while_the_receipt_is_archived_but_not_rewritten(self) -> None:
+        archive = self.interrupt(self.receipt_path)
+        self.assertFalse(self.receipt_path.exists())
+        version = self.paths.versions / json.loads(self.old_receipt)["sourceCommit"]
+        with patch.object(installer.guard, "__file__", str(version / "runtime_guard.py")):
+            self.assertEqual(installer._installed_version(self.paths), version)
+            journal = archive / "journal.json"
+            original = journal.read_bytes()
+            installer._write(journal, original.replace(b"\n", b" \n"))
+            with self.assertRaisesRegex(installer.InstallError, "journal changed"):
+                installer._installed_version(self.paths)
+            installer._write(journal, original)
+        self.assertEqual(self.rehost(apply=True)["status"], "rehosted")
+
     def test_runtime_changed_after_sealing_keeps_the_fence_for_review(self) -> None:
         changed = self._inventory(dict(self.new_inventory["profile"], schema=2))
         snapshots = iter([self.new_inventory, self.new_inventory, changed])
@@ -361,8 +375,9 @@ class ReconvergeTests(InstallationFixture):
                       self.compose_file: b'{"name": "duora"}\n', self.pin_path: deploy._recovery_pin_bytes(failed_pin),
                       self.runtime_env: deploy._release_env_text(self.release).encode()}
         self.failed_pin = self.files[self.pin_path]
-        self.containers = {"postgres": {"id": "1" * 64, "config": self.image_id, "image": self.image_id},
-                           "backup": {"id": "2" * 64, "config": self.image_id, "image": self.image_id}}
+        self.containers = {"postgres": {"id": "1" * 64, "config": self.image_id, "image": self.image_id, "state": "running"},
+                           "backup": {"id": "2" * 64, "config": self.image_id, "image": self.image_id, "state": "running"}}
+        self.states = {"web": "running", "worker": "running", "edge": "running"}
         self.recreated = {"postgres": "3" * 64, "backup": "4" * 64}
         self.commands: list[list[str]] = []
         self.verified = []
@@ -378,7 +393,7 @@ class ReconvergeTests(InstallationFixture):
 
     def _container(self, role: str) -> dict:
         item = self.containers[role]
-        return {"Id": item["id"], "Image": item["image"], "State": {"Status": "running"},
+        return {"Id": item["id"], "Image": item["image"], "State": {"Status": item["state"]},
                 "Config": {"Image": item["config"], "Labels": {"com.docker.compose.project": "duora",
                                                                 "com.docker.compose.service": role}},
                 "Mounts": [{"Type": "volume", "Name": "duora_pgdata", "Destination": "/var/lib/postgresql",
@@ -389,6 +404,8 @@ class ReconvergeTests(InstallationFixture):
             return json.dumps({"Id": self.image_id}).encode()
         if command == self.compose + ["config", "--format", "json"]:
             return json.dumps({"services": {role: {"image": self.reference} for role in ("postgres", "backup")}}).encode()
+        if command[:-3] == self.compose + ["ps", "--all", "--format", "{{.Service}}={{.State}}"]:
+            return "\n".join(service + "=" + self.states[service] for service in command[-3:]).encode()
         if command[:-1] == self.compose + ["ps", "--all", "--quiet"]:
             return (self.containers[command[-1]]["id"] + "\n").encode()
         if command[:3] == ["docker", "container", "inspect"]:
@@ -399,10 +416,17 @@ class ReconvergeTests(InstallationFixture):
         raise AssertionError("unexpected capture " + " ".join(command))
 
     def _run(self, command: list[str]):
-        self.commands.append(command[len(self.compose):])
-        if "--force-recreate" in command:
-            role = command[-1]
-            self.containers[role].update(id=self.recreated[role], config=self.reference)
+        arguments = command[len(self.compose):]
+        self.commands.append(arguments)
+        services = [argument for argument in arguments[1:] if not argument.startswith("--")]
+        for service in services:
+            state = "exited" if arguments[0] == "stop" else "running"
+            if service in self.containers:
+                self.containers[service]["state"] = state
+                if "--force-recreate" in arguments:
+                    self.containers[service].update(id=self.recreated[service], config=self.reference)
+            else:
+                self.states[service] = state
         return subprocess.CompletedProcess(command, 0, "", "")
 
     def _apply_pin(self, path, *, expected_current_sha256, restored_raw, nonce):
@@ -444,10 +468,46 @@ class ReconvergeTests(InstallationFixture):
         for item in self.containers.values(): item["config"] = self.reference
         self.files[self.pin_path] = self.failed_pin = self.restored_pin
         plan = self.reconverge()
-        self.assertEqual((plan["recreate"], plan["pin"]["stage"]), ([], "current"))
+        self.assertEqual((plan["recreate"], plan["start"], plan["pin"]["stage"]), ([], [], "current"))
         self.assertEqual(self.reconverge(apply=True, reviewed=plan["planSha256"])["status"], "reconverged")
         self.assertEqual(self.commands, [])
         self.assertEqual(self.files[self.pin_path], self.restored_pin)
+
+    def test_apply_interrupted_after_recreating_converges_on_the_reviewed_re_plan(self) -> None:
+        plan = self.reconverge()
+
+        def crash_starting_the_application(command):
+            if command[len(self.compose):] == ["up", "--detach", "--wait", "--no-deps", "web", "worker"]:
+                self.commands.append(command[len(self.compose):])
+                return subprocess.CompletedProcess(command, 1, "", "synthetic crash")
+            return self._run(command)
+        interrupted = self.host.__class__(**{**self.host.__dict__, "run": crash_starting_the_application})
+        with self.assertRaises(installer.InstallError):
+            installer.reconverge_runtime(self.release, interrupted, paths=self.paths, apply=True,
+                                         reviewed_plan_sha256=plan["planSha256"], require_idle=lambda: None)
+        self.assertEqual((self.states["web"], self.states["worker"]), ("exited", "exited"))
+        self.commands.clear()
+        replan = self.reconverge()
+        self.assertEqual((replan["recreate"], replan["start"], replan["pin"]["stage"]), ([], ["web", "worker"], "current"))
+        self.assertEqual(self.reconverge(apply=True, reviewed=replan["planSha256"])["status"], "reconverged")
+        self.assertEqual(self.commands, [["up", "--detach", "--wait", "--no-deps", "web", "worker"]])
+        self.assertEqual(self.verified, [True])
+
+    def test_stopped_database_roles_start_before_the_application(self) -> None:
+        for item in self.containers.values(): item["config"] = self.reference
+        self.files[self.pin_path] = self.failed_pin = self.restored_pin
+        self.containers["backup"]["state"] = self.containers["postgres"]["state"] = self.states["web"] = "exited"
+        plan = self.reconverge()
+        self.assertEqual(plan["start"], ["backup", "postgres", "web"])
+        self.reconverge(apply=True, reviewed=plan["planSha256"])
+        self.assertEqual(self.commands, [["up", "--detach", "--wait", "--no-deps", "backup"],
+                                         ["up", "--detach", "--wait", "--no-deps", "postgres"],
+                                         ["up", "--detach", "--wait", "--no-deps", "web"]])
+
+    def test_stopped_edge_is_outside_reconvergence(self) -> None:
+        self.states["edge"] = "exited"
+        with self.assertRaises(installer.InstallError): self.reconverge()
+        self.assertUntouched()
 
     def test_container_running_another_image_is_refused_whatever_its_reference(self) -> None:
         for config in ("sha256:" + "8" * 64, None):
@@ -542,10 +602,6 @@ class ReconvergeTests(InstallationFixture):
         self.assertEqual(self.verified, [])
 
 
-if __name__ == "__main__":
-    unittest.main()
-
-
 class RequalifyModeTests(unittest.TestCase):
     @staticmethod
     def arguments(**values) -> argparse.Namespace:
@@ -578,3 +634,25 @@ class RequalifyModeTests(unittest.TestCase):
             with self.subTest(values=values):
                 with self.assertRaisesRegex(installer.InstallError, "other requalification step"):
                     installer._requalify_mode(self.arguments(**values))
+
+    def test_only_the_rehost_reads_the_installed_version(self) -> None:
+        class Stop(Exception): pass
+        for values, expected in (({"rehost": True}, ["installed"]), ({"reconverge_runtime": True}, [])):
+            with self.subTest(values=values):
+                calls: list[str] = []
+
+                def installed(_paths):
+                    calls.append("installed")
+                    raise Stop
+
+                with patch.object(installer, "_verify_provenance"), \
+                        patch.object(installer, "_installed_version", installed), \
+                        patch.object(installer, "_protected_bytes", side_effect=Stop):
+                    with self.assertRaises(Stop):
+                        installer._requalify(self.arguments(**values, artifact_id=1), {},
+                                             installer.InstallPaths(*[Path("/nonexistent")] * 5))
+                self.assertEqual(calls, expected)
+
+
+if __name__ == "__main__":
+    unittest.main()
