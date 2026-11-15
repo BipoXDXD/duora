@@ -42,6 +42,17 @@ class FixtureTests(unittest.TestCase):
             "amd64": "ghcr.io/bipoxdxd/duora-postgres@sha256:cd9e980845df574a23e9d92accc18c88cbcdabd8110537336f848fa9d4554cb6",
             "arm64": "ghcr.io/bipoxdxd/duora-postgres@sha256:40c9c2e3ab84854d00de9f1c9f90630b3c42fe416bbeef8b8b31400f8ee23a01"})
 
+    def test_candidate_commit_and_run_are_the_ones_that_published_the_lock(self) -> None:
+        fixture = json.loads(bench.FIXTURE.read_text())
+        lock = json.loads(bench.LOCK.read_text())
+        self.assertEqual("a7c1f9f1", fixture["candidateCommit"])
+        self.assertTrue(lock["source_commit"].startswith(fixture["candidateCommit"]))
+        self.assertTrue(lock["publish_run"].startswith(fixture["runUrl"] + "/"))
+
+    def test_proof_is_retained_ninety_days_after_the_publishing_run(self) -> None:
+        # Run 43372869832 de 13/11/2026 + 90 dias de retenção dos artefatos da prova.
+        self.assertEqual("2027-02-11", json.loads(bench.FIXTURE.read_text())["proofRetainedUntil"])
+
     def test_v1_phase_keeps_the_legacy_digest(self) -> None:
         for architecture, reference in guard.LEGACY_DIGESTS.items():
             self.assertNotEqual(bench.target_for(architecture), reference)

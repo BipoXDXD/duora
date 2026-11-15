@@ -125,12 +125,12 @@ def _replace_exactly(text: str, old: str, new: str, count: int) -> str:
 # caddy_sha256 do pin. Só a janela do dono gera os dois e troca o marcador (docs/operations/deploy.md).
 HOST_COPY = REPO / "scripts" / "deploy" / "fixtures" / "caddy-host" / "Caddyfile.duora-web.coolify"
 HOST_COPY_DIGEST = HOST_COPY.with_name(HOST_COPY.name + ".sha256")
-HOST_COPY_PENDING = True
+HOST_COPY_PENDING = False
 HOST_COPY_MISSING = ("cópia do host ausente, gerar na janela (docs/operations/deploy.md, "
                      "\"Cópia versionada do Caddyfile do host\", issue #396)")
 HOST_COMMENT_LINE = "# Generated for Coolify TLS termination; trust only verified proxy IP.\n"
 # IP fixo do coolify-proxy na rede coolify. A janela confere; outro valor no host aparece como divergência.
-HOST_TRAEFIK_PEER = "172.16.1.6"
+HOST_TRAEFIK_PEER = "10.64.1.3"
 # Controles e separadores de linha aparecem escapados no diff; o tab do Caddyfile fica como está.
 _INVISIBLE = {code: f"\\x{code:02x}" for code in (*range(32), 0x7f, 0x85, 0x2028, 0x2029) if code != ord("\t")}
 
