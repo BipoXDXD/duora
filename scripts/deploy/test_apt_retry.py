@@ -231,5 +231,35 @@ class AptRetryTests(unittest.TestCase):
         self.assertIn("3 tentativas", result.stderr)
 
 
+    def test_galaxy_clear_cache_removes_only_the_galaxy_cache(self):
+        home = self.root / "home"
+        (home / ".ansible/galaxy_cache").mkdir(parents=True)
+        (home / ".ansible/galaxy_cache/api.json").write_text("{corrompido")
+        (home / ".ansible/collections").mkdir()
+        result = self.run_helper("galaxy_clear_cache", failures=0, extra_env={"HOME": str(home)})
+        self.assertEqual(0, result.returncode, result.stderr)
+        self.assertFalse((home / ".ansible/galaxy_cache").exists())
+        self.assertTrue((home / ".ansible/collections").is_dir())
+
+    def test_galaxy_clear_cache_is_a_no_op_without_a_cache(self):
+        home = self.root / "home"
+        home.mkdir()
+        result = self.run_helper("galaxy_clear_cache", failures=0, extra_env={"HOME": str(home)})
+        self.assertEqual(0, result.returncode, result.stderr)
+        self.assertEqual([], sorted(home.iterdir()))
+
+    def test_galaxy_recover_runs_between_attempts(self):
+        home = self.root / "home"
+        (home / ".ansible/galaxy_cache").mkdir(parents=True)
+        body = textwrap.dedent('''
+            tries=0
+            flaky() { tries=$((tries + 1)); [ "$tries" -gt 1 ]; }
+            CI_RETRY_RECOVER=galaxy_clear_cache retry_with_backoff flaky
+        ''')
+        result = self.run_helper(body, failures=0, extra_env={"HOME": str(home), "CI_RETRY_DELAYS": "0 0"})
+        self.assertEqual(0, result.returncode, result.stderr)
+        self.assertFalse((home / ".ansible/galaxy_cache").exists())
+
+
 if __name__ == "__main__":
     unittest.main()
