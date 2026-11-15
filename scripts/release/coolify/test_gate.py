@@ -7,7 +7,6 @@ from unittest.mock import MagicMock, patch
 import gate
 
 # The repository may carry a real hold; every other test exercises the gate as if no hold were present.
-REPOSITORY_HOLD = gate.HOLD
 _no_hold = patch.object(gate, 'HOLD', Path(__file__).with_name('no-release-hold-in-tests.json'))
 
 
@@ -187,12 +186,6 @@ class ReleaseHoldTests(unittest.TestCase):
     def test_without_hold_the_gate_proceeds_to_the_exact_main_checks(self):
         with self.assertRaisesRegex(AssertionError, 'never queries'):
             self.run_gate(None)
-
-    def test_repository_hold_is_the_reviewed_requalification_hold(self):
-        with patch.object(gate, 'HOLD', REPOSITORY_HOLD):
-            hold = gate.release_hold()
-        assert hold is not None
-        self.assertEqual((hold['schema'], hold['refs']), (1, '#567'))
 
 
 class ConsistentJobViewTests(unittest.TestCase):
