@@ -11,6 +11,8 @@ namespace Duora.IntegrationTests.Media;
 /// </summary>
 public sealed class MediaStorageUnavailableTests(PostgresFixture postgres) : IAsyncDisposable
 {
+    private const string Bucket = "duora-media-test";
+
     private readonly DuoraWebFactory _seed = new(postgres.ConnectionString);
 
     public ValueTask DisposeAsync() => _seed.DisposeAsync();
@@ -39,12 +41,7 @@ public sealed class MediaStorageUnavailableTests(PostgresFixture postgres) : IAs
         {
             await ProblemAssert.IsProblemAsync(response, HttpStatusCode.ServiceUnavailable, "TEMPORARILY_UNAVAILABLE");
             Assert.Equal("2", Assert.Single(response.Headers.GetValues("Retry-After")));
-            var text = await response.Content.ReadAsStringAsync(TestContext.Current.CancellationToken);
-            Assert.DoesNotContain("Exception", text, StringComparison.Ordinal);
-            Assert.DoesNotContain("   at ", text, StringComparison.Ordinal);
-            Assert.DoesNotContain("Duora.", text, StringComparison.Ordinal);
-            Assert.DoesNotContain("Amazon", text, StringComparison.Ordinal);
-            Assert.DoesNotContain("System.", text, StringComparison.Ordinal);
+            AssertNoInternalLeak(await BodyAsync(response));
         });
     }
 
@@ -63,6 +60,7 @@ public sealed class MediaStorageUnavailableTests(PostgresFixture postgres) : IAs
         {
             await ProblemAssert.IsProblemAsync(response, HttpStatusCode.InternalServerError, "INTERNAL_ERROR");
             Assert.False(response.Headers.Contains("Retry-After"));
+            AssertNoInternalLeak(await BodyAsync(response));
         });
     }
 
@@ -70,7 +68,24 @@ public sealed class MediaStorageUnavailableTests(PostgresFixture postgres) : IAs
     {
         await ProblemAssert.IsProblemAsync(response, HttpStatusCode.ServiceUnavailable, "TEMPORARILY_UNAVAILABLE");
         Assert.True(ProblemAssert.RetryAfterSeconds(response) > 0);
+        AssertNoInternalLeak(await BodyAsync(response));
     }
+
+    /// <summary>
+    /// O corpo de erro não carrega tipo de exceção, stack trace, namespace do código ou do SDK nem o nome do bucket.
+    /// </summary>
+    private static void AssertNoInternalLeak(string body)
+    {
+        Assert.DoesNotContain("Exception", body, StringComparison.Ordinal);
+        Assert.DoesNotContain("   at ", body, StringComparison.Ordinal);
+        Assert.DoesNotContain("Duora.", body, StringComparison.Ordinal);
+        Assert.DoesNotContain("Amazon", body, StringComparison.Ordinal);
+        Assert.DoesNotContain("System.", body, StringComparison.Ordinal);
+        Assert.DoesNotContain(Bucket, body, StringComparison.Ordinal);
+    }
+
+    private static Task<string> BodyAsync(HttpResponseMessage response) =>
+        response.Content.ReadAsStringAsync(TestContext.Current.CancellationToken);
 
     /// <summary>
     /// Semeia a foto aprovada pelo host com filesystem e a lê por um segundo host, ligado ao S3 de mentira, com a
@@ -92,7 +107,7 @@ public sealed class MediaStorageUnavailableTests(PostgresFixture postgres) : IAs
                 ["Media:Storage:Provider"] = "S3",
                 ["Media:Storage:S3:ServiceUrl"] = s3Url,
                 ["Media:Storage:S3:Region"] = "us-east-1",
-                ["Media:Storage:S3:Bucket"] = "duora-media-test",
+                ["Media:Storage:S3:Bucket"] = Bucket,
                 ["Media:Storage:S3:AccessKeyId"] = "synthetic-access",
                 ["Media:Storage:S3:SecretAccessKey"] = "synthetic-secret",
                 ["Media:Storage:S3:AllowInsecureHttp"] = "true",
