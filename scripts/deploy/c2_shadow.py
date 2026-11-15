@@ -1062,12 +1062,19 @@ def swap_rehearsal(layout: Layout, target: str, *, fill_mib: int, run: Runner = 
     except Exception as error:  # noqa: BLE001
         shield()
         result.update(aborted=True, error=str(error), errorType=type(error).__name__)
-        _swap_write(evidence, result)
+        try:
+            _swap_write(evidence, result)
+        except OSError:
+            # A evidência final será tentada depois da volta, mesmo se o arquivo estiver indisponível agora.
+            pass
         try:
             result["abort"] = swap_abort(layout, run)
         finally:
             result.setdefault("abort", {"error": "sem confirmação; ver swap-abort.json"})
-            _swap_write(evidence, result)
+            try:
+                _swap_write(evidence, result)
+            except OSError as write_error:
+                _say(f"c2-shadow: não gravou {evidence.name}: {write_error}; erro do ensaio: {error}", stream="stderr")
         raise ShadowError(f"ensaio abortado, de volta ao digest de origem: {error}") from error
     result["photoStable"] = True
     _swap_write(evidence, result)

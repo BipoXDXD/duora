@@ -25,8 +25,9 @@ _SPEC.loader.exec_module(partition)
 ASSEMBLY = "/home/runner/work/duora/duora/backend/tests/Duora.UnitTests/bin/Debug/net10.0/Duora.UnitTests.dll"
 
 
-def listing(*names: str) -> str:
-    lines = [f"Discovering tests from {ASSEMBLY} (net10.0|x64)", "", f"Discovered {len(names)} tests in assembly - {ASSEMBLY}"]
+def listing(*names: str, assembly: str = ASSEMBLY) -> str:
+    target = f"{assembly} (net10.0|x64)"
+    lines = [f"Discovering tests from {target}", "", f"Discovered {len(names)} tests in assembly - {target}"]
     lines += [f"  {name}" for name in names]
     return "\n".join(lines) + "\n"
 
@@ -34,11 +35,11 @@ def listing(*names: str) -> str:
 class ParseListingTests(unittest.TestCase):
     def test_reads_only_the_indented_test_lines(self):
         names = partition.parse_listing(listing("Duora.UnitTests.A.One", "Duora.UnitTests.B.Two"))
-        self.assertEqual(["Duora.UnitTests.A.One", "Duora.UnitTests.B.Two"], names)
+        self.assertEqual(["Duora.UnitTests.dll: Duora.UnitTests.A.One", "Duora.UnitTests.dll: Duora.UnitTests.B.Two"], names)
 
     def test_strips_ansi_colour_codes(self):
-        names = partition.parse_listing("\x1b[32m  Duora.UnitTests.A.One\x1b[m\n")
-        self.assertEqual(["Duora.UnitTests.A.One"], names)
+        names = partition.parse_listing(listing("\x1b[32mDuora.UnitTests.A.One\x1b[m"))
+        self.assertEqual(["Duora.UnitTests.dll: Duora.UnitTests.A.One"], names)
 
     def test_keeps_repeated_display_names(self):
         # Um [Theory] com argumentos truncados ("···") lista o mesmo nome mais de uma vez.
@@ -49,8 +50,8 @@ class ParseListingTests(unittest.TestCase):
         self.assertEqual([], partition.parse_listing(""))
 
     def test_ignores_deeper_indentation_and_summary_lines(self):
-        text = "  total: 3\n    detalhe recuado\nResumo\n  Duora.UnitTests.A.One\n"
-        self.assertEqual(["Duora.UnitTests.A.One"], partition.parse_listing(text))
+        text = "  linha fora da listagem\n" + listing("total: 3", "  detalhe recuado", "Duora.UnitTests.A.One")
+        self.assertEqual(["Duora.UnitTests.dll: Duora.UnitTests.A.One"], partition.parse_listing(text))
 
 
 class CompareTests(unittest.TestCase):
@@ -104,13 +105,33 @@ class MainTests(unittest.TestCase):
         whole = self.write("all.txt", "a", "b")
         code, out = self.run_main("--all", whole, self.write("shard-x.txt", "a"))
         self.assertEqual(1, code)
-        self.assertIn("b", out)
+        self.assertIn("Duora.UnitTests.dll: b", out)
 
     def test_fails_and_names_the_repeated_case(self):
         whole = self.write("all.txt", "a")
         code, out = self.run_main("--all", whole, self.write("shard-x.txt", "a"), self.write("shard-y.txt", "a"))
         self.assertEqual(1, code)
-        self.assertIn("a", out)
+        self.assertIn("Duora.UnitTests.dll: a", out)
+
+    def test_an_assembly_cannot_replace_another_with_the_same_test_name(self):
+        case = "Duora.IntegrationTests.Media.SanitizerResourceEnvelopeTests.MediaProbeStaysWithinItsResourceEnvelope"
+        integration = listing(case, assembly="/home/runner/duora/Duora.IntegrationTests.dll")
+        corpus = listing(case, assembly="/home/runner/duora/Duora.MediaCorpusTests.dll")
+        whole = self.dir / "all.txt"
+        whole.write_text(integration + corpus)
+        shard = self.dir / "shard-media.txt"
+        shard.write_text(integration + integration)
+        code, out = self.run_main("--all", str(whole), str(shard))
+        self.assertEqual(1, code)
+        self.assertIn(f"Duora.MediaCorpusTests.dll: {case}", out)
+        self.assertIn(f"Duora.IntegrationTests.dll: {case}", out)
+
+    def test_the_same_assembly_can_be_listed_in_different_directories(self):
+        whole = self.write("all.txt", "a")
+        shard = self.dir / "shard-x.txt"
+        shard.write_text(listing("a", assembly="/other-runner/Duora.UnitTests.dll"))
+        code, _ = self.run_main("--all", whole, str(shard))
+        self.assertEqual(0, code)
 
     def test_an_empty_full_listing_fails_instead_of_passing_zero_against_zero(self):
         whole = self.write("all.txt")

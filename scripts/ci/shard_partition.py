@@ -1,9 +1,9 @@
 """Confere que os shards do backend cobrem a suíte inteira, sem perda nem repetição (#564).
 
 Cada shard grava a saída de `dotnet test --list-tests` com o mesmo alvo e filtro com que roda; o shard "resto" grava
-também a listagem da solução inteira, sem filtro. Aqui a soma das listagens dos shards (como multiconjunto, porque um
-[Theory] pode repetir o nome exibido) tem de ser igual à listagem inteira. Compara listagem com listagem, e não com o
-total executado: um [Theory] cujos dados não são pré-enumerados lista um caso e executa vários.
+também a listagem da solução inteira, sem filtro. A soma das listagens dos shards tem de ser igual à listagem inteira.
+O assembly distingue casos homônimos entre projetos, e o multiconjunto preserva nomes repetidos de [Theory] no mesmo
+assembly. Um [Theory] sem dados pré-enumerados pode listar um caso e executar vários.
 
 Uso: python3 scripts/ci/shard_partition.py --all ALL.txt SHARD.txt...
 Sai com 1 quando falta caso, quando um caso cai em dois shards ou quando a listagem inteira vem vazia.
@@ -20,6 +20,7 @@ from typing import Callable, Iterable, Sequence
 
 ANSI = re.compile(r"\x1b\[[0-9;]*m")
 # Na listagem, cada caso vem numa linha com exatamente dois espaços de recuo; cabeçalhos não têm recuo.
+ASSEMBLY_LINE = re.compile(r"^Discovered \d+ tests? in assembly - (?P<path>.+\.dll)(?: \([^)]+\))?\s*$")
 TEST_LINE = re.compile(r"^  (?P<name>\S.*?)\s*$")
 SUMMARY_LINE = re.compile(r"^\S+: \d+$")
 REPORT_LIMIT = 50
@@ -34,10 +35,15 @@ class Partition:
 
 def parse_listing(text: str) -> list[str]:
     names = []
+    assembly = None
     for line in ANSI.sub("", text).splitlines():
-        match = TEST_LINE.match(line)
-        if match and not SUMMARY_LINE.match(match["name"]):
-            names.append(match["name"])
+        header = ASSEMBLY_LINE.fullmatch(line)
+        if header:
+            assembly = Path(header["path"].strip()).name
+            continue
+        case = TEST_LINE.match(line)
+        if assembly and case and not SUMMARY_LINE.match(case["name"]):
+            names.append(f"{assembly}: {case['name']}")
     return names
 
 

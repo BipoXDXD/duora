@@ -1481,6 +1481,17 @@ class SwapRehearsalAbortTests(SwapRehearsalFixture):
             self.rehearse()
         self.assert_back_on_source()
 
+    def test_unwritable_report_does_not_block_the_return_to_the_old_digest(self) -> None:
+        self.docker.photo_after_swap = dict(PHOTO, timeline=2)
+        (self.layout.state / "swap-rehearsal.json").mkdir()
+        stderr = io.StringIO()
+        with redirect_stderr(stderr), self.assertRaises((shadow.ShadowError, OSError)) as failure:
+            self.rehearse()
+        self.assert_back_on_source()
+        self.assertIsInstance(failure.exception, shadow.ShadowError)
+        self.assertIn("foto", str(failure.exception))
+        self.assertIn("swap-rehearsal.json", stderr.getvalue())
+
     def test_wrong_image_after_up_returns_to_the_old_digest(self) -> None:
         real = self.docker.__call__
         def lying(argv, **arguments):
