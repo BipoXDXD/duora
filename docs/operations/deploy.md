@@ -557,10 +557,10 @@ coisa: no mesmo host vale só a ressela comum, que revisa o diff do `profile`; e
 evidência do selo anterior. Se a migração copiou o `machine-id`, o host é o mesmo para o selo: pule o rehost e use a
 ressela comum.
 
-**Releases suspensas.** O merge desta ferramenta pôs `scripts/release/coolify/release-hold.json` na main. Enquanto ele
-existir, o job `gates` (que roda o `gate.py` da main) responde `eligible=false` para qualquer commit, inclusive runs
-antigas da fila e `workflow_dispatch`, sem tocar o host. A próxima release (R'') é o merge do PR que remove o arquivo,
-depois da troca.
+**Releases suspensas.** Um `scripts/release/coolify/release-hold.json` revisado na main
+(`{"schema": 1, "reason": "<motivo>", "refs": "#<issue>"}`) suspende as releases. Enquanto ele existir, o job `gates`
+(que roda o `gate.py` da main) responde `eligible=false` para qualquer commit, inclusive runs antigas da fila e
+`workflow_dispatch`, sem tocar o host. A release seguinte é o merge do PR que remove o arquivo.
 
 **De onde vêm os valores.**
 
@@ -633,10 +633,8 @@ por arquivo, nunca apaga nada e só remove a fence depois de reinspecionar o run
 
 **Depois.** Siga a [troca](#troca-do-digest-do-postgresql) como está: `troca --preflight-only` agora passa por
 `_swap_recorded_pin`, porque o pin descreve a release corrente. A ressela da troca é no mesmo host, pelo instalador comum
-com o bundle ativo. Depois de `troca --resume`, abra o PR que remove `release-hold.json` e o teste
-`test_repository_hold_is_the_reviewed_requalification_hold`, que prende o hold em `#567` para ele não sumir por
-acidente. O merge desse PR é a R'', a primeira release no host novo com o lock da main. Só então volta a fila normal
-de PRs.
+com o bundle ativo. Depois de `troca --resume`, abra o PR que remove o hold. O merge desse PR é a R'', a primeira
+release no host novo com o lock da main. Só então volta a fila normal de PRs.
 
 ### Troca do digest do PostgreSQL
 
