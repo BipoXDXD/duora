@@ -845,11 +845,13 @@ journal e fence, inclusive de links simbólicos quebrados. Deixe os endpoints co
 | Estado | Ação antes de desconectar |
 |---|---|
 | Journal e fence ausentes | Use o `up` manual do passo 2 para redes exclusivas da aplicação. |
-| Journal ativo sem fence | Reconcilie com o comando de recuperação da troca, que pode criar a fence numa retomada. Reclassifique o estado antes do `up` manual ou de qualquer desconexão. |
+| Journal sem fence, sem `phase.json` ou em `journaled` | Use `--abort` com os argumentos do journal e os endpoints conectados. O executor pode criar a fence durante a recuperação e o abort inicial não executa o `up` de reabertura. Confira o resultado e reclassifique o estado. |
+| Journal sem fence, em fase posterior a `journaled` | Mantenha o freeze e leve a inconsistência ao dono antes de desconectar qualquer endpoint ou executar um `up`. |
 | Fence sem journal ativo | Use o `swapId` e os argumentos do journal arquivado. O `--resume` verifica o vínculo com o arquivo e só conclui a remoção da fence. Depois confira novamente journal, fence e rede. |
-| `journaled` ou `verify-backup` | A troca ainda não chegou à quiescência. Com divergência de rede confirmada, use `--abort` conforme o protocolo da troca, com os endpoints conectados. O abort nessas fases não executa o `up` de reabertura. Reclassifique o estado a seguir. |
-| `quiesce`, `swap-runtime`, `verify-runtime`, `reopen` ou `aborting` | Desconecte apenas se a divergência bloqueia a ação revisada que executará o `up` da rede. Use `--resume` ou `--abort` conforme a fase e as pré-condições da troca. Em `aborting`, só `--abort` retoma. Se `abortedFrom` for `journaled` ou `verify-backup`, ele não reabre a aplicação. |
-| `commit`, `awaiting-reseal`, `aborted-awaiting-reseal` ou `closing` | `--resume` nessas fases não executa o `up` de reabertura. Prossiga pelo protocolo da fase com os endpoints conectados. Quando houver ressela, use o alvo em `awaiting-reseal` ou a origem em `aborted-awaiting-reseal` antes de fechar. Só considere o passo 2 manual depois de confirmar que journal e fence foram encerrados. |
+| Journal e fence válidos em `journaled` ou `verify-backup` | A troca ainda não chegou à quiescência. Com divergência de rede confirmada, use `--abort` com os endpoints conectados. O abort nessas fases não executa o `up` de reabertura. Reclassifique o estado a seguir. |
+| Journal e fence válidos em `quiesce`, `swap-runtime`, `verify-runtime`, `reopen` ou `aborting` | Desconecte apenas se a divergência bloqueia a ação revisada que executará o `up` da rede. Use `--resume` ou `--abort` conforme a fase e as pré-condições da troca. Em `aborting`, só `--abort` retoma. Se `abortedFrom` for `journaled` ou `verify-backup`, ele não reabre a aplicação. |
+| Journal e fence válidos em `commit` | Confirme o `releaseId` de `current.json` contra `source.releaseId` e `target.releaseId` do journal e escolha a ação antes de desconectar. `--resume` conclui a fase com os endpoints conectados, sem executar o `up` de reabertura. Com a origem ainda corrente, `--abort` volta à origem e executa o `up` da aplicação. Se o dono escolher esse abort, desconecte apenas quando a divergência bloquear o `up` da rede afetada. Com o alvo já corrente, só `--resume` é aceito. Em caso de leitura inconclusiva, mantenha o freeze e leve o estado ao dono. |
+| Journal e fence válidos em `awaiting-reseal`, `aborted-awaiting-reseal` ou `closing` | Siga o protocolo de fechamento com os endpoints conectados. Faça a ressela contra o alvo em `awaiting-reseal` ou a origem em `aborted-awaiting-reseal` antes de fechar com `--resume`. Em `closing`, `--resume` termina o arquivamento e a remoção da fence. Esses caminhos não executam o `up` de reabertura. Só considere o passo 2 manual depois de confirmar que journal e fence foram encerrados. |
 
 1. Com a ação determinada acima e o inventário salvo, use o label de projeto para identificar os endpoints alheios
    ao Duora. Desconecte apenas os da rede que a ação vai recriar, com `sudo docker network disconnect "$REDE" <container>`.
@@ -858,17 +860,20 @@ journal e fence, inclusive de links simbólicos quebrados. Deixe os endpoints co
    `egress`, só `worker`. Isso reaplica os aliases e IPs estáticos do Compose. Não use `down`, `-v`, `postgres` ou
    `backup` no `up` manual. Com troca aberta, use a ação da fase com os argumentos do journal, pelo comando `troca`.
    O comando da troca usa o env da release apropriada à fase.
-3. Antes de reconectar, confirme que a ação de recriação terminou com sucesso e que a rede existe, usando
-   `sudo docker network inspect "$REDE"`. Se a inspeção falhar, confirme o acesso ao daemon antes de prosseguir. O
-   Compose pode remover a rede antiga e falhar antes de criar a nova. Se a rede estiver ausente,
+3. Antes de reconectar, confira o resultado da ação e inspecione a rede com `sudo docker network inspect "$REDE"`.
+   Com a recriação concluída e a rede presente, avance ao passo 4. Se a inspeção falhar, confirme o acesso ao daemon
+   antes de prosseguir. O Compose pode remover a rede antiga e falhar antes de criar a nova. Se a rede estiver ausente,
    mantenha o freeze e a janela aberta. Se a rede já estiver ausente ao retomar o runbook, use o inventário salvo e o
    Compose do pin para identificar a rede e os endpoints. Sem essas informações, leve a recuperação ao dono.
    Sem troca aberta, corrija a falha indicada pelo Compose e repita o `up` seletivo do passo 2. Com troca aberta,
    releia journal, fence e fase antes de repetir a ação do protocolo que contém o `up`. Se a fase só permitir
    fechamento, siga suas pré-condições e reclassifique após fechar. Se o fechamento recusar por saúde ou o protocolo
    já não oferecer um `up` aplicável, leve a recuperação ao dono com a janela aberta.
-   Antes de repetir uma ação recusada por readiness, confira também os aliases e os IPs fixos dos endpoints da
-   aplicação. Restaure os metadados faltantes com o responsável conforme o Compose do pin e a fase da troca.
+   Se a ação falhar antes de alterar a rede, compare ID, labels, IPAM e endpoints de aplicação com o inventário. Se a
+   rede original estiver íntegra, recoloque nela pelo passo 4 os endpoints alheios que foram desconectados e mantenha
+   a janela aberta até resolver a divergência. Antes de repetir uma ação recusada por readiness, confira também os
+   aliases e os IPs fixos da aplicação. Restaure os metadados faltantes com o responsável conforme o Compose do pin
+   e a fase da troca.
 4. Com a rede presente e os endpoints da aplicação conferidos, reconecte os endpoints alheios que foram desconectados
    com `sudo docker network connect --alias <alias> "$REDE" <container>`. Repita
    `--alias` para cada alias anotado e use `--ip` ou `--ip6` quando o endpoint tinha endereço estático configurado.
