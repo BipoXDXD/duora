@@ -116,15 +116,28 @@ public sealed partial class FixtureCleanupTests(PostgresFixture postgres)
     /// <summary>Folga ampla sobre o teto curto: o inventário travado nunca segura a remoção por perto disso.</summary>
     private static readonly TimeSpan InventoryHangBound = TimeSpan.FromSeconds(10);
 
+    private const string Vanished = "find: ‘/var/lib/postgresql/18/docker/base/17556’: No such file or directory";
+
     [Theory]
-    [InlineData(0L, "1234\n", "1234")]
-    [InlineData(1L, "0\n", "indisponível (saída 1)")]
-    [InlineData(141L, "", "indisponível (saída 141)")]
-    [InlineData(0L, "", "indisponível (saída 0, contagem ilegível)")]
-    [InlineData(0L, "find: erro\n", "indisponível (saída 0, contagem ilegível)")]
-    [InlineData(null, "12\n", "indisponível (saída desconhecida)")]
-    public void AFailedFileCountIsReportedAsUnavailableInsteadOfAsZero(long? exitCode, string stdout, string expected) =>
-        Assert.Equal(expected, FixtureCleanup.DescribeFileCount(exitCode, stdout));
+    [InlineData(0L, "1234\n", "", "1234")]
+    [InlineData(1L, "0\n", "", "indisponível (saída 1)")]
+    [InlineData(1L, "0\n", "find: ‘/x’: Permission denied\n", "indisponível (saída 1)")]
+    [InlineData(1L, "1200\n", Vanished + "\nfind: ‘/x’: Input/output error\n", "indisponível (saída 1)")]
+    [InlineData(2L, "1200\n", Vanished + "\n", "indisponível (saída 2)")]
+    [InlineData(141L, "", "", "indisponível (saída 141)")]
+    [InlineData(0L, "", "", "indisponível (saída 0, contagem ilegível)")]
+    [InlineData(0L, "find: erro\n", "", "indisponível (saída 0, contagem ilegível)")]
+    [InlineData(1L, "", Vanished + "\n", "indisponível (saída 1, contagem ilegível)")]
+    [InlineData(null, "12\n", "", "indisponível (saída desconhecida)")]
+    public void AFailedFileCountIsReportedAsUnavailableInsteadOfAsZero(long? exitCode, string stdout, string stderr,
+        string expected) =>
+        Assert.Equal(expected, FixtureCleanup.DescribeFileCount(exitCode, stdout, stderr));
+
+    [Theory]
+    [InlineData(Vanished + "\n")]
+    [InlineData(Vanished + "\n" + Vanished + "\n")]
+    public void EntriesThatVanishDuringTheCountLeaveTheCountOfWhatIsStillThere(string stderr) =>
+        Assert.Equal("1200", FixtureCleanup.DescribeFileCount(1L, "1200\n", stderr));
 
     [GeneratedRegex("""^Limpeza "remover o container" falhou depois de \d+\.\d s \(estado-antes-da-etapa\)\.$""")]
     private static partial Regex FailureMessage();

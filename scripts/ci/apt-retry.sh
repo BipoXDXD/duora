@@ -151,3 +151,9 @@ apt_configure_network() {
   printf '%s\n' 'Acquire::Retries "5";' 'Acquire::http::Timeout "30";' 'Acquire::https::Timeout "30";' \
     | sudo tee /etc/apt/apt.conf.d/80-duora-network > /dev/null
 }
+
+# galaxy_clear_cache: antes de repetir `ansible-galaxy collection install`, apaga o cache de respostas da API do
+# Galaxy. Uma resposta cortada por um 5xx não deve ser relida na tentativa seguinte. As coleções já instaladas ficam.
+galaxy_clear_cache() {
+  rm -rf -- "${HOME:?}/.ansible/galaxy_cache"
+}

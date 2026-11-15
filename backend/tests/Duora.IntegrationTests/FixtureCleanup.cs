@@ -1,5 +1,6 @@
 using System.Diagnostics;
 using System.Globalization;
+using System.Text.RegularExpressions;
 
 namespace Duora.IntegrationTests;
 
@@ -7,7 +8,7 @@ namespace Duora.IntegrationTests;
 /// Etapa de limpeza de fixture com duração medida. Na CI a falha de limpeza reprova a suíte inteira sem dizer por quê;
 /// esta mensagem leva a etapa, quanto ela durou e o estado registrado antes, para a próxima falha apontar a causa.
 /// </summary>
-internal static class FixtureCleanup
+internal static partial class FixtureCleanup
 {
     /// <summary>
     /// Inventário com teto e, depois dele, a remoção, que roda mesmo quando o inventário falha ou estoura. A remoção que
@@ -40,20 +41,32 @@ internal static class FixtureCleanup
     private static string Seconds(TimeSpan elapsed) => elapsed.TotalSeconds.ToString("F1", CultureInfo.InvariantCulture);
 
     /// <summary>
-    /// A contagem de arquivos só vale com saída zero e um número: o <c>find</c> que falha no meio do pipe não pode virar
-    /// uma contagem de zero ou parcial.
+    /// A contagem de arquivos só vale com um número e com saída zero, ou com saída 1 em que todo erro do
+    /// <c>find</c> é de arquivo ou diretório que sumiu durante a varredura. Os testes criam e apagam bancos em
+    /// paralelo, e o que sumiu já não está no diretório, então não contá-lo é o resultado certo. Qualquer outro
+    /// erro, como permissão ou E/S, ou uma saída 1 sem erro que a explique, não pode virar uma contagem parcial.
     /// </summary>
-    internal static string DescribeFileCount(long? exitCode, string stdout)
+    internal static string DescribeFileCount(long? exitCode, string stdout, string stderr)
     {
-        if (exitCode is not 0)
+        if (exitCode is not 0 && !(exitCode is 1 && OnlyVanishedEntries(stderr)))
         {
             return $"indisponível (saída {exitCode?.ToString(CultureInfo.InvariantCulture) ?? "desconhecida"})";
         }
 
         return long.TryParse(stdout.Trim(), NumberStyles.None, CultureInfo.InvariantCulture, out var count)
             ? count.ToString(CultureInfo.InvariantCulture)
-            : "indisponível (saída 0, contagem ilegível)";
+            : $"indisponível (saída {exitCode?.ToString(CultureInfo.InvariantCulture)}, contagem ilegível)";
     }
+
+    private static bool OnlyVanishedEntries(string stderr)
+    {
+        var lines = stderr.Split('\n', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+        return lines.Length > 0 && lines.All(line => VanishedEntry().IsMatch(line));
+    }
+
+    /// <summary>Mensagem do GNU find com <c>LC_ALL=C</c> para entrada que sumiu entre a listagem e a leitura.</summary>
+    [GeneratedRegex("^find: .+: No such file or directory$")]
+    private static partial Regex VanishedEntry();
 
     /// <summary>
     /// O inventário dentro de um teto rígido: o token avisa quem respeita cancelamento, e o <c>WaitAsync</c> solta a
