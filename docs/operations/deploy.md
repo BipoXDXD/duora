@@ -11,9 +11,11 @@ infraestrutura e decisões: [infra/README.md](../../infra/README.md). Backup e r
 `/opt/duora/compose.prod.yml` na VPS, e releases só trocam imagens:
 mudar configuração de container (ambiente, segredos) é passo administrativo sobre o `compose.coolify.json`. O
 `compose.prod.yml` do repositório continua sendo a referência revisada e o que o smoke e os laboratórios sobem; o
-caminho Ansible descrito abaixo vale para uma VPS nova. Sem `--compose-file`, o `duora-deploy` usa o Compose que o pin
-do observador fixa; só sem pin (VPS nova) usa `/opt/duora/compose.prod.yml`, porque a forced command do Ansible não
-passa a opção. Pin presente e ilegível falha em vez de cair no arquivo do Ansible.
+caminho Ansible descrito abaixo vale para uma VPS nova. Sem `--compose-file`, o `duora-deploy` lê o caminho absoluto
+em `compose` no pin protegido do observador. No deploy comum, só a ausência do pin permite usar
+`/opt/duora/compose.prod.yml`, arquivo instalado pelo Ansible, cuja forced command omite a opção. Pin ilegível, JSON
+inválido ou caminho inválido interrompe a escolha. A escolha se limita ao caminho. O observer confere `compose_sha256`
+na entrada automática, e a qualificação do runtime compara os bytes em uso com o baseline.
 
 **Não é zero-downtime.** Com uma instância web, o deploy tem uma breve interrupção planejada (spec 17.3): o worker
 para antes da migração e web/edge são recriados. Escala horizontal exige o ADR de SignalR, sessões e fan-out.
@@ -719,8 +721,8 @@ abertura da troca: `R` é o manifesto da release de origem e `ALVO` é a referê
 Até o rename de `current.json`, a
 origem ainda é a release corrente. Depois dele, `current.json` tem um `releaseId` `pgswap-*` (R'): não use esse
 `releaseId`, use o `previousReleaseId` de `/opt/duora/releases/<R'>.json`. Se a troca foi revertida, `current.json` segue
-em R, inclusive em `closing`. Com o journal aberto, o comando confere os dois valores e recusa qualquer outro antes de agir, com
-"--manifest e --target-postgres precisam ser os do journal aberto". Em
+em R, inclusive em `closing`. Com o journal aberto, argumentos divergentes são recusados antes de agir. A mensagem
+indica o release ID cujo manifesto deve ser passado em `--manifest` e a referência por digest de `--target-postgres`. Em
 `/var/lib/duora/postgres-swap/attempt.json`, `source.releaseId` identifica a origem e `target.images.postgres` contém
 a referência alvo. Com o journal já arquivado e só a fence restante, `--resume` e `--abort` ainda exigem os argumentos
 do CLI, mas só removem a fence daquele journal. Os valores da abertura ficam em
@@ -826,34 +828,61 @@ antes do passo 1 e leve o caso inteiro a uma janela do dono. Recriá-las pararia
 baseline do executor sela, e ainda não há procedimento revisado (#567). Recriar só as outras traria a queda sem
 destravar o preflight.
 
-Antes de intervir, reserve a janela com a coordenação, suspenda novas releases e confirme que o ingresso está ocioso.
+Antes de intervir, reserve a janela com a coordenação, suspenda novas releases e confirme que nenhuma está em andamento.
 Resolva qualquer instalação do executor, rehost ou recuperação `current-v2` pendente com o comando responsável. Esses
-fluxos registram identidades de containers que a recriação manual pode invalidar. Se a única operação aberta for a troca
-do PostgreSQL, siga a variante do passo 2. Consulte o [protocolo de isolamento](../../scripts/release/coolify/ISOLATION.md).
+fluxos registram identidades de containers que a recriação manual pode invalidar. Consulte o
+[protocolo de isolamento](../../scripts/release/coolify/ISOLATION.md).
 
-1. Para cada rede listada, use o label do container para identificar os endpoints alheios ao projeto `duora`.
-   Desconecte cada um com `sudo docker network disconnect "$REDE" <container>`.
-2. Só sem troca aberta: `/var/lib/duora/postgres-swap/attempt.json` não pode existir. Recrie pelo Compose só os
-   serviços ligados à rede listada (`networks:` do Compose do pin; na `duora_edge`, `web` e `edge`; na `egress`, só
-   `worker`). Para a `duora_edge`, use `D up --detach --wait --no-deps --force-recreate web edge` para reaplicar os
-   aliases e endereços estáticos do Compose. Nunca use `down`, `-v`, `postgres` ou `backup` nesse procedimento. Com a
-   troca aberta, depois de desconectar os endpoints alheios, siga por `troca --resume` ou `troca --abort` com os
-   argumentos do journal. Essas ações de recuperação não executam o preflight e o `up` da troca pode recriar a rede.
-   Confira os endpoints da aplicação antes de repetir uma ação recusada por readiness. Se faltar alias ou IP fixo,
-   mantenha a janela aberta e restaure o endpoint conforme o Compose do pin e a fase da troca com o responsável.
-3. Reconecte cada endpoint alheio com `sudo docker network connect --alias <alias> "$REDE" <container>`. Repita
+**Classifique a troca antes de desconectar qualquer endpoint.** Confira o journal
+(`/var/lib/duora/postgres-swap/attempt.json`), a fence (`/var/lib/coolify-release/duora-postgres-swap/pending.json`)
+e, com journal ativo, `phase.json` no mesmo diretório. Com journal ativo sem `phase.json`, o executor parte de
+`journaled`. Quando os registros existirem, confira o `swapId` da fence contra o journal e o `attemptSha256` da fence
+e da fase contra o SHA-256 de `attempt.json`. Se a leitura falhar ou os valores divergirem, mantenha o freeze e trate
+pelo protocolo da [troca](#troca-do-digest-do-postgresql). Só considere a troca encerrada com ausência confirmada de
+journal e fence, inclusive de links simbólicos quebrados. Deixe os endpoints conectados até saber qual ação fará o
+`up` da rede afetada.
+
+| Estado | Ação antes de desconectar |
+|---|---|
+| Journal e fence ausentes | Use o `up` manual do passo 2 para redes exclusivas da aplicação. |
+| Journal ativo sem fence | Reconcilie com o comando de recuperação da troca, que pode criar a fence numa retomada. Reclassifique o estado antes do `up` manual ou de qualquer desconexão. |
+| Fence sem journal ativo | Use o `swapId` e os argumentos do journal arquivado. O `--resume` verifica o vínculo com o arquivo e só conclui a remoção da fence. Depois confira novamente journal, fence e rede. |
+| `journaled` ou `verify-backup` | A troca ainda não chegou à quiescência. Com divergência de rede confirmada, use `--abort` conforme o protocolo da troca, com os endpoints conectados. O abort nessas fases não executa o `up` de reabertura. Reclassifique o estado a seguir. |
+| `quiesce`, `swap-runtime`, `verify-runtime`, `reopen` ou `aborting` | Desconecte apenas se a divergência bloqueia a ação revisada que executará o `up` da rede. Use `--resume` ou `--abort` conforme a fase e as pré-condições da troca. Em `aborting`, só `--abort` retoma. Se `abortedFrom` for `journaled` ou `verify-backup`, ele não reabre a aplicação. |
+| `commit`, `awaiting-reseal`, `aborted-awaiting-reseal` ou `closing` | `--resume` nessas fases não executa o `up` de reabertura. Prossiga pelo protocolo da fase com os endpoints conectados. Quando houver ressela, use o alvo em `awaiting-reseal` ou a origem em `aborted-awaiting-reseal` antes de fechar. Só considere o passo 2 manual depois de confirmar que journal e fence foram encerrados. |
+
+1. Com a ação determinada acima e o inventário salvo, use o label de projeto para identificar os endpoints alheios
+   ao Duora. Desconecte apenas os da rede que a ação vai recriar, com `sudo docker network disconnect "$REDE" <container>`.
+2. Sem troca aberta, releia `current.json` para definir `ID` e use o `up` manual só dos serviços ligados à rede
+   pelo Compose do pin. Para `duora_edge`, use `D up --detach --wait --no-deps --force-recreate web edge`; para
+   `egress`, só `worker`. Isso reaplica os aliases e IPs estáticos do Compose. Não use `down`, `-v`, `postgres` ou
+   `backup` no `up` manual. Com troca aberta, use a ação da fase com os argumentos do journal, pelo comando `troca`.
+   O comando da troca usa o env da release apropriada à fase.
+3. Antes de reconectar, confirme que a ação de recriação terminou com sucesso e que a rede existe, usando
+   `sudo docker network inspect "$REDE"`. Se a inspeção falhar, confirme o acesso ao daemon antes de prosseguir. O
+   Compose pode remover a rede antiga e falhar antes de criar a nova. Se a rede estiver ausente,
+   mantenha o freeze e a janela aberta. Se a rede já estiver ausente ao retomar o runbook, use o inventário salvo e o
+   Compose do pin para identificar a rede e os endpoints. Sem essas informações, leve a recuperação ao dono.
+   Sem troca aberta, corrija a falha indicada pelo Compose e repita o `up` seletivo do passo 2. Com troca aberta,
+   releia journal, fence e fase antes de repetir a ação do protocolo que contém o `up`. Se a fase só permitir
+   fechamento, siga suas pré-condições e reclassifique após fechar. Se o fechamento recusar por saúde ou o protocolo
+   já não oferecer um `up` aplicável, leve a recuperação ao dono com a janela aberta.
+   Antes de repetir uma ação recusada por readiness, confira também os aliases e os IPs fixos dos endpoints da
+   aplicação. Restaure os metadados faltantes com o responsável conforme o Compose do pin e a fase da troca.
+4. Com a rede presente e os endpoints da aplicação conferidos, reconecte os endpoints alheios que foram desconectados
+   com `sudo docker network connect --alias <alias> "$REDE" <container>`. Repita
    `--alias` para cada alias anotado e use `--ip` ou `--ip6` quando o endpoint tinha endereço estático configurado.
-   A pertença do `deployment-observer` está presa
-   ao pin (`observer_networks`); sem ele na rede, o deploy seguinte recusa com "Observer network membership differs from
-   its protected PIN".
-4. Compare o `docker network inspect` novo com o guardado. A rede recriada pode ganhar outro gateway (em 14/11, `.1`
+   A pertença do `deployment-observer` está presa ao pin (`observer_networks`); sem ele na rede, o deploy seguinte
+   recusa com "Observer network membership differs from its protected PIN".
+5. Compare o `docker network inspect` novo com o guardado. A rede recriada pode ganhar outro gateway (em 14/11, `.1`
    virou `.128`). A subnet é fixa no Compose e é nela que o web confia ("Proxy confiável"). O gateway não muda fora
    de janela planejada. Se mudou, confira o que depende dele. Compare também aliases e endereços estáticos de cada
    endpoint com o Compose e com o inventário salvo. Confirme os três serviços de aplicação em `running` e teste a
    readiness interna com `D exec --no-TTY edge wget --quiet --spider --timeout=5 http://duora-web:8080/health/ready`.
    Se a troca mudou `current.json`, atualize `ID` para refletir a release corrente antes das verificações finais.
-5. Rode o dry-run de novo. Para liberar o preflight da rede, exija código de saída zero, linha de progresso de
-   container (`Running`, por exemplo) e ausência de `Network <rede> Removing` ou `Network <rede> Removed`.
+6. Rode o dry-run de novo. Antes de liberar a janela, confirme a existência das redes afetadas, os endpoints
+   esperados, a saúde interna e a ausência de journal e fence ativos. Exija também código de saída zero, linha de
+   progresso de container (`Running`, por exemplo) e ausência de `Network <rede> Removing` ou `Network <rede> Removed`.
 
 O preflight está em `postgres_swap.py` e `duora_deploy.py`, que o recibo do executor amarra por hash. No host ele só vale
 depois de instalar como executor um bundle que o contenha, pelo procedimento estático de
