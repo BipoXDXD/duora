@@ -970,7 +970,8 @@ def _swap_direction(layout: Layout, image: str, baseline: dict, run: Runner, clo
 def swap_abort(layout: Layout, run: Runner = default_runner) -> dict:
     """Volta ao digest de origem no mesmo volume e confere antes de religar; serve também depois de um ensaio morto.
 
-    Se a conferência falhar, a aplicação fica parada de propósito: o relatório em swap-abort.json diz o motivo.
+    Se a conferência falhar, a aplicação fica parada de propósito. A exceção e o relatório em swap-abort.json
+    informam o motivo. Se o relatório estiver indisponível, o erro de escrita vai para stderr.
     """
     _swap_guard(layout, run)
     compose = _swap_compose(layout, SWAP_SOURCE_IMAGE)
@@ -992,7 +993,10 @@ def swap_abort(layout: Layout, run: Runner = default_runner) -> dict:
         report.update(error=str(error), errorType=type(error).__name__)
         raise ShadowError(f"abort sem confirmação, aplicação parada: {error}") from error
     finally:
-        _swap_write(layout.state / "swap-abort.json", report)
+        try:
+            _swap_write(layout.state / "swap-abort.json", report)
+        except OSError as write_error:
+            _say(f"c2-shadow: não gravou swap-abort.json: {write_error}", stream="stderr")
     return report
 
 
@@ -1074,7 +1078,8 @@ def swap_rehearsal(layout: Layout, target: str, *, fill_mib: int, run: Runner = 
             try:
                 _swap_write(evidence, result)
             except OSError as write_error:
-                _say(f"c2-shadow: não gravou {evidence.name}: {write_error}; erro do ensaio: {error}", stream="stderr")
+                _say(f"c2-shadow: não gravou {evidence.name}: {write_error}; "
+                     f"erro do ensaio ({type(error).__name__}): {error}", stream="stderr")
         raise ShadowError(f"ensaio abortado, de volta ao digest de origem: {error}") from error
     result["photoStable"] = True
     _swap_write(evidence, result)
