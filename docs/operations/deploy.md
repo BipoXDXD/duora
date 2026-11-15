@@ -151,7 +151,8 @@ tem nenhuma delas.
 **Fase 4 opção B.** O Caddyfile do host lê `Cf-Connecting-IP` entre `trusted_proxies` e `trusted_proxies_strict`.
 A `ipAllowList` precede os demais middlewares nos routers HTTP do Traefik do edge. Os testes
 `scripts/deploy/test_caddy_client_ip.py` e `ForwardedHeadersTests` exercitam a cadeia de IP.
-A [release da janela](https://github.com/BipoXDXD/duora/actions/runs/43719548331) aplicou os dois arquivos no host.
+A janela administrativa instalou os dois arquivos e resselou o executor. A [release da janela](https://github.com/BipoXDXD/duora/actions/runs/43719548331) recriou o edge com essa configuração.
+A verificação operacional confirmou tráfego da Cloudflare e 403 no acesso direto à origem.
 
 **Não aplique `client_ip_headers` sem as labels `ipAllowList` do Traefik.** Sem a `ipAllowList`, quem acessa a origem
 direto forja `Cf-Connecting-IP`. Caddyfile e labels entram e saem juntos.
@@ -171,40 +172,38 @@ o Caddyfile correspondente ao repositório. Mudanças de peer, da opção B ou d
 
    Os dois hashes têm de ser iguais. Diferentes: pare, porque o arquivo em uso não é o selado.
 
-2. Na máquina do operador, num worktree a partir da `main`, traga o arquivo byte a byte e confira o hash contra o
-   `caddy_sha256` lido no passo 1:
+2. Num worktree limpo a partir da `main`, copie o arquivo para uma área temporária privada e confira o SHA-256
+   contra o `caddy_sha256` do passo 1. Só copie para a fixture depois de o hash conferir:
 
    ```sh
    D=scripts/deploy/fixtures/caddy-host
-   mkdir -p "$D"
-   ssh <host-da-janela> cat /opt/duora/Caddyfile.duora-web.coolify > "$D/Caddyfile.duora-web.coolify"
+   W=$(mktemp -d)
    CADDY_SHA256=<valor de caddy_sha256 do passo 1>
-   [ "$(shasum -a 256 "$D/Caddyfile.duora-web.coolify" | cut -d' ' -f1)" = "$CADDY_SHA256" ] && echo COPIA_OK
+   ssh <host-da-janela> cat /opt/duora/Caddyfile.duora-web.coolify > "$W/Caddyfile.duora-web.coolify" || exit 1
+   [ "$(shasum -a 256 "$W/Caddyfile.duora-web.coolify" | cut -d' ' -f1)" = "$CADDY_SHA256" ] || exit 1
+   cp "$W/Caddyfile.duora-web.coolify" "$D/Caddyfile.duora-web.coolify"
    printf '%s\n' "$CADDY_SHA256" > "$D/Caddyfile.duora-web.coolify.sha256"
    ```
 
-   Sem `COPIA_OK`, apague os dois arquivos e pare.
-
-3. Troque `HOST_COPY_PENDING` para `False` em `scripts/deploy/caddy_test_support.py` e rode, ainda sem commit:
+3. Mantenha `HOST_COPY_PENDING = False` em `scripts/deploy/caddy_test_support.py` e rode o teste:
 
    ```sh
    python3 -m unittest discover -s scripts/deploy -p 'test_caddy_host_copy.py' -v
    ```
 
-   O teste `test_the_fixture_matches_the_copy_of_the_host_file` tem de sair `ok`, não `skipped`. A comparação é byte a
-   byte: fim de linha e `\n` final contam. Com diff, registre o achado fora do repositório, apague os dois arquivos e
-   volte o marcador para `True`, sem ajustar a cópia nem o teste:
+   Confirme `ok` para `test_the_fixture_matches_the_copy_of_the_host_file`. A comparação inclui fins de linha e o
+   `\n` final. Se houver divergência, interrompa a renovação, registre o achado fora do repositório e restaure a
+   última cópia selada e o hash versionado:
 
    ```sh
-   rm "$D/Caddyfile.duora-web.coolify" "$D/Caddyfile.duora-web.coolify.sha256"
-   git checkout -- scripts/deploy/caddy_test_support.py
+   git restore --source=HEAD -- "$D/Caddyfile.duora-web.coolify" "$D/Caddyfile.duora-web.coolify.sha256"
    ```
 
-   O arquivo só tem as variáveis `{$...}` que a fixture já publica: é o diff vazio que garante isso, e por essa razão
-   nada vai para o repositório antes dele.
+   Descarte a cópia temporária após a verificação. Um diff vazio confirma que o arquivo só contém as variáveis
+   `{$...}` que a fixture já publica.
 
-4. Abra o PR com a cópia, o `.sha256` e o marcador. Depois dele, mudar o `infra/caddy/Caddyfile` deixa o teste vermelho
-   até a cópia nova entrar no mesmo PR, gerada numa janela que aplique o mesmo diff no host.
+4. Inclua a cópia e o `.sha256` no mesmo PR da atualização do `infra/caddy/Caddyfile`, quando houver essa mudança.
+   A cópia deve vir de uma janela que tenha aplicado o mesmo diff no host.
 
 **Ressela.** O baseline do executor (`/var/lib/duora/executor-runtime-baseline.json`) fixa o hash do Compose
 (`context.composeSha256`). Sem selar de novo, o `duora-deploy` recusa a release com "Database/backup runtime changed".
