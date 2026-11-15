@@ -14,17 +14,17 @@ from unittest.mock import patch
 import duora_deploy as deploy
 import install_executor as installer
 
-E9 = "e9af03f08162ecf2bda094d38511b44b810043863d3104f60ea1046ae687f3b3"
-FIXTURE = Path(__file__).parent / "fixtures/receiver-2.1.1-e9af.py.txt"
+CANDIDATE = "6a8352bb8996c15c7c8115ab92ae35328afdffc76a513bde7929d7ea51cfc835"
+FIXTURE = Path(__file__).parent / "fixtures/receiver-2.1.2-6a83.py.txt"
 
 
 class ReceiverCohortTests(unittest.TestCase):
     @contextmanager
-    def installed_receiver(self, *, version: str = "2.1.1", content: bytes | None = None):
+    def installed_receiver(self, *, version: str = "2.1.2", content: bytes | None = None):
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary).resolve()  # sem o symlink /var -> /private/var do macOS
             entry = root / "receiver.py"
-            target = root / "versions" / (version + "-" + E9) / "receiver.py"
+            target = root / "versions" / (version + "-" + CANDIDATE) / "receiver.py"
             target.parent.mkdir(parents=True)
             target.write_bytes(FIXTURE.read_bytes() if content is None else content)
             target.chmod(0o755)
@@ -43,17 +43,17 @@ class ReceiverCohortTests(unittest.TestCase):
                     patch.object(os, "geteuid", return_value=0):
                 yield entry, target
 
-    def test_exact_e9_target_is_bound_before_administrative_operations(self) -> None:
-        self.assertEqual(hashlib.sha256(FIXTURE.read_bytes()).hexdigest(), E9)
+    def test_exact_candidate_target_is_bound_before_administrative_operations(self) -> None:
+        self.assertEqual(hashlib.sha256(FIXTURE.read_bytes()).hexdigest(), CANDIDATE)
         with self.installed_receiver() as (entry, target):
             binding = installer.receiver_binding()
-            self.assertEqual(binding["sha256"], E9)
+            self.assertEqual(binding["sha256"], CANDIDATE)
             self.assertEqual(binding["readlink"], str(target))
             self.assertEqual(binding["resolvedTarget"], str(target))
             self.assertEqual(entry.resolve(), target)
 
-    def test_e9_bytes_under_the_legacy_version_path_are_refused(self) -> None:
-        with self.installed_receiver(version="2.0.2"):
+    def test_candidate_bytes_under_the_legacy_version_path_are_refused(self) -> None:
+        with self.installed_receiver(version="2.1.1"):
             with self.assertRaises(installer.InstallError):
                 installer.receiver_binding()
 
@@ -62,8 +62,8 @@ class ReceiverCohortTests(unittest.TestCase):
             with self.assertRaises(installer.InstallError):
                 installer.receiver_binding()
 
-    def test_administrative_recovery_loads_the_same_qualified_installed_e9(self) -> None:
+    def test_administrative_recovery_loads_the_same_qualified_installed_candidate(self) -> None:
         with self.installed_receiver():
             receiver = deploy._recovery_verified_receiver()
-            self.assertEqual(receiver.receiver_digest(), E9)
+            self.assertEqual(receiver.receiver_digest(), CANDIDATE)
             self.assertEqual(receiver.PROJECTS["duora"]["web"], "ghcr.io/bipoxdxd/duora-web")
