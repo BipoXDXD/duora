@@ -2,6 +2,7 @@
 import argparse
 import contextlib
 import copy
+import dataclasses
 import hashlib
 import io
 import json
@@ -10,6 +11,7 @@ import subprocess
 import sys
 import tempfile
 import unittest
+from collections.abc import Callable
 from pathlib import Path
 from unittest.mock import patch
 
@@ -44,7 +46,24 @@ def printed_refusal(error: BaseException) -> str:
     return stderr.getvalue()
 
 
-class RehostTests(InstallationFixture):
+def causes(error: BaseException) -> str:
+    """Every wrapped cause, so a fake's AssertionError or KeyError cannot pass for the expected refusal."""
+    messages = []
+    while error.__cause__ is not None:
+        error = error.__cause__
+        messages.append(type(error).__name__ + ": " + str(error))
+    return " <- ".join(messages)
+
+
+class RefusalAssertions(unittest.TestCase):
+    def assertRefused(self, pattern: str, function: Callable[..., object], /, *args, **kwargs) -> installer.InstallError:
+        with self.assertRaises(installer.InstallError) as refused:
+            function(*args, **kwargs)
+        self.assertRegex(causes(refused.exception), pattern)
+        return refused.exception
+
+
+class RehostTests(InstallationFixture, RefusalAssertions):
     def setUp(self) -> None:
         super().setUp()
         installed = self.invoke(apply=True)
@@ -119,8 +138,8 @@ class RehostTests(InstallationFixture):
     def test_divergent_previous_baseline_is_refused(self) -> None:
         self.baseline_path.write_bytes(self.old_baseline.replace(b"\n", b" \n"))
         self.old_baseline = self.baseline_path.read_bytes()
-        with self.assertRaises(installer.InstallError): self.rehost()
-        with self.assertRaises(installer.InstallError): self.rehost(apply=True)
+        for apply in (False, True):
+            self.assertRefused("Previous receipt does not seal the previous baseline", self.rehost, apply=apply)
         self.assertSealUnchanged()
 
     def test_previous_seal_differing_from_reviewed_evidence_is_refused(self) -> None:
@@ -135,7 +154,7 @@ class RehostTests(InstallationFixture):
         receipt["status"] = "preflight"
         self.receipt_path.write_bytes(installer._json(receipt))
         self.old_receipt = self.receipt_path.read_bytes()
-        with self.assertRaises(installer.InstallError): self.rehost(apply=True)
+        self.assertRefused("Previous receipt does not seal the previous baseline", self.rehost, apply=True)
         self.assertSealUnchanged()
 
     def test_same_host_is_refused_so_rehost_cannot_reseal_in_place(self) -> None:
@@ -156,45 +175,47 @@ class RehostTests(InstallationFixture):
                 path.parent.mkdir(mode=0o700, exist_ok=True)
                 path.write_text("{}")
                 try:
-                    with self.assertRaises(installer.InstallError): self.rehost()
-                    with self.assertRaises(installer.InstallError): self.rehost(apply=True)
+                    for apply in (False, True):
+                        self.assertRefused("executor installation or PostgreSQL swap is open", self.rehost, apply=apply)
                 finally:
                     path.unlink()
                 self.assertSealUnchanged()
 
     def test_different_reviewed_inventory_is_refused(self) -> None:
-        with self.assertRaises(installer.InstallError):
-            self.rehost(apply=True, reviewed_inventory_sha256="0" * 64)
+        self.assertRefused("Rehost apply requires the reviewed previous seal, inventory and executor",
+                           self.rehost, apply=True, reviewed_inventory_sha256="0" * 64)
         self.assertSealUnchanged()
 
     def test_apply_requires_every_reviewed_value(self) -> None:
         for key in ("previous_baseline_sha256", "previous_receipt_sha256", "reviewed_inventory_sha256",
                     "expected_executor_sha256"):
             with self.subTest(key=key):
-                with self.assertRaises(installer.InstallError): self.rehost(apply=True, **{key: None})
+                self.assertRefused("Rehost apply requires the reviewed previous seal, inventory and executor",
+                                   self.rehost, apply=True, **{key: None})
                 self.assertSealUnchanged()
 
     def test_executor_other_than_the_installed_one_is_refused(self) -> None:
-        with self.assertRaises(installer.InstallError):
-            self.rehost(apply=True, expected_executor_sha256="0" * 64)
+        self.assertRefused("Rehost keeps exactly the executor installed by the previous receipt",
+                           self.rehost, apply=True, expected_executor_sha256="0" * 64)
         self.assertSealUnchanged()
 
     def test_runtime_rejected_by_collect_runtime_is_never_sealed(self) -> None:
         def raw_image_id() -> dict:
             raise deploy.DeployError("Config.Image is a raw image id, not the release digest reference")
-        with self.assertRaises(installer.InstallError): self.rehost(inspect_runtime=raw_image_id)
-        with self.assertRaises(installer.InstallError): self.rehost(apply=True, inspect_runtime=raw_image_id)
+        for apply in (False, True):
+            self.assertRefused("DeployError: Config.Image is a raw image id", self.rehost, apply=apply,
+                               inspect_runtime=raw_image_id)
         self.assertSealUnchanged()
 
     def test_runtime_changing_while_staging_never_fences_or_seals(self) -> None:
         snapshots = iter([self.new_inventory, self._inventory(dict(self.new_inventory["profile"], schema=2))])
-        with self.assertRaises(installer.InstallError):
-            self.rehost(apply=True, inspect_runtime=lambda: next(snapshots))
+        self.assertRefused("Runtime changed while staging the rehost", self.rehost, apply=True,
+                           inspect_runtime=lambda: next(snapshots))
         self.assertSealUnchanged()
 
     def test_busy_host_is_refused(self) -> None:
         def busy() -> None: raise installer.InstallError("synthetic active queue")
-        with self.assertRaises(installer.InstallError): self.rehost(apply=True, require_idle=busy)
+        self.assertRefused("synthetic active queue", self.rehost, apply=True, require_idle=busy)
         self.assertSealUnchanged()
 
     def test_interrupted_rehost_fences_releases_and_resumes_only_with_the_same_arguments(self) -> None:
@@ -204,15 +225,16 @@ class RehostTests(InstallationFixture):
             if path == self.receipt_path: raise OSError("synthetic crash")
             return real_write(path, raw, **kwargs)
         with patch.object(installer, "_write", crash_on_live_receipt):
-            with self.assertRaises(installer.InstallError): self.rehost(apply=True)
+            self.assertRefused("OSError: synthetic crash", self.rehost, apply=True)
         self.assertTrue(self.fence.exists())
         self.assertFalse(self.receipt_path.exists())
         receiver = self._swap_receiver()
         with self.assertRaises(ValueError): receiver.require_no_pending(self.fence.parent)
-        with self.assertRaises(installer.InstallError): self.invoke(apply=True)
+        self.old_hash = self.executor_sha
+        self.assertRefused("Unresolved release intent", self.invoke, apply=True, idle=receiver.require_host_idle)
         self.assertEqual(self.rehost()["status"], "rehost-interrupted")
-        with self.assertRaises(installer.InstallError):
-            self.rehost(apply=True, reviewed_inventory_sha256="0" * 64)
+        self.assertRefused("Resume must repeat exactly the reviewed rehost arguments",
+                           self.rehost, apply=True, reviewed_inventory_sha256="0" * 64)
         result = self.rehost(apply=True)
         self.assertEqual(result["status"], "rehosted")
         archive = self.paths.state / installer.REHOST_HISTORY_DIRECTORY / result["archive"]
@@ -224,8 +246,8 @@ class RehostTests(InstallationFixture):
     def test_inventory_whose_digest_is_not_its_own_content_is_refused(self) -> None:
         forged = dict(self.new_inventory, inventorySha256="f" * 64)
         for apply in (False, True):
-            with self.assertRaises(installer.InstallError):
-                self.rehost(apply=apply, inspect_runtime=lambda: forged, reviewed_inventory_sha256="f" * 64)
+            self.assertRefused("Inventory digest is not its own content", self.rehost, apply=apply,
+                               inspect_runtime=lambda: forged, reviewed_inventory_sha256="f" * 64)
         self.assertSealUnchanged()
 
     def test_entry_that_is_not_the_receipts_version_symlink_is_refused_even_with_the_same_bytes(self) -> None:
@@ -238,7 +260,8 @@ class RehostTests(InstallationFixture):
                 self.entry.unlink()
                 replace()
                 try:
-                    with self.assertRaises(installer.InstallError): self.rehost(apply=True)
+                    self.assertRefused("Rehost keeps exactly the executor installed by the previous receipt",
+                                       self.rehost, apply=True)
                     installed_guard = self.paths.versions / json.loads(self.old_receipt)["sourceCommit"] / "runtime_guard.py"
                     with patch.object(installer.guard, "__file__", str(installed_guard)):
                         with self.assertRaisesRegex(installer.InstallError, "entry"):
@@ -275,8 +298,8 @@ class RehostTests(InstallationFixture):
     def test_runtime_changed_after_sealing_keeps_the_fence_for_review(self) -> None:
         changed = self._inventory(dict(self.new_inventory["profile"], schema=2))
         snapshots = iter([self.new_inventory, self.new_inventory, changed])
-        with self.assertRaises(installer.InstallError):
-            self.rehost(apply=True, inspect_runtime=lambda: next(snapshots))
+        self.assertRefused("Runtime changed after sealing", self.rehost, apply=True,
+                           inspect_runtime=lambda: next(snapshots))
         self.assertTrue(self.fence.exists())
         self.assertEqual(json.loads(self.baseline_path.read_text()), self.new_inventory["profile"])
 
@@ -287,52 +310,54 @@ class RehostTests(InstallationFixture):
             if path == target: raise OSError("synthetic crash")
             return real_write(path, raw, **kwargs)
         with patch.object(installer, "_write", crash):
-            with self.assertRaises(installer.InstallError): self.rehost(apply=True)
+            self.assertRefused("OSError: synthetic crash", self.rehost, apply=True)
         self.assertTrue(self.fence.exists())
         return self.paths.state / installer.REHOST_HISTORY_DIRECTORY / json.loads(self.fence.read_text())["archive"]
 
-    def assertResumeRefused(self) -> None:
-        with self.assertRaises(installer.InstallError): self.rehost(apply=True)
+    def assertResumeRefused(self, pattern: str) -> None:
+        self.assertRefused(pattern, self.rehost, apply=True)
         self.assertTrue(self.fence.exists())
 
     def test_resume_never_archives_a_live_seal_that_is_neither_the_previous_nor_the_new(self) -> None:
         archive = self.interrupt(self.baseline_path)
         tampered = self.old_receipt.replace(b"\n", b" \n")
         installer._write(self.receipt_path, tampered)
-        self.assertResumeRefused()
+        self.assertResumeRefused("Live seal is neither the reviewed previous nor the new one")
         self.assertEqual(self.receipt_path.read_bytes(), tampered)
         self.assertFalse((archive / installer.RECEIPT_NAME).exists())
 
     def test_resume_never_renames_over_an_already_archived_file(self) -> None:
         archive = self.interrupt(self.baseline_path)
         installer._write(archive / installer.RECEIPT_NAME, b"{}")
-        self.assertResumeRefused()
+        self.assertResumeRefused("Live seal is neither the reviewed previous nor the new one")
         self.assertEqual((archive / installer.RECEIPT_NAME).read_bytes(), b"{}")
         self.assertEqual(self.receipt_path.read_bytes(), self.old_receipt)
 
     def test_resume_never_seals_over_a_divergent_archived_previous(self) -> None:
         archive = self.interrupt(self.receipt_path)
         installer._write(archive / installer.RECEIPT_NAME, b"{}")
-        self.assertResumeRefused()
+        self.assertResumeRefused("Archived previous seal differs from the reviewed evidence")
         self.assertFalse(self.receipt_path.exists())
 
     def test_resume_never_writes_a_staged_file_changed_under_the_fence(self) -> None:
         archive = self.interrupt(self.receipt_path)
         installer._write(archive / "new-receipt.json", b"{}")
-        self.assertResumeRefused()
+        self.assertResumeRefused("Staged rehost file changed")
         self.assertFalse(self.receipt_path.exists())
 
     def test_unknown_fence_or_changed_journal_is_refused_even_for_inspection(self) -> None:
         archive = self.interrupt(self.receipt_path)
         fence_raw, journal_raw = self.fence.read_bytes(), (archive / "journal.json").read_bytes()
         unknown = dict(json.loads(fence_raw), extra=1)
-        for name, path, raw in (("fence", self.fence, installer._json(unknown)),
-                                ("journal", archive / "journal.json", journal_raw.replace(b"\n", b" \n"))):
+        for name, path, raw, reason in (
+                ("fence", self.fence, installer._json(unknown), "Unknown rehost fence"),
+                ("journal", archive / "journal.json", journal_raw.replace(b"\n", b" \n"),
+                 "Rehost journal changed under its fence")):
             with self.subTest(name):
                 original = path.read_bytes()
                 installer._write(path, raw)
-                with self.assertRaises(installer.InstallError): self.rehost()
-                self.assertResumeRefused()
+                self.assertRefused(reason, self.rehost)
+                self.assertResumeRefused(reason)
                 installer._write(path, original)
         self.assertEqual(self.fence.read_bytes(), fence_raw)
         self.assertEqual(self.rehost(apply=True)["status"], "rehosted")
@@ -343,8 +368,8 @@ class RehostTests(InstallationFixture):
             with self.subTest(directory=directory.name):
                 directory.chmod(0o755)
                 try:
-                    with self.assertRaises(installer.InstallError): self.rehost()
-                    self.assertResumeRefused()
+                    self.assertRefused("Unowned private directory", self.rehost)
+                    self.assertResumeRefused("Unowned private directory")
                 finally:
                     directory.chmod(0o700)
         self.assertEqual(self.rehost(apply=True)["status"], "rehosted")
@@ -355,7 +380,7 @@ class RehostTests(InstallationFixture):
         other.write_text("another executor\n")
         self.entry.unlink()
         self.entry.symlink_to(other)
-        self.assertResumeRefused()
+        self.assertResumeRefused("Installed executor changed during the rehost")
 
     def test_installer_refuses_another_host_until_rehost_and_reseals_on_the_same_host_after(self) -> None:
         self.inventory, self.old_hash = self.new_inventory, self.executor_sha
@@ -369,7 +394,14 @@ class RehostTests(InstallationFixture):
         self.assertEqual(self.invoke(apply=True)["status"], "installed")
 
 
-class ReconvergeTests(InstallationFixture):
+class ReconvergeTests(InstallationFixture, RefusalAssertions):
+    FULL_RECREATE = [
+        ["stop", "worker"], ["stop", "web"], ["stop", "postgres"], ["stop", "backup"],
+        ["up", "--detach", "--wait", "--no-deps", "--force-recreate", "backup"],
+        ["up", "--detach", "--wait", "--no-deps", "--force-recreate", "postgres"],
+        ["up", "--detach", "--wait", "--no-deps", "web", "worker"],
+    ]
+
     def setUp(self) -> None:
         super().setUp()
         manifest = valid_manifest()
@@ -489,11 +521,7 @@ class ReconvergeTests(InstallationFixture):
         result = self.reconverge(apply=True, reviewed=plan["planSha256"])
         self.assertEqual(result["status"], "reconverged")
         self.assertEqual(self.files[self.pin_path], self.restored_pin)
-        self.assertEqual(self.commands, [
-            ["stop", "worker"], ["stop", "web"], ["stop", "postgres"], ["stop", "backup"],
-            ["up", "--detach", "--wait", "--no-deps", "--force-recreate", "backup"],
-            ["up", "--detach", "--wait", "--no-deps", "--force-recreate", "postgres"],
-            ["up", "--detach", "--wait", "--no-deps", "web", "worker"]])
+        self.assertEqual(self.commands, self.FULL_RECREATE)
         self.assertEqual({role: item["configImage"] for role, item in result["containers"].items()},
                          {"postgres": self.reference, "backup": self.reference})
         self.assertEqual((self.ready, self.running, self.verified), ([True], [True], [True]))
@@ -516,14 +544,18 @@ class ReconvergeTests(InstallationFixture):
                                        "containers_snapshot", "verify_runtime"])
 
     def assertReapplyAfterReadinessFailureRequiresReadiness(self, failing: str) -> None:
+        failure = deploy.DeployError("synthetic readiness failure")
+
         def refused_by_readiness(reviewed: str) -> None:
-            with self.assertRaises(installer.InstallError) as refused:
-                self.reconverge(apply=True, reviewed=reviewed)
-            self.assertIsInstance(refused.exception.__cause__, deploy.DeployError)
+            refusal = self.assertRefused("DeployError: synthetic readiness failure", self.reconverge,
+                                         apply=True, reviewed=reviewed)
+            self.assertIs(refusal.__cause__, failure)
 
         plan = self.reconverge()
-        with patch.object(deploy, failing, side_effect=deploy.DeployError("synthetic readiness failure")):
+        with patch.object(deploy, failing, side_effect=failure):
             refused_by_readiness(plan["planSha256"])
+            self.assertEqual(self.commands, self.FULL_RECREATE)
+            self.assertEqual((self.files[self.pin_path], self.verified), (self.restored_pin, []))
             self.commands.clear()
             replan = self.reconverge()
             self.assertEqual((replan["recreate"], replan["start"], replan["pin"]["stage"]), ([], [], "current"))
@@ -548,10 +580,10 @@ class ReconvergeTests(InstallationFixture):
                 self.commands.append(command[len(self.compose):])
                 return subprocess.CompletedProcess(command, 1, "", "synthetic crash")
             return self._run(command)
-        interrupted = self.host.__class__(**{**self.host.__dict__, "run": crash_starting_the_application})
-        with self.assertRaises(installer.InstallError):
-            installer.reconverge_runtime(self.release, interrupted, paths=self.paths, apply=True,
-                                         reviewed_plan_sha256=plan["planSha256"], require_idle=lambda: None)
+        interrupted = dataclasses.replace(self.host, run=crash_starting_the_application)
+        self.assertRefused("start web and worker falhou", installer.reconverge_runtime, self.release, interrupted,
+                           paths=self.paths, apply=True, reviewed_plan_sha256=plan["planSha256"],
+                           require_idle=lambda: None)
         self.assertEqual((self.states["web"], self.states["worker"]), ("exited", "exited"))
         self.commands.clear()
         replan = self.reconverge()
@@ -595,7 +627,7 @@ class ReconvergeTests(InstallationFixture):
         def duplicated(command):
             raw = original(command)
             return raw + b"\nweb=exited" if "{{.Service}}={{.State}}" in command else raw
-        self.host = self.host.__class__(**{**self.host.__dict__, "capture": duplicated})
+        self.host = dataclasses.replace(self.host, capture=duplicated)
         with self.assertRaises(installer.InstallError) as refused: self.reconverge()
         self.assertIn("More than one container", str(refused.exception.__cause__))
 
@@ -608,14 +640,13 @@ class ReconvergeTests(InstallationFixture):
         def start_without_effect(command):
             self.commands.append(command[len(self.compose):])
             return subprocess.CompletedProcess(command, 0, "", "")
-        self.host = self.host.__class__(**{**self.host.__dict__, "run": start_without_effect})
-        with self.assertRaises(installer.InstallError):
-            self.reconverge(apply=True, reviewed=plan["planSha256"])
+        self.host = dataclasses.replace(self.host, run=start_without_effect)
+        self.assertRefused("Runtime did not converge", self.reconverge, apply=True, reviewed=plan["planSha256"])
         self.assertEqual(self.commands, [["up", "--detach", "--wait", "--no-deps", "postgres"]])
 
     def test_stopped_edge_is_outside_reconvergence(self) -> None:
         self.states["edge"] = "exited"
-        with self.assertRaises(installer.InstallError): self.reconverge()
+        self.assertRefused("Edge is not running", self.reconverge)
         self.assertUntouched()
 
     def test_container_running_another_image_is_refused_whatever_its_reference(self) -> None:
@@ -623,37 +654,38 @@ class ReconvergeTests(InstallationFixture):
             with self.subTest(config=config):
                 self.containers["postgres"]["image"] = "sha256:" + "8" * 64
                 self.containers["postgres"]["config"] = config or self.reference
-                with self.assertRaises(installer.InstallError): self.reconverge()
+                self.assertRefused("Container runs another image", self.reconverge)
                 self.assertUntouched()
 
     def test_foreign_mutable_reference_is_refused(self) -> None:
         self.containers["backup"]["config"] = PREFIX + "postgres:latest"
-        with self.assertRaises(installer.InstallError): self.reconverge()
+        self.assertRefused("Only the raw id of the same image can be re-referenced", self.reconverge)
         self.assertUntouched()
 
     def test_more_than_one_container_per_role_is_refused(self) -> None:
         self.containers["backup"]["id"] = "2" * 64 + "\n" + "5" * 64
-        with self.assertRaises(installer.InstallError): self.reconverge()
+        self.assertRefused("Exactly one container per database role", self.reconverge)
         self.assertUntouched()
 
     def test_writable_backup_mount_is_refused(self) -> None:
         real = self._container
         self._container = lambda role: dict(real(role), Mounts=[dict(real(role)["Mounts"][0], RW=True)])
-        with self.assertRaises(installer.InstallError): self.reconverge()
+        self.assertRefused("Unexpected data volume mount", self.reconverge)
         self.assertUntouched()
 
     def test_different_reviewed_plan_is_refused_before_any_effect(self) -> None:
         self.reconverge()
         for reviewed in (None, "0" * 64):
             with self.subTest(reviewed=reviewed):
-                with self.assertRaises(installer.InstallError): self.reconverge(apply=True, reviewed=reviewed)
+                self.assertRefused("differs from the explicitly reviewed plan", self.reconverge, apply=True,
+                                   reviewed=reviewed)
                 self.assertUntouched()
 
     def test_pin_not_exactly_the_receiver_rewrite_is_refused(self) -> None:
         pin = json.loads(self.failed_pin)
         pin["observer_environment"]["DUORA_OBSERVER_IMAGE"] = PREFIX + "edge@sha256:" + "c" * 64
         self.files[self.pin_path] = self.failed_pin = deploy._recovery_pin_bytes(pin)
-        with self.assertRaises(installer.InstallError): self.reconverge()
+        self.assertRefused("Incoming observer PIN fields differ", self.reconverge)
         self.assertUntouched()
 
     def test_pin_of_a_release_that_does_not_follow_the_current_is_refused(self) -> None:
@@ -664,27 +696,28 @@ class ReconvergeTests(InstallationFixture):
         pin = json.loads(self.failed_pin)
         pin["manifest_sha256"] = _sha(raw)
         self.files[self.pin_path] = self.failed_pin = deploy._recovery_pin_bytes(pin)
-        with self.assertRaises(installer.InstallError): self.reconverge()
+        self.assertRefused("Observer PIN does not belong to the exact known inverse", self.reconverge)
         self.assertUntouched()
 
     def test_non_canonical_pin_bytes_are_refused(self) -> None:
         self.files[self.pin_path] = self.failed_pin = installer._json(json.loads(self.failed_pin))
-        with self.assertRaises(installer.InstallError): self.reconverge()
+        self.assertRefused("Observer PIN does not belong to the exact known inverse", self.reconverge)
         self.assertUntouched()
 
     def test_runtime_environment_other_than_the_current_release_is_refused(self) -> None:
         self.files[self.runtime_env] += b"DUORA_EXTRA=1\n"
-        with self.assertRaises(installer.InstallError): self.reconverge()
+        self.assertRefused("Recorded runtime environment is not exactly the current release", self.reconverge)
         self.assertUntouched()
 
     def test_open_swap_or_rehost_is_refused(self) -> None:
-        for path in (self.paths.state / "postgres-swap/attempt.json",
-                     self.paths.ingress / installer.REHOST_FENCE_DIRECTORY / "pending.json"):
+        for path, reason in ((self.paths.state / "postgres-swap/attempt.json", "PostgreSQL swap is open"),
+                             (self.paths.ingress / installer.REHOST_FENCE_DIRECTORY / "pending.json",
+                              "An executor rehost is open")):
             with self.subTest(path=path.parent.name):
                 path.parent.mkdir(mode=0o700, exist_ok=True)
                 path.write_text("{}")
                 try:
-                    with self.assertRaises(installer.InstallError): self.reconverge()
+                    self.assertRefused(reason, self.reconverge)
                 finally:
                     path.unlink()
                 self.assertUntouched()
@@ -695,8 +728,8 @@ class ReconvergeTests(InstallationFixture):
         def recreate_without_effect(command):
             self.commands.append(command[len(self.compose):])
             return subprocess.CompletedProcess(command, 0, "", "")
-        self.host = self.host.__class__(**{**self.host.__dict__, "run": recreate_without_effect})
-        with self.assertRaises(installer.InstallError): self.reconverge(apply=True, reviewed=plan["planSha256"])
+        self.host = dataclasses.replace(self.host, run=recreate_without_effect)
+        self.assertRefused("Runtime did not converge", self.reconverge, apply=True, reviewed=plan["planSha256"])
         self.assertEqual(self.verified, [])
 
     def test_failed_compose_step_stops_before_starting_the_database(self) -> None:
@@ -705,10 +738,95 @@ class ReconvergeTests(InstallationFixture):
         def fail_backup(command):
             self.commands.append(command[len(self.compose):])
             return subprocess.CompletedProcess(command, 1 if "--force-recreate" in command else 0, "", "boom")
-        self.host = self.host.__class__(**{**self.host.__dict__, "run": fail_backup})
-        with self.assertRaises(installer.InstallError): self.reconverge(apply=True, reviewed=plan["planSha256"])
+        self.host = dataclasses.replace(self.host, run=fail_backup)
+        self.assertRefused("recreate backup falhou", self.reconverge, apply=True, reviewed=plan["planSha256"])
         self.assertEqual(self.commands[-1], ["up", "--detach", "--wait", "--no-deps", "--force-recreate", "backup"])
         self.assertEqual(self.verified, [])
+
+    def apply_interrupted_while_recreating_postgres(self, **postgres_after: str) -> str:
+        """Fail during the Postgres recreate, leaving the given changes visible to the next inspection."""
+        plan = self.reconverge()
+
+        def crash_recreating_postgres(command):
+            arguments = command[len(self.compose):]
+            if arguments[-2:] != ["--force-recreate", "postgres"]:
+                return self._run(command)
+            self.commands.append(arguments)
+            self.containers["postgres"].update(postgres_after)
+            return subprocess.CompletedProcess(command, 1, "", "synthetic crash")
+        self.host = dataclasses.replace(self.host, run=crash_recreating_postgres)
+        self.assertRefused("recreate postgres falhou", self.reconverge, apply=True, reviewed=plan["planSha256"])
+        self.assertEqual(self.commands, self.FULL_RECREATE[:6])
+        self.assertEqual(self.files[self.pin_path], self.restored_pin)
+        self.assertEqual((self.ready, self.running, self.verified), ([], [], []))
+        self.host = dataclasses.replace(self.host, run=self._run)
+        self.commands.clear()
+        return plan["planSha256"]
+
+    def assertResumeRefusedWithoutCommands(self, reviewed: str) -> None:
+        for apply in (False, True):
+            with self.subTest(apply=apply):
+                self.assertRefused("Exactly one container per database role is required", self.reconverge,
+                                   apply=apply, reviewed=reviewed if apply else None)
+                self.assertEqual(self.commands, [])
+                self.assertEqual((self.ready, self.running, self.verified), ([], [], []))
+                self.assertEqual(self.files[self.pin_path], self.restored_pin)
+                self.assertEqual((self.states["web"], self.states["worker"]), ("exited", "exited"))
+
+    def test_database_role_left_without_a_container_by_an_interrupted_recreate_is_refused(self) -> None:
+        reviewed = self.apply_interrupted_while_recreating_postgres(id="")
+        self.assertResumeRefusedWithoutCommands(reviewed)
+
+    def test_database_role_left_with_two_containers_by_an_interrupted_recreate_is_refused(self) -> None:
+        reviewed = self.apply_interrupted_while_recreating_postgres(id="1" * 64 + "\n" + "3" * 64)
+        self.assertResumeRefusedWithoutCommands(reviewed)
+
+    def test_apply_interrupted_after_restoring_the_pin_resumes_with_the_full_recreate(self) -> None:
+        plan = self.reconverge()
+
+        def crash_before_any_command(_command):
+            raise OSError("synthetic crash")
+        self.host = dataclasses.replace(self.host, run=crash_before_any_command)
+        self.assertRefused("OSError: synthetic crash", self.reconverge, apply=True, reviewed=plan["planSha256"])
+        self.assertEqual((self.files[self.pin_path], self.commands), (self.restored_pin, []))
+        self.host = dataclasses.replace(self.host, run=self._run)
+        replan = self.reconverge()
+        self.assertEqual((replan["recreate"], replan["start"], replan["pin"]["stage"]),
+                         (["postgres", "backup"], [], "current"))
+        result = self.reconverge(apply=True, reviewed=replan["planSha256"])
+        self.assertEqual((result["status"], result["pin"]["status"]), ("reconverged", "current"))
+        self.assertEqual(self.commands, self.FULL_RECREATE)
+        self.assertEqual({role: item["id"] for role, item in result["containers"].items()}, self.recreated)
+        self.assertEqual((self.files[self.pin_path], self.verified), (self.restored_pin, [True]))
+
+    def test_apply_interrupted_after_recreating_only_the_backup_recreates_both_on_resume(self) -> None:
+        self.apply_interrupted_while_recreating_postgres()
+        self.assertEqual((self.containers["backup"]["config"], self.containers["postgres"]["config"]),
+                         (self.reference, self.image_id))
+        replan = self.reconverge()
+        self.assertEqual((replan["recreate"], replan["start"], replan["pin"]["stage"]),
+                         (["postgres"], ["postgres", "web", "worker"], "current"))
+        result = self.reconverge(apply=True, reviewed=replan["planSha256"])
+        self.assertEqual(result["status"], "reconverged")
+        self.assertEqual(self.commands, self.FULL_RECREATE)
+        self.assertEqual({role: (item["id"], item["configImage"]) for role, item in result["containers"].items()},
+                         {role: (identifier, self.reference) for role, identifier in self.recreated.items()})
+        self.assertEqual((self.files[self.pin_path], self.verified), (self.restored_pin, [True]))
+
+    def test_postgres_left_created_but_never_started_by_an_interrupted_recreate_is_started_on_resume(self) -> None:
+        self.apply_interrupted_while_recreating_postgres(
+            id=self.recreated["postgres"], config=self.reference, state="created")
+        replan = self.reconverge()
+        self.assertEqual((replan["recreate"], replan["start"], replan["pin"]["stage"]),
+                         ([], ["postgres", "web", "worker"], "current"))
+        result = self.reconverge(apply=True, reviewed=replan["planSha256"])
+        self.assertEqual(result["status"], "reconverged")
+        self.assertEqual(self.commands, [["up", "--detach", "--wait", "--no-deps", "postgres"],
+                                         ["up", "--detach", "--wait", "--no-deps", "web", "worker"]])
+        self.assertEqual({role: (item["id"], item["configImage"]) for role, item in result["containers"].items()},
+                         {role: (identifier, self.reference) for role, identifier in self.recreated.items()})
+        self.assertEqual(self.files[self.pin_path], self.restored_pin)
+        self.assertEqual((self.ready, self.running, self.verified), ([True], [True], [True]))
 
 
 class RequalifyModeTests(unittest.TestCase):
