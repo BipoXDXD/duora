@@ -564,8 +564,13 @@ jobs:
       - name: ansible-lint e syntax-check
         if: ${{ !cancelled() && steps.ops-tools.outcome == 'success' }}
         working-directory: infra/ansible
+        env:
+          # O Galaxy já respondeu 502 ao baixar uma coleção (#569); o job inteiro tem 10 min.
+          CI_RETRY_DELAYS: "10 30"
+          CI_RETRY_ATTEMPT_TIMEOUT: "60"
         run: |
-          ansible-galaxy collection install -r requirements.yml
+          source "$GITHUB_WORKSPACE/scripts/ci/apt-retry.sh"
+          CI_RETRY_RECOVER=galaxy_clear_cache retry_with_backoff ansible-galaxy collection install -r requirements.yml
           ansible-lint
           ansible-playbook -i inventory/example.yml site.yml --syntax-check
           ansible-playbook -i inventory/example.yml media-sanitizer.yml --syntax-check
