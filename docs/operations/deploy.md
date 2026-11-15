@@ -555,7 +555,7 @@ ressela comum.
 
 | Valor | Origem |
 |---|---|
-| `N` | commit da main com esta ferramenta (o merge do PR) |
+| `N` | commit da main com a checagem de saúde do reconverge mesmo com plano vazio |
 | `<run>` e `<artifactId>` | run do CI de push de `N` com todos os jobs verdes; artefato `duora-executor-amd64` dela |
 | bundle | o artefato, extraído em diretório root-only (0700) no host, por exemplo `/root/requalify-N`; o bundle é a pasta `bundle/` dele (ao lado de `qualification.json`) |
 | `<manifestSha256>` | `sha256sum /root/requalify-N/bundle/bundle.json` |
@@ -582,8 +582,19 @@ I --rehost --apply --reviewed-inventory-sha256 <inventorySha256> --expected-exec
 referência; `imageId` é o id local da referência do manifesto corrente; o volume é `duora_pgdata`, com o `createdAt`
 esperado. `pin.stage` vem como `restore`, com `incomingReleaseId` igual à release que falhou, ou como `current`. O apply
 para worker, web, postgres e backup, sobe `backup` e depois `postgres` com `--force-recreate --no-deps` (nunca `down` nem
-`-v`), religa web e worker, espera a saúde e, no fim, exige o `collect_runtime` limpo. A queda é curta, mas é uma queda:
-faça numa janela do dono.
+`-v`), religa web e worker, espera a saúde e, no fim, exige o `collect_runtime` limpo. A saúde vale também com `recreate`
+e `start` vazios: antes de `reconverged`, o apply exige o web pronto (`GET /health/ready` a partir do `edge`) e web, worker
+e edge em `running`, porque o `collect_runtime` qualifica só banco e backup. Se `recreate` estiver preenchido, a aplicação
+fica indisponível durante a recriação. Execute esse plano numa janela do dono.
+
+**Bundle e executor instalado.** Execute o reconverge com o `install_executor.py` do bundle `N` extraído. As opções
+`--source-commit`, `--artifact-id` e `--manifest-sha256` devem identificar esse mesmo bundle. O reconverge exige o
+receptor qualificado pelo instalador de `N`; confira a [coorte do receptor](receiver-cohort.md) se a validação recusar.
+O passo 2 usa o `<executorSha256>` do recibo instalado, que é o hash do `duora_deploy.py` apontado por
+`/usr/local/sbin/duora-deploy`. Usar `N` para reconverge preserva essa instalação. Para instalar `N`, siga o
+[procedimento normal de instalação](../../scripts/deploy/EXECUTOR_BUNDLE.md): inspeção, revisão e `--apply` com o
+`--expected-executor-sha256` do recibo atual. O recibo novo terá o `sourceCommit` e o `manifestSha256` de `N`.
+O `executorSha256` só muda se o `duora_deploy.py` de `N` diferir do instalado.
 
 **Revise na inspeção do passo 2.** Entre o `profile` e o baseline antigo, mudam o `context` do host (`hostIdSha256`,
 versões e hashes de Docker e Compose) e os `services.*` recriados no passo 1. Volume e `configHashes` devem bater com o
@@ -603,8 +614,9 @@ novo a ele é a sua revisão do `inventorySha256`. Revise o inventário inteiro 
 - serviço `paused`, `dead` ou `removing`, ou mais de um container por serviço da aplicação: o `up` não resolve isso;
 - baseline ou recibo diferentes dos sha256 revisados, recibo que não sela o baseline, entrada fora da versão do recibo;
 - `Same host as the sealed baseline` (é ressela comum) ou `Host differs from the sealed baseline` (é rehost);
-- recusa terminada em `DeployError` (passo do executor, como o `up` do compose): o motivo é a saída do Docker logo
-  acima no terminal; a recusa mostra só o tipo para não repetir metadados do host;
+- recusa terminada em `DeployError` (passo do executor, como o `up` do compose): confira a saída do Docker no terminal.
+  Se a checagem de saúde não mostrar o motivo, confira `GET /health/ready` a partir do edge e o estado de web, worker
+  e edge antes de revisar outro plano. A recusa mostra só o tipo para proteger os metadados do host;
 - backup em andamento: espere terminar;
 - a env do Coolify `DUORA_OBSERVER_IMAGE` diferente do `edge` da release corrente. O reconverge não toca no Coolify; a
   release que falhou pode ter reescrito essa env. Acerte pelo painel antes da troca, revisando o valor.
@@ -614,7 +626,9 @@ novo a ele é a sua revisão do `inventorySha256`. Revise o inventário inteiro 
 `/etc/duora/.duora-recovery-pin-<nonce>.tmp`, que fica de propósito: revise-o à mão antes de repetir. O plano novo mostra
 o que já convergiu. Se `postgres` ou `backup` ainda estiver no id cru, `recreate` o lista e o apply recria os dois de
 novo. Com os dois já recriados, `recreate` vem vazio e `start` lista os serviços que ficaram parados, na ordem `backup`, `postgres`, `web`, `worker`; o apply só os religa e
-espera a saúde. Um rehost interrompido deixa
+espera a saúde. Com tudo convergido, `recreate` e `start` vêm vazios, e o apply ainda exige a saúde do web e os três
+serviços em `running` antes de `reconverged`: repetir o apply depois de uma recusa de saúde é seguro e não devolve
+`reconverged` enquanto o web não estiver pronto. Um rehost interrompido deixa
 `/var/lib/coolify-release/duora-executor-rehost/pending.json`, e esse arquivo trava toda release, de qualquer projeto. A
 inspeção mostra `rehost-interrupted`, mesmo que a queda tenha sido entre arquivar o recibo antigo e gravar o novo (a
 versão instalada vem então do journal sob a fence). Repita o mesmo `--apply` com os mesmos argumentos; ele é idempotente
@@ -693,8 +707,22 @@ troca --resume    # continua da fase gravada
 troca --abort     # desfaz até o rename de current.json
 ```
 
-Os dois recusam enquanto houver processo compose vivo do projeto ou mais de um container `postgres` ou `backup`, mesmo
-parado: um cliente órfão recriando o serviço enquanto você age põe dois containers sobre `duora_pgdata`. Espere terminar
+Em shell novo, redefina `R`, `ALVO` e a função `troca` antes de `--resume` ou `--abort`. Os dois exigem
+`--target-postgres`, e a função já o passa. Em toda fase, antes ou depois do commit e no abort, os valores são os da
+abertura da troca: `R` é o manifesto da release de origem e `ALVO` é a referência da imagem alvo por digest.
+Até o rename de `current.json`, a
+origem ainda é a release corrente. Depois dele, `current.json` tem um `releaseId` `pgswap-*` (R'): não use esse
+`releaseId`, use o `previousReleaseId` de `/opt/duora/releases/<R'>.json`. Se a troca foi revertida, `current.json` segue
+em R, inclusive em `closing`. Com o journal aberto, o comando confere os dois valores e recusa qualquer outro antes de agir, com
+"--manifest e --target-postgres precisam ser os do journal aberto". Em
+`/var/lib/duora/postgres-swap/attempt.json`, `source.releaseId` identifica a origem e `target.images.postgres` contém
+a referência alvo. Com o journal já arquivado e só a fence restante, `--resume` e `--abort` ainda exigem os argumentos
+do CLI, mas só removem a fence daquele journal. Os valores da abertura ficam em
+`/var/lib/duora/postgres-swap-history/<swapId>/attempt.json`.
+
+Com o journal aberto, os dois recusam enquanto houver processo compose vivo do projeto ou mais de um container
+`postgres` ou `backup`, inclusive parados: um cliente órfão recriando o serviço enquanto você age põe dois containers
+sobre `duora_pgdata`. Espere terminar
 ou resolva à mão antes de repetir, e confira `docker ps --all`. O detector lê `/proc`: linha de comando, `cwd` e
 `COMPOSE_PROJECT_NAME`/`COMPOSE_FILE`. Ele não vê cliente em outro namespace de PID, cliente remoto nem chamada direta à
 API do Docker; a contagem de containers cobre o efeito, não a intenção.

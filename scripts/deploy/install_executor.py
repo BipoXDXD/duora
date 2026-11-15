@@ -911,6 +911,10 @@ def reconverge_runtime(release: Any, host: ReconvergeHost, *, paths: InstallPath
                 _reconverge_recreate(host)
             elif plan["start"]:
                 _reconverge_start(host, plan["start"])
+            # Also with an empty plan: a re-apply after a readiness failure finds nothing to start, and
+            # verify_runtime qualifies only the database and backup, never the application.
+            host.core._wait_ready(host.compose, host.run, host.core.DEFAULT_READINESS_TIMEOUT_SECONDS, host.sleep)
+            host.core._require_services_running(host.compose, host.run)
             after = _reconverge_containers(release, host)
             if (after["recreate"] or after["start"] or after["imageId"] != plan["imageId"]
                     or after["volume"] != plan["volume"]):
@@ -1033,7 +1037,7 @@ def _reconverge_recreate(host: ReconvergeHost) -> None:
 
 
 def _reconverge_start(host: ReconvergeHost, services: list[str]) -> None:
-    """Start stopped services in the swap order (backup before postgres, the application last), then require health."""
+    """Start stopped services in the swap order (backup before postgres, the application last)."""
     def step(arguments: list[str], what: str) -> None:
         host.core._check(host.run(host.compose + arguments), what)
 
@@ -1043,8 +1047,6 @@ def _reconverge_start(host: ReconvergeHost, services: list[str]) -> None:
     application = [service for service in ("web", "worker") if service in services]
     if application:
         step(["up", "--detach", "--wait", "--no-deps", *application], "start " + " and ".join(application))
-    host.core._wait_ready(host.compose, host.run, host.core.DEFAULT_READINESS_TIMEOUT_SECONDS, host.sleep)
-    host.core._require_services_running(host.compose, host.run)
 
 
 # --- Rehost: the installed executor, unchanged, sealed on a different host with evidence of the previous seal ------

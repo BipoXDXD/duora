@@ -405,15 +405,24 @@ class ReconvergeTests(InstallationFixture):
         self.commands: list[list[str]] = []
         self.verified = []
         self.ready: list[bool] = []
+        self.running: list[bool] = []
+        self.events: list[str] = []
         self.compose = ["docker", "compose", "--file", str(self.compose_file)]
         self.host = installer.ReconvergeHost(core=deploy, compose=self.compose, compose_file=self.compose_file,
             runtime_env=self.runtime_env, capture=self._capture, run=self._run, read_protected=self.files.__getitem__,
-            verify_runtime=lambda: self.verified.append(True) or {}, pin_path=self.pin_path, sleep=lambda _: None)
-        for name, value in (("_recovery_apply_pin", self._apply_pin), ("_wait_ready", lambda *a: self.ready.append(True)),
-                            ("_require_services_running", lambda *a: None)):
+            verify_runtime=lambda: self._event("verify_runtime", self.verified) or {}, pin_path=self.pin_path,
+            sleep=lambda _: None)
+        for name, value in (("_recovery_apply_pin", self._apply_pin),
+                            ("_wait_ready", lambda *a: self._event("wait_ready", self.ready)),
+                            ("_require_services_running",
+                             lambda *a: self._event("require_services_running", self.running))):
             patcher = patch.object(deploy, name, value)
             patcher.start()
             self.addCleanup(patcher.stop)
+
+    def _event(self, name: str, calls: list[bool]) -> None:
+        self.events.append(name)
+        calls.append(True)
 
     def _container(self, role: str) -> dict:
         item = self.containers[role]
@@ -425,6 +434,7 @@ class ReconvergeTests(InstallationFixture):
 
     def _capture(self, command: list[str]) -> bytes:
         if command[:3] == ["docker", "image", "inspect"] and command[-1] == self.reference:
+            self.events.append("containers_snapshot")
             return json.dumps({"Id": self.image_id}).encode()
         if command == self.compose + ["config", "--format", "json"]:
             return json.dumps({"services": {role: {"image": self.reference} for role in ("postgres", "backup")}}).encode()
@@ -486,7 +496,7 @@ class ReconvergeTests(InstallationFixture):
             ["up", "--detach", "--wait", "--no-deps", "web", "worker"]])
         self.assertEqual({role: item["configImage"] for role, item in result["containers"].items()},
                          {"postgres": self.reference, "backup": self.reference})
-        self.assertEqual(self.verified, [True])
+        self.assertEqual((self.ready, self.running, self.verified), ([True], [True], [True]))
 
     def test_converged_runtime_and_current_pin_change_nothing(self) -> None:
         for item in self.containers.values(): item["config"] = self.reference
@@ -496,6 +506,39 @@ class ReconvergeTests(InstallationFixture):
         self.assertEqual(self.reconverge(apply=True, reviewed=plan["planSha256"])["status"], "reconverged")
         self.assertEqual(self.commands, [])
         self.assertEqual(self.files[self.pin_path], self.restored_pin)
+        self.assertEqual((self.ready, self.running, self.verified), ([True], [True], [True]))
+
+    def test_apply_requires_readiness_before_the_final_containers_snapshot_and_verify_runtime(self) -> None:
+        plan = self.reconverge()
+        self.events.clear()
+        self.assertEqual(self.reconverge(apply=True, reviewed=plan["planSha256"])["status"], "reconverged")
+        self.assertEqual(self.events, ["containers_snapshot", "wait_ready", "require_services_running",
+                                       "containers_snapshot", "verify_runtime"])
+
+    def assertReapplyAfterReadinessFailureRequiresReadiness(self, failing: str) -> None:
+        def refused_by_readiness(reviewed: str) -> None:
+            with self.assertRaises(installer.InstallError) as refused:
+                self.reconverge(apply=True, reviewed=reviewed)
+            self.assertIsInstance(refused.exception.__cause__, deploy.DeployError)
+
+        plan = self.reconverge()
+        with patch.object(deploy, failing, side_effect=deploy.DeployError("synthetic readiness failure")):
+            refused_by_readiness(plan["planSha256"])
+            self.commands.clear()
+            replan = self.reconverge()
+            self.assertEqual((replan["recreate"], replan["start"], replan["pin"]["stage"]), ([], [], "current"))
+            refused_by_readiness(replan["planSha256"])
+        self.assertEqual((self.commands, self.verified), ([], []))
+        self.ready.clear()
+        self.running.clear()
+        self.assertEqual(self.reconverge(apply=True, reviewed=replan["planSha256"])["status"], "reconverged")
+        self.assertEqual((self.commands, self.ready, self.running, self.verified), ([], [True], [True], [True]))
+
+    def test_reapply_after_readiness_failure_requires_web_readiness_before_reconverged(self) -> None:
+        self.assertReapplyAfterReadinessFailureRequiresReadiness("_wait_ready")
+
+    def test_reapply_after_services_not_running_requires_them_running_before_reconverged(self) -> None:
+        self.assertReapplyAfterReadinessFailureRequiresReadiness("_require_services_running")
 
     def test_apply_interrupted_after_recreating_converges_on_the_reviewed_re_plan(self) -> None:
         plan = self.reconverge()
@@ -515,7 +558,7 @@ class ReconvergeTests(InstallationFixture):
         self.assertEqual((replan["recreate"], replan["start"], replan["pin"]["stage"]), ([], ["web", "worker"], "current"))
         self.assertEqual(self.reconverge(apply=True, reviewed=replan["planSha256"])["status"], "reconverged")
         self.assertEqual(self.commands, [["up", "--detach", "--wait", "--no-deps", "web", "worker"]])
-        self.assertEqual((self.ready, self.verified), ([True], [True]))
+        self.assertEqual((self.ready, self.running, self.verified), ([True], [True], [True]))
 
     def test_stopped_database_roles_start_before_the_application(self) -> None:
         for item in self.containers.values(): item["config"] = self.reference

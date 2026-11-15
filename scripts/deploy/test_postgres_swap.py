@@ -703,6 +703,46 @@ class FenceTests(SwapFixture):
         self.assertEqual(self.phase(), "commit")
 
 
+class OperatorArgumentsTests(SwapFixture):
+    """In a new session the operator redefines R and ALVO; after the commit, current.json already points at R'."""
+
+    def target_release(self) -> deploy.Release:
+        return deploy.parse_manifest(Path(json.loads(self.pin.read_text())["manifest"]).read_text(), image_prefix=PREFIX)
+
+    def assert_wrong_arguments_refused_without_effect(self, target: deploy.Release, phase: str) -> None:
+        before = self.snapshot()
+        wrong = ((target, NEW_REF), (self.release, OLD_REF), (target, OLD_REF))
+        for action in ("resume", "abort"):
+            for release, reference in wrong:
+                with self.subTest(action=action, release=release.release_id, reference=reference):
+                    self.docker.commands.clear()
+                    with self.assertRaisesRegex(deploy.DeployError, "journal aberto"):
+                        self.call(action, release=release, target=reference)
+                    self.assertEqual(self.docker.commands, [])
+                    self.assertEqual(self.phase(), phase)
+                    self.assertTrue(self.fence().exists())
+                    self.assertEqual(self.snapshot(), before)
+
+    def test_after_commit_resume_and_abort_still_need_the_source_manifest_and_the_target(self) -> None:
+        self.apply()
+        target = self.target_release()
+        self.assertEqual(json.loads((self.state / "current.json").read_text())["releaseId"], target.release_id)
+        self.assert_wrong_arguments_refused_without_effect(target, "awaiting-reseal")
+        self.seal(self.observe(target, None)["profile"])
+        self.assertEqual(self.call("resume", release=self.release, target=NEW_REF)["status"], "closed")
+        self.assert_closed()
+
+    def test_aborted_swap_still_needs_the_source_manifest_and_the_target(self) -> None:
+        self.docker.fail_on = {"--no-deps postgres"}
+        with self.assertRaises(deploy.DeployError):
+            self.apply()
+        self.docker.fail_on = set()
+        target = deploy.parse_manifest(json.dumps(json.loads(
+            (self.state / "postgres-swap/attempt.json").read_text())["target"]), image_prefix=PREFIX)
+        self.assertEqual(self.call("abort")["status"], "aborted-awaiting-reseal")
+        self.assert_wrong_arguments_refused_without_effect(target, "aborted-awaiting-reseal")
+
+
 class OrphanComposeTests(SwapFixture):
     def test_live_project_compose_process_blocks_resume_and_abort(self) -> None:
         self.stop_at_commit()
