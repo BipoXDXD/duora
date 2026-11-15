@@ -1,0 +1,195 @@
+# Generated for Coolify TLS termination; trust only verified proxy IP.
+# Borda única do Duora (spec 15.3): SPA, /api/*, /hubs/* e /webhooks/* na mesma origem. Embutido na imagem edge.
+# Variáveis (lidas na carga da configuração):
+#   DUORA_DOMAIN  domínio da aplicação (produção: meetduora.com; "localhost" no smoke local)
+#   DUORA_TLS     e-mail da conta ACME em produção, ou "internal" para a CA local do Caddy (smoke/homologação)
+# Validar: docs/operations/deploy.md ("Validar o Caddyfile").
+#
+# CSP, HSTS e demais cabeçalhos de segurança vivem só aqui; o backend não deve emitir versões concorrentes.
+#
+# Sem trusted_proxies: o Caddy não confia em X-Forwarded-* vindo da internet e envia ao web os que ele mesmo viu.
+# O backend deve confiar só no Caddy (Forwarded Headers, spec 11.3; pendência do backend).
+
+# Log padrão (erros de handler, como o do reverse_proxy, vão para http.log.error, fora do access log): o mesmo
+# filtro de pedido do access log, porque o erro carrega o pedido inteiro. Manter os dois filtros iguais.
+{
+	servers {
+		trusted_proxies static 10.64.1.3
+		client_ip_headers Cf-Connecting-IP
+		trusted_proxies_strict
+	}
+	log default {
+		output stdout
+		format filter {
+			request>uri multi_regexp {
+				regexp \?.*$ ?redacted
+				regexp [0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12} {id}
+			}
+			request>headers delete
+			request>tls delete
+			request>remote_ip ip_mask 24 48
+			request>client_ip ip_mask 24 48
+			wrap json
+		}
+	}
+}
+
+(security_headers) {
+	header {
+		# defer: aplicados quando a resposta sai, por cima dos do upstream. A API não troca nem duplica a CSP nem a
+		# Permissions-Policy (test_upstream_cannot_replace_or_add_edge_policies). O -Server também ligaria o defer;
+		# explícito para não depender desse efeito colateral.
+		defer
+		Strict-Transport-Security "max-age=31536000"
+		X-Content-Type-Options "nosniff"
+		X-Frame-Options "DENY"
+		Referrer-Policy "no-referrer"
+		Cross-Origin-Opener-Policy "same-origin"
+		Cross-Origin-Resource-Policy "same-origin"
+		# Sem Server nem o Via que o reverse_proxy acrescenta: a resposta não diz qual servidor está na frente.
+		-Server
+		-Via
+	}
+}
+
+# CSP e Permissions-Policy de toda resposta, exceto o documento da selfie (site abaixo). Usado dentro de um bloco
+# header com defer, como os demais cabeçalhos da borda.
+(default_policies) {
+	# Allowlist contra a matriz de capacidades (docs/operations/deploy.md, "Cabeçalhos de segurança da borda"):
+	# (self) só para o que a voz ao vivo e o áudio usam (microphone, autoplay, speaker-selection); toda outra feature
+	# que o Chromium reconhece numa página comum fica (), inclusive fullscreen, câmera, tela, AR e sensores (o
+	# <model-viewer> sem ar). Ficam fora as ch-*, as só de Isolated Web App e quatro experimentais que, negadas,
+	# quebrariam a SPA. Feature que o navegador não conhece gera só um aviso no console. Só o Chromium lê este
+	# cabeçalho (MDN BCD); gesto e consentimento do microfone são regra da SPA (ADR-0028), não desta política.
+	Permissions-Policy "accelerometer=(), ambient-light-sensor=(), aria-notify=(), autoplay=(self), bluetooth=(), browsing-topics=(), camera=(), captured-surface-control=(), clipboard-read=(), clipboard-write=(), compute-pressure=(), cross-origin-isolated=(), deferred-fetch=(), deferred-fetch-minimal=(), device-attributes=(), digital-credentials-create=(), digital-credentials-get=(), display-capture=(), encrypted-media=(), execution-while-not-rendered=(), execution-while-out-of-viewport=(), fullscreen=(), gamepad=(), geolocation=(), gyroscope=(), haptics=(), hid=(), identity-credentials-get=(), idle-detection=(), interest-cohort=(), keyboard-map=(), language-detector=(), language-model=(), local-fonts=(), local-network=(), local-network-access=(), loopback-network=(), magnetometer=(), media-playback-while-not-visible=(), microphone=(self), midi=(), on-device-speech-recognition=(), otp-credentials=(), payment=(), picture-in-picture=(), private-state-token-issuance=(), private-state-token-redemption=(), publickey-credentials-create=(), publickey-credentials-get=(), publickey-credentials-remote-client-data-json=(), rewriter=(), screen-wake-lock=(), serial=(), speaker-selection=(self), storage-access=(), summarizer=(), sync-xhr=(), tools=(), translator=(), unbounded-element=(), unload=(), usb=(), web-app-installation=(), web-share=(), webnn=(), window-management=(), writer=(), xr-spatial-tracking=()"
+	# Só fontes próprias, sem inline, sem eval e sem worker. wss explícito para o hub (navegadores antigos não
+	# estendem 'self' a WebSocket). media-src 'self': áudio do catálogo e o fallback Opus (ADR-0027); a voz ao vivo
+	# entra por srcObject, fora do Fetch, e ICE/TURN não passa por connect-src (sem diretiva webrtc, ADR-0028).
+	# 3D em tempo real com <model-viewer> 4.4.0 e GLB autocontido sem Draco, meshopt nem KTX2: o hash libera só o
+	# <style> do shadow root dele, e blob: em connect-src é a textura embutida, lida por fetch(blob:). Trusted Types:
+	# nenhum sink de HTML/script aceita string; só a política lit-html, do Lit que o <model-viewer> usa.
+	# Mudou aqui, mude scripts/deploy/caddy_test_support.py.
+	Content-Security-Policy "default-src 'none'; script-src 'self'; style-src 'self' 'sha256-PXtZZkJMMyc18o/DN1ZEFOJ2qEGq95IQbVaJFMOXOb0='; img-src 'self'; font-src 'self'; media-src 'self'; connect-src 'self' blob: wss://{hostport}; manifest-src 'self'; worker-src 'none'; base-uri 'none'; form-action 'self'; frame-ancestors 'none'; object-src 'none'; require-trusted-types-for 'script'; trusted-types lit-html"
+}
+
+http://{$DUORA_DOMAIN} {
+	encode zstd gzip
+
+	# Acesso em JSON no stdout, sem query string, sem cabeçalhos (Cookie, Authorization, Set-Cookie...) e com IP
+	# truncado (spec 19.2). Allowlist: o que não está no registro não vaza. UUIDs no caminho viram {id}: rota como
+	# /api/v1/me/blocks/{targetUserId} diria quem bloqueou quem (dado P3) ao lado do IP (TM-24, spec 19.2).
+	log {
+		output stdout
+		format filter {
+			request>uri multi_regexp {
+				regexp \?.*$ ?redacted
+				regexp [0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12} {id}
+			}
+			request>headers delete
+			request>tls delete
+			resp_headers delete
+			request>remote_ip ip_mask 24 48
+			request>client_ip ip_mask 24 48
+			wrap json
+		}
+	}
+
+	import security_headers
+
+	# Selfie de presença (issue #93, ADR-0029): só o documento exato /account/selfie, que a SPA carrega por navegação
+	# completa (e recarrega ao sair), recebe a câmera e o que o FaceLivenessDetector oficial da AWS usa. O resto do site,
+	# inclusive assets e API, fica com a política comum. Matchers complementares: nunca dois cabeçalhos CSP.
+	# 'wasm-unsafe-eval': compilar o WASM do TensorFlow.js (sem eval de JavaScript); cdn.liveness: WASM e modelo
+	# BlazeFace padrão do componente; streaming-rekognition: WebSocket do StartFaceLivenessSession em us-east-1.
+	# Mudou aqui, mude scripts/deploy/caddy_test_support.py (EXPECTED_SELFIE_*).
+	@selfieDocument path /account/selfie
+	header @selfieDocument {
+		defer
+		Permissions-Policy "accelerometer=(), ambient-light-sensor=(), aria-notify=(), autoplay=(self), bluetooth=(), browsing-topics=(), camera=(self), captured-surface-control=(), clipboard-read=(), clipboard-write=(), compute-pressure=(), cross-origin-isolated=(), deferred-fetch=(), deferred-fetch-minimal=(), device-attributes=(), digital-credentials-create=(), digital-credentials-get=(), display-capture=(), encrypted-media=(), execution-while-not-rendered=(), execution-while-out-of-viewport=(), fullscreen=(), gamepad=(), geolocation=(), gyroscope=(), haptics=(), hid=(), identity-credentials-get=(), idle-detection=(), interest-cohort=(), keyboard-map=(), language-detector=(), language-model=(), local-fonts=(), local-network=(), local-network-access=(), loopback-network=(), magnetometer=(), media-playback-while-not-visible=(), microphone=(self), midi=(), on-device-speech-recognition=(), otp-credentials=(), payment=(), picture-in-picture=(), private-state-token-issuance=(), private-state-token-redemption=(), publickey-credentials-create=(), publickey-credentials-get=(), publickey-credentials-remote-client-data-json=(), rewriter=(), screen-wake-lock=(), serial=(), speaker-selection=(self), storage-access=(), summarizer=(), sync-xhr=(), tools=(), translator=(), unbounded-element=(), unload=(), usb=(), web-app-installation=(), web-share=(), webnn=(), window-management=(), writer=(), xr-spatial-tracking=()"
+		Content-Security-Policy "default-src 'none'; script-src 'self' 'wasm-unsafe-eval'; style-src 'self' 'sha256-PXtZZkJMMyc18o/DN1ZEFOJ2qEGq95IQbVaJFMOXOb0='; img-src 'self'; font-src 'self'; media-src 'self'; connect-src 'self' blob: wss://{hostport} https://cdn.liveness.rekognition.amazonaws.com wss://streaming-rekognition.us-east-1.amazonaws.com; manifest-src 'self'; worker-src 'none'; base-uri 'none'; form-action 'self'; frame-ancestors 'none'; object-src 'none'; require-trusted-types-for 'script'; trusted-types lit-html"
+	}
+	@regularResponse not path /account/selfie
+	header @regularResponse {
+		defer
+		import default_policies
+	}
+
+	# Erros de handlers (file_server/proxy) usam uma cadeia separada no Caddy.
+	handle_errors {
+		import security_headers
+		header {
+			defer
+			import default_policies
+		}
+		header Cache-Control "no-store"
+		respond "" {err.status_code}
+	}
+
+	# Saúde e documentação técnica ficam na rede interna (duora-web:8080), nunca na borda pública.
+	@internal path /health /health/* /openapi /openapi/*
+	handle @internal {
+		# error, não respond: passa pelo handle_errors e sai com no-store, como todo erro da borda.
+		error 404
+	}
+
+	# API: status, cookies e cabeçalhos de cache do backend passam intactos; sem Cache-Control, nada é guardado.
+	handle /api/* {
+		header ?Cache-Control "no-store"
+		reverse_proxy duora-web:8080 {
+			header_up X-Forwarded-For {client_ip}
+			header_up X-Forwarded-Proto https
+		}
+	}
+
+	# Callbacks de fornecedor (verificação etária, ADR-0024): só o web os autentica, pela assinatura sobre os bytes
+	# recebidos. O teto de 64 KiB repete o do backend para o corpo grande morrer na borda, com 413, sem ocupar o web.
+	# Sem cache e sem cookie úteis: o fornecedor não é navegador.
+	handle /webhooks/* {
+		request_body {
+			max_size 64KiB
+		}
+		reverse_proxy duora-web:8080 {
+			header_up X-Forwarded-For {client_ip}
+			header_up X-Forwarded-Proto https
+		}
+	}
+
+	# SignalR: WebSocket (e fallbacks de streaming) sem buffer e sem timeout de requisição; numa recarga de config,
+	# as conexões abertas duram mais 5 min em vez de reconectarem todas de uma vez.
+	handle /hubs/* {
+		reverse_proxy duora-web:8080 {
+			header_up X-Forwarded-For {client_ip}
+			header_up X-Forwarded-Proto https
+			flush_interval -1
+			stream_close_delay 5m
+		}
+	}
+
+	# Assets com hash no nome: imutáveis; arquivo inexistente é 404, nunca o index.html no lugar de JavaScript.
+	handle /assets/* {
+		root * /srv
+		header Cache-Control "public, max-age=31536000, immutable"
+		file_server
+	}
+
+	# Demais arquivos estáticos (index.html, favicon) sempre revalidados, para uma release nova chegar logo.
+	# Fallback da SPA só para navegação de documento; fetch para caminho inexistente recebe 404.
+	handle {
+		root * /srv
+		header Cache-Control "no-cache"
+
+		@spaNavigation {
+			not file
+			expression `{http.request.header.Sec-Fetch-Mode} == "navigate" || {http.request.header.Accept}.contains("text/html")`
+		}
+		rewrite @spaNavigation /index.html
+		file_server
+	}
+}
+
+# Saúde do próprio Caddy para o healthcheck do Compose: só no loopback do container, porta não publicada.
+http://127.0.0.1:8081 {
+	bind 127.0.0.1
+	respond /healthz 200
+	respond 404
+}

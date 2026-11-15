@@ -22,6 +22,7 @@ from caddy_test_support import (
     HOST_COPY_DIGEST,
     HOST_COPY_MISSING,
     HOST_COPY_PENDING,
+    HOST_TRAEFIK_PEER,
     HostCopyMismatch,
     HostCopyPending,
     expected_host_caddyfile,
@@ -32,7 +33,7 @@ from caddy_test_support import (
 REPO_CADDYFILE = CADDYFILE.read_text(encoding="utf-8")
 HOST_COMMENT = "# Generated for Coolify TLS termination; trust only verified proxy IP.\n"
 FORWARDED_FOR_LINE = "\t\t\theader_up X-Forwarded-For {client_ip}\n"
-TRUST_LINE = "\t\ttrusted_proxies static 172.16.1.6\n"
+TRUST_LINE = f"\t\ttrusted_proxies static {HOST_TRAEFIK_PEER}\n"
 CLIENT_IP_LINE = "\t\tclient_ip_headers Cf-Connecting-IP\n"
 
 
@@ -58,8 +59,8 @@ class HostCopyDifferencesTests(unittest.TestCase):
         cases = {
             "outro peer": (self.expected.replace(TRUST_LINE, "\t\ttrusted_proxies static 172.16.1.7\n"),
                            "trusted_proxies static 172.16.1.7"),
-            "peer a mais": (self.expected.replace(TRUST_LINE, "\t\ttrusted_proxies static 172.16.1.6 10.0.0.1\n"),
-                            "172.16.1.6 10.0.0.1"),
+            "peer a mais": (self.expected.replace(TRUST_LINE, f"{TRUST_LINE.rstrip()} 10.0.0.1\n"),
+                            f"{HOST_TRAEFIK_PEER} 10.0.0.1"),
             "header_up a menos numa rota": (self.expected.replace(FORWARDED_FOR_LINE, "", 1), "X-Forwarded-For"),
             "linha a mais": (self.expected + "# linha nova\n", "# linha nova"),
             "antes da Fase 4": (self.expected.replace(CLIENT_IP_LINE, ""), "client_ip_headers"),
