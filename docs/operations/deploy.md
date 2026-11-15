@@ -6,11 +6,14 @@ infraestrutura e decisões: [infra/README.md](../../infra/README.md). Backup e r
 
 **Produção hoje (28/10/2026):** a release chega pelo workflow `Coolify release` (`.github/workflows/coolify.yml`,
 [scripts/release/coolify/README.md](../../scripts/release/coolify/README.md)). O observador do Coolify chama o
-`duora-deploy` com `--compose-file /opt/duora/compose.coolify.json`, fixado por hash em `/etc/duora/coolify-deploy.json`,
-e `--env-file /etc/duora/duora.env`. Não existe `/opt/duora/compose.prod.yml` na VPS, e releases só trocam imagens:
+`duora-deploy` com `--manifest` e `--compose-file /opt/duora/compose.coolify.json`, fixado por hash em
+`/etc/duora/coolify-deploy.json`. O padrão de `--host-env` do executor é `/etc/duora/duora.env`. Não existe
+`/opt/duora/compose.prod.yml` na VPS, e releases só trocam imagens:
 mudar configuração de container (ambiente, segredos) é passo administrativo sobre o `compose.coolify.json`. O
 `compose.prod.yml` do repositório continua sendo a referência revisada e o que o smoke e os laboratórios sobem; o
-caminho Ansible descrito abaixo vale para uma VPS nova.
+caminho Ansible descrito abaixo vale para uma VPS nova. Sem `--compose-file`, o `duora-deploy` usa o Compose que o pin
+do observador fixa; só sem pin (VPS nova) usa `/opt/duora/compose.prod.yml`, porque a forced command do Ansible não
+passa a opção. Pin presente e ilegível falha em vez de cair no arquivo do Ansible.
 
 **Não é zero-downtime.** Com uma instância web, o deploy tem uma breve interrupção planejada (spec 17.3): o worker
 para antes da migração e web/edge são recriados. Escala horizontal exige o ADR de SignalR, sessões e fan-out.
@@ -518,6 +521,9 @@ para a anterior não tem restrição por esse campo.
 | Onde falhou | Estado | O que fazer |
 |---|---|---|
 | Validação, disco, áreas de fotos, pull, arquitetura | Nada mudou | Corrigir a causa e repetir; área de fotos sem marcador: reaplicar `app_dirs` |
+| Preflight de rede (`o Compose recriaria a rede ...`) | Nada mudou | Ver "Rede recriada pelo Compose" |
+| Preflight de rede (`dry-run do Compose` com código de saída diferente de zero) | Nada mudou | O erro do Compose está na mensagem; corrija a causa (env, Compose do pin, daemon) e repita |
+| Preflight de rede (`dry-run do Compose sem nenhuma linha de container`) | Nada mudou | Provavelmente o Compose instalado mudou o formato da saída do `--dry-run`. Rode o dry-run da seção "Rede recriada pelo Compose" e compare com as linhas `Container ...` e `Network ... Removing` que o preflight espera; ajuste o detector num PR antes de repetir |
 | Migrador | Web anterior no ar, **worker parado** | A saída do migrador está na própria sessão do `duora-deploy` (o `run --rm` apaga o container e os logs junto); corrigir e repetir, ou religar o worker anterior com o env da release corrente |
 | Readiness ou serviço fora de `running` | Release nova no ar, `current.json` ainda aponta a anterior | Logs do web/edge; rollback se o schema permitir |
 | Web recusa o boot sem marcador (`Media:Storage:FileSystemRoot em Production ...` no log) | Migrations aplicadas, web em restart. O worker não confere o marcador: só falha ao subir se a origem do bind mount (`$DUORA_MEDIA_DIR/quarantine` ou `derivatives`) não existir no host | O preflight conferiu os marcadores, então a área sumiu ou foi desmontada depois dele, ou o Compose instalado monta outro caminho que o `DUORA_MEDIA_DIR` do `duora.env`. Reaplicar `app_dirs`, conferir `docker compose ... config` e repetir o deploy; rollback não resolve, porque o Compose é o mesmo |
@@ -781,6 +787,82 @@ prova, restaura no fim e, antes da primeira troca, confere cada caminho com o pr
 Em banco pequeno, sem Coolify real, a queda medida foi de 6 a 7 s no banco e cerca de 14 s na aplicação; `--abort` soma
 outro tanto. Tempo com volume real só no sombra. Continuam sem prova até a janela: observer e Coolify reais, B2, GHCR a
 partir da VPS, cron de prune e `docker load` do receiver sobre imagem já puxada.
+
+### Rede recriada pelo Compose
+
+Antes do `duora-backup verify` e de parar serviços, o `duora-deploy` e o plano da troca do PostgreSQL rodam o dry-run
+abaixo. O `apply` da troca refaz o plano. A preparação do deploy e o `verify-repo` e as sondas de compatibilidade da
+troca já ocorreram nesse ponto. `Network <rede> Removing` e `Network <rede> Removed` fazem os dois fluxos recusarem com
+"o Compose recriaria a rede <rede> ...; nada foi parado". Um dry-run com erro ou sem linha reconhecível de container
+também interrompe o fluxo. O Compose recria a rede quando o label `com.docker.compose.config-hash` diverge do hash que
+ele calcula, que pode mudar entre versões. O gateway efetivo e o label `version` não disparam a recriação. O baseline
+também sela a versão do Compose, então uma atualização pode ser recusada pela verificação do baseline antes do dry-run.
+Sem o preflight, o `up` real parava o banco e depois falhava ao remover a rede, porque o `deployment-observer` do Coolify
+segue conectado a ela (incidente de 14/11, na reabertura da troca).
+
+A saída é recriar a rede numa janela do dono. Há queda: os serviços da rede sobem de novo. `C` é o Compose do pin
+(`compose` em `/etc/duora/coolify-deploy.json`, que pode ser um `compose.coolify.json`), e `ID` é o `releaseId` de
+`/var/lib/duora/current.json` (não o `R` da troca, que é um manifesto). `D` repete o ambiente limpo do `duora-deploy`,
+para o dry-run ler o mesmo projeto e calcular o mesmo hash que ele.
+
+```bash
+D() { sudo env -i PATH=/usr/bin:/bin LC_ALL=C docker compose --file "$C" --env-file /etc/duora/duora.env --env-file /var/lib/duora/releases/$ID.env "$@"; }
+D --progress plain --dry-run up --detach --no-deps postgres backup web worker edge 2>&1
+sudo docker network inspect duora_edge
+sudo docker container inspect --format '{{index .Config.Labels "com.docker.compose.project"}} {{json (index .NetworkSettings.Networks "duora_edge")}}' <container>
+```
+
+Confira o código de saída do dry-run e leia a saída inteira. Guarde o IPAM, os labels e a lista de containers do
+`network inspect`. Para cada container dessa lista, a inspeção do endpoint registra o projeto, os aliases e os
+endereços estáticos configurados em `IPAMConfig`, necessários para a reconexão.
+
+O dry-run cobre os cinco serviços, então a recusa também vale para redes que o `up web worker edge` do deploy não
+tocaria. Isso é conservador de propósito: a mesma divergência pararia a próxima troca. Uma atualização do Compose
+costuma atingir todas as redes de uma vez. Separe as listadas pelo `networks:` do Compose do pin. Algumas são só de
+`web`, `worker` e `edge`, como a `edge` e a `egress`: elas seguem os passos abaixo. Outras incluem `postgres` ou
+`backup`, como a `data`, a `pgbackrest` e a `backup-egress`. Se qualquer rede listada for desse segundo grupo, pare
+antes do passo 1 e leve o caso inteiro a uma janela do dono. Recriá-las pararia o banco e recriaria os containers que o
+baseline do executor sela, e ainda não há procedimento revisado (#567). Recriar só as outras traria a queda sem
+destravar o preflight.
+
+1. Para cada rede listada, use o label do container para identificar os endpoints alheios ao projeto `duora`.
+   Desconecte cada um com `sudo docker network disconnect duora_edge <container>`.
+2. Só sem troca aberta: `/var/lib/duora/postgres-swap/attempt.json` não pode existir. Recrie pelo Compose só os
+   serviços ligados à rede listada (`networks:` do Compose do pin; na `duora_edge`, `web` e `edge`; na `egress`, só
+   `worker`). Para a `duora_edge`, use `D up --detach --wait --no-deps --force-recreate web edge` para reaplicar os
+   aliases e endereços estáticos do Compose. Nunca use `down`, `-v`, `postgres` ou `backup` nesse procedimento. Com a
+   troca aberta, depois de desconectar os endpoints alheios, siga por `troca --resume` ou `troca --abort` com os
+   argumentos do journal. Essas ações de recuperação não executam o preflight e o `up` da troca pode recriar a rede.
+   Confira os endpoints da aplicação antes de repetir uma ação recusada por readiness. Se faltar alias ou IP fixo,
+   mantenha a janela aberta e restaure o endpoint conforme o Compose do pin e a fase da troca com o responsável.
+3. Reconecte cada endpoint alheio com `sudo docker network connect --alias <alias> duora_edge <container>`. Repita
+   `--alias` para cada alias anotado e use `--ip` ou `--ip6` quando o endpoint tinha endereço estático configurado.
+   A pertença do `deployment-observer` está presa
+   ao pin (`observer_networks`); sem ele na rede, o deploy seguinte recusa com "Observer network membership differs from
+   its protected PIN".
+4. Compare o `docker network inspect` novo com o guardado. A rede recriada pode ganhar outro gateway (em 14/11, `.1`
+   virou `.128`). A subnet é fixa no Compose e é nela que o web confia ("Proxy confiável"). O gateway não muda fora
+   de janela planejada. Se mudou, confira o que depende dele. Compare também aliases e endereços estáticos de cada
+   endpoint com o Compose e com o inventário salvo. Confirme os três serviços de aplicação em `running` e teste a
+   readiness interna com `D exec --no-TTY edge wget --quiet --spider --timeout=5 http://duora-web:8080/health/ready`.
+   Se a troca mudou `current.json`, atualize `ID` para refletir a release corrente antes das verificações finais.
+5. Rode o dry-run de novo. Para liberar o preflight da rede, exija código de saída zero, linha de progresso de
+   container (`Running`, por exemplo) e ausência de `Network <rede> Removing` ou `Network <rede> Removed`.
+
+O preflight está em `postgres_swap.py` e `duora_deploy.py`, que o recibo do executor amarra por hash. No host ele só vale
+depois de instalar como executor um bundle que o contenha, pelo procedimento estático de
+`scripts/deploy/EXECUTOR_BUNDLE.md` ("Ordered static installation procedure"): primeiro a inspeção, revisando o
+inventário; depois `--apply` preso ao inventário revisado e ao executor atual. Use `python3 -E -s`, como na ressela.
+Até essa instalação, rode o dry-run acima à mão antes de todo `up` no host.
+
+```bash
+B=<diretório root-only do bundle verificado>
+python3 -E -s "$B/install_executor.py" --bundle "$B" --source-commit <commit revisado> \
+  --manifest-sha256 <manifestSha256> --artifact-id <qualificationArtifactId>          # inspeção: anote inventorySha256
+python3 -E -s "$B/install_executor.py" --bundle "$B" --source-commit <commit revisado> \
+  --manifest-sha256 <manifestSha256> --artifact-id <qualificationArtifactId> --apply \
+  --reviewed-inventory-sha256 <inventorySha256 revisado> --expected-executor-sha256 <executorSha256 atual>
+```
 
 ### Primeira configuração do host
 

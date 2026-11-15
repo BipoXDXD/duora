@@ -14,6 +14,7 @@ from unittest.mock import patch
 
 import duora_deploy as deploy
 
+ROOT = Path(__file__).resolve().parents[2]
 PREFIX = "ghcr.io/bipoxdxd/duora-"
 DIGEST = "sha256:" + "a" * 64
 
@@ -465,7 +466,7 @@ class FakeRunner:
                  pre_head: str | None = None, migration_head: str = "20261015175752_Baseline",
                  ready_after: int = 1,
                  service_states: str = "web=running\nworker=running\nedge=running\n",
-                 privileged_without_mfa: str = "0") -> None:
+                 privileged_without_mfa: str = "0", network_removal: str | None = None) -> None:
         self.commands: list[list[str]] = []
         self.captured: list[bool] = []
         self._architecture = architecture
@@ -477,6 +478,7 @@ class FakeRunner:
         self._readiness_calls = 0
         self._service_states = service_states
         self._privileged_without_mfa = privileged_without_mfa
+        self._network_removal = network_removal
 
     def __call__(self, command: list[str], *, capture: bool = False,
                  input_text: str | None = None) -> subprocess.CompletedProcess[str]:
@@ -487,6 +489,9 @@ class FakeRunner:
             return subprocess.CompletedProcess(command, 1, "", "falha simulada")
         if command[:3] == ["docker", "image", "inspect"]:
             return subprocess.CompletedProcess(command, 0, self._architecture + "\n", "")
+        if "--dry-run" in command:
+            removal = f" Network {self._network_removal} Removing \n" if self._network_removal else ""
+            return subprocess.CompletedProcess(command, 0, "", removal + " Container duora-web-1 Recreate \n")
         if "to_regclass" in joined:
             self._head_reads += 1
             exists = self._head_reads > 1 or self._pre_head is not None
@@ -559,6 +564,34 @@ class DeployTests(unittest.TestCase):
         self.assertEqual([str(self.paths.backup_command), "verify"], runner.commands[verify])
         self.assertFalse(runner.ran("up --detach --wait postgres backup"))
         self.assertLess(verify, runner.index_of("stop worker"))
+
+    def test_network_the_compose_would_recreate_stops_deploy_before_anything_stops(self) -> None:
+        runner = FakeRunner(network_removal="duora_edge")
+
+        with self.assertRaisesRegex(deploy.DeployError, "rede duora_edge.*nada foi parado"):
+            self.run_deploy(runner)
+        self.assertFalse(runner.ran("duora-backup verify"))
+        self.assertFalse(runner.ran("stop worker"))
+        self.assertFalse(runner.ran("run --rm --no-deps migrator"))
+        self.assertFalse(any(" up " in " ".join(c) and "--dry-run" not in c for c in runner.commands))
+        self.assertFalse((self.paths.state_dir / "current.json").exists())
+
+    def test_failed_compose_dry_run_stops_deploy_before_anything_stops(self) -> None:
+        runner = FakeRunner(fail_on="--dry-run")
+
+        with self.assertRaisesRegex(deploy.DeployError, "dry-run do Compose"):
+            self.run_deploy(runner)
+        self.assertFalse(runner.ran("stop worker"))
+        self.assertFalse((self.paths.state_dir / "current.json").exists())
+
+    def test_compose_dry_run_comes_after_the_pull_and_before_the_backup_verify(self) -> None:
+        runner = FakeRunner()
+
+        self.run_deploy(runner)
+
+        dry_run = runner.index_of("--progress plain --dry-run up --detach --no-deps postgres backup web worker edge")
+        self.assertLess(runner.index_of("pull"), dry_run)
+        self.assertLess(dry_run, runner.index_of("duora-backup verify"))
 
     def test_readiness_ignores_foreign_web_alias_on_shared_ingress_network(self) -> None:
         # Another application's web alias returns 401 on the shared ingress network.
@@ -725,7 +758,8 @@ class DeployTests(unittest.TestCase):
         for command, captured in zip(runner.commands, runner.captured):
             reads_output = (command[:3] == ["docker", "image", "inspect"]
                             or ("psql" in command and "--command" in command)
-                            or ("ps" in command and "--format" in command))
+                            or ("ps" in command and "--format" in command)
+                            or "--dry-run" in command)
             with self.subTest(command=" ".join(command)):
                 self.assertEqual(reads_output, captured)
 
@@ -972,6 +1006,90 @@ with duora_deploy.deploy_lock(Path(sys.argv[2])):
     time.sleep(60)
 """
 
+
+
+class DefaultComposeFileTests(unittest.TestCase):
+    """Sem --compose-file, o duora-deploy usa um Compose que as checagens do host aceitam."""
+
+    PINNED = "/opt/duora/compose.coolify.json"
+
+    @staticmethod
+    def pin_reader(compose: str):
+        def read(path: Path) -> bytes:
+            if path != deploy.OBSERVER_PIN:
+                raise AssertionError(f"leu {path} em vez do pin do observador")
+            return json.dumps({"compose": compose, "compose_sha256": "a" * 64}).encode()
+        return read
+
+    @staticmethod
+    def refuse(path: Path) -> bytes:
+        raise deploy.DeployError("Recovery ancestry is not protected root state")
+
+    def test_with_the_observer_pin_the_default_is_the_compose_the_pin_qualifies(self) -> None:
+        for required in (False, True):
+            with self.subTest(required_pin=required):
+                compose = deploy.default_compose_file(required_pin=required, read=self.pin_reader(self.PINNED),
+                                                      pin_exists=lambda path: True)
+
+                # Mesma condição que a entrada administrativa e o instalador exigem do Compose em uso.
+                pin = json.loads(self.pin_reader(self.PINNED)(deploy.OBSERVER_PIN))
+                self.assertEqual(str(compose), pin["compose"])
+                self.assertNotEqual(compose, deploy.ANSIBLE_COMPOSE)
+
+    def test_without_a_pin_the_default_is_the_file_ansible_installs(self) -> None:
+        group_vars = (ROOT / "infra/ansible/group_vars/all.yml").read_text(encoding="utf-8")
+        tasks = (ROOT / "infra/ansible/roles/app_dirs/tasks/main.yml").read_text(encoding="utf-8")
+        install_dir = re.search(r"^duora_install_dir: (\S+)$", group_vars, re.MULTILINE)
+        destination = re.search(r'dest: "\{\{ duora_install_dir \}\}/(compose\.prod\.yml)"', tasks)
+        if install_dir is None or destination is None:
+            self.fail("O destino do Compose no Ansible mudou")
+
+        compose = deploy.default_compose_file(required_pin=False, read=self.refuse, pin_exists=lambda path: False)
+
+        self.assertEqual(compose, Path(install_dir.group(1)) / destination.group(1))
+
+    def test_an_unreadable_pin_fails_instead_of_falling_back_to_the_ansible_file(self) -> None:
+        with self.assertRaises(deploy.DeployError):
+            deploy.default_compose_file(required_pin=False, read=self.refuse, pin_exists=lambda path: True)
+
+    def test_administrative_modes_require_the_pin(self) -> None:
+        with self.assertRaises(deploy.DeployError):
+            deploy.default_compose_file(required_pin=True, read=self.refuse, pin_exists=lambda path: False)
+
+    def test_a_pin_without_a_compose_path_fails_as_a_deploy_error(self) -> None:
+        for raw in (b'{"compose_sha256": "aaaa"}', b'{"compose": 7}', b'{"compose": ""}', b'[]',
+                    b'{"compose": "compose.coolify.json"}', b'{"compose": "/opt/duora/a\\u0000.json"}'):
+            with self.subTest(pin=raw):
+                with self.assertRaises(deploy.DeployError):
+                    deploy.default_compose_file(required_pin=False, read=lambda path, raw=raw: raw,
+                                                pin_exists=lambda path: True)
+
+    def test_a_pin_that_cannot_be_looked_at_counts_as_present(self) -> None:
+        with patch.object(deploy.os, "lstat", side_effect=PermissionError("/etc/duora")):
+            self.assertTrue(deploy._observer_pin_present(deploy.OBSERVER_PIN))
+        with patch.object(deploy.os, "lstat", side_effect=FileNotFoundError("/etc/duora/coolify-deploy.json")):
+            self.assertFalse(deploy._observer_pin_present(deploy.OBSERVER_PIN))
+
+    def test_main_resolves_the_compose_and_preserves_an_explicit_override(self) -> None:
+        explicit_compose = "/opt/duora/override.yml"
+        cases = (([], True, Path(self.PINNED)), ([], False, deploy.ANSIBLE_COMPOSE),
+                 (["--compose-file", explicit_compose], True, Path(explicit_compose)))
+        for flags, pin_exists, expected in cases:
+            with (
+                self.subTest(flags=flags, pin_exists=pin_exists),
+                patch.object(deploy, "_observer_pin_present", return_value=pin_exists) as present,
+                patch.object(deploy, "_recovery_root_read", side_effect=self.pin_reader(self.PINNED)) as read,
+                patch.object(deploy, "Paths", side_effect=deploy.DeployError("stop after resolving the Compose")) as paths,
+                contextlib.redirect_stderr(io.StringIO()),
+            ):
+                self.assertEqual(1, deploy.main(["--manifest", "-", *flags]))
+                self.assertEqual(expected, paths.call_args.args[0])
+                if flags:
+                    present.assert_not_called()
+                if flags or not pin_exists:
+                    read.assert_not_called()
+                else:
+                    read.assert_called_once_with(deploy.OBSERVER_PIN)
 
 if __name__ == "__main__":
     unittest.main()
