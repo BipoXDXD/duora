@@ -28,10 +28,23 @@ import install_executor as installer
 import runtime_guard as guard
 from test_runtime_guard import reviewed_profile
 
-OLD = "1ccd1ada4777c80081c4f9bb2a64a500b1e221f794406319504d9e66cbb975cb"
-NEW = "e9af03f08162ecf2bda094d38511b44b810043863d3104f60ea1046ae687f3b3"
+OLD = "e9af03f08162ecf2bda094d38511b44b810043863d3104f60ea1046ae687f3b3"
+NEW = "6a8352bb8996c15c7c8115ab92ae35328afdffc76a513bde7929d7ea51cfc835"
 COMMIT = "a" * 40
 FIXTURES = Path(__file__).parent / "fixtures"
+# The historical 55d2 controls bind their own 1ccd -> e9 pair, so each case stages the pair of the module under test.
+RECEIVER_FIXTURES = {
+    ("2.0.2", "1ccd1ada4777c80081c4f9bb2a64a500b1e221f794406319504d9e66cbb975cb"): "receiver-2.0.2-1ccd.py.txt",
+    ("2.1.1", OLD): "receiver-2.1.1-e9af.py.txt",
+    ("2.1.2", NEW): "receiver-2.1.2-6a83.py.txt",
+}
+
+
+def receiver_pair(module) -> tuple[tuple[str, str], tuple[str, str]]:
+    """(version, sha256) of the old and candidate receivers that this installer module transitions."""
+    old = (getattr(module, "LEGACY_RECEIVER_VERSION", "2.0.2"), module.LEGACY_RECEIVER_SHA256)
+    new = (getattr(module, "RECEIVER_VERSION", "2.1.1"), module.RECEIVER_SHA256)
+    return old, new
 
 
 def file_identity(path: Path) -> tuple:
@@ -168,14 +181,15 @@ def root_cases() -> type[unittest.TestCase]:
             self.entry.unlink()
             self.entry.symlink_to(self.old_executor_target)
             self.receiver = self.root / "coolify-release/receiver.py"
-            self.old_target = self.receiver.parent / "versions" / ("2.0.2-" + OLD) / "receiver.py"
+            old_pair, new_pair = receiver_pair(installer)
+            self.old_target = self.receiver.parent / "versions" / ("-".join(old_pair)) / "receiver.py"
             self.old_target.parent.mkdir(parents=True, mode=0o700)
-            self.old_target.write_bytes((FIXTURES / "receiver-2.0.2-1ccd.py.txt").read_bytes())
+            self.old_target.write_bytes((FIXTURES / RECEIVER_FIXTURES[old_pair]).read_bytes())
             self.old_target.chmod(0o755)
             self.receiver.symlink_to(self.old_target)
-            self.new_target = self.receiver.parent / "versions" / ("2.1.1-" + NEW) / "receiver.py"
+            self.new_target = self.receiver.parent / "versions" / ("-".join(new_pair)) / "receiver.py"
             self.receiver_source = self.root / "candidate-receiver.py"
-            self.receiver_source.write_bytes((FIXTURES / "receiver-2.1.1-e9af.py.txt").read_bytes())
+            self.receiver_source.write_bytes((FIXTURES / RECEIVER_FIXTURES[new_pair]).read_bytes())
             self.receiver_source.chmod(0o600)
             binding = patch.object(installer, "RECEIVER_PATH", self.receiver)
             binding.start()
@@ -451,7 +465,7 @@ def root_cases() -> type[unittest.TestCase]:
 
         def test_candidate_symlink_is_refused_even_when_its_bytes_have_the_qualified_hash(self) -> None:
             self.receiver_source.unlink()
-            self.receiver_source.symlink_to(FIXTURES / "receiver-2.1.1-e9af.py.txt")
+            self.receiver_source.symlink_to(FIXTURES / RECEIVER_FIXTURES[receiver_pair(installer)[1]])
             with self.assertRaises(installer.InstallError): self.invoke()
             self.assert_old_pair()
 

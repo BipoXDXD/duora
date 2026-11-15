@@ -7,12 +7,15 @@ passagem. Não cancelar, desativar, reexecutar ou despachar publicações para i
 
 ## Conjunto qualificado
 
-O receptor antigo é exclusivamente `1ccd1ada4777c80081c4f9bb2a64a500b1e221f794406319504d9e66cbb975cb`,
-versão de instalação2.0.2. O candidato é exclusivamente
-`e9af03f08162ecf2bda094d38511b44b810043863d3104f60ea1046ae687f3b3`, versão2.1.1. Ambos usam envelope2.
+O receptor antigo é exclusivamente `e9af03f08162ecf2bda094d38511b44b810043863d3104f60ea1046ae687f3b3`,
+versão2.1.1, instalado em `versions/2.1.1-<sha256>/` pela transição anterior (1ccd, versão2.0.2 → e9).
+O candidato é exclusivamente `6a8352bb8996c15c7c8115ab92ae35328afdffc76a513bde7929d7ea51cfc835`,
+versão2.1.2, em `versions/2.1.2-<sha256>/`. Ambos usam envelope2. A 2.1.2 só corrige o carregamento do
+parser revisado do executor (`importlib.machinery` importado explicitamente); o protocolo não muda.
 O emissor continua calculando o digest dos bytes reais do módulo; não há override de digest no ambiente.
-`receiver_binding()` ordinário continua aceitando apenas o candidato e9. O perfil antigo privado existe
+`receiver_binding()` ordinário continua aceitando apenas o candidato 6a. O perfil antigo privado existe
 somente para a transação explícita ou para o journal local autenticado de uma tentativa interrompida.
+Um journal da transição 1ccd → e9 não é aceito por este instalador.
 
 O bundle continua contendo os cinco arquivos já previstos. A transição não altera os bytes do executor,
 de `postgres_swap.py`, de `reconcile_payload.py` ou de `runtime_guard.py`: o manifesto do bundle antigo e o novo
@@ -23,7 +26,7 @@ hashes com os de um bundle histórico.
 ## Preflight e aplicação
 
 A CLI existente `install_executor.py` recebe os parâmetros obrigatórios `--bundle`, `--source-commit`,
-`--manifest-sha256` e `--artifact-id`. O acréscimo `--cohort-receiver` seleciona o arquivo candidato e9,
+`--manifest-sha256` e `--artifact-id`. O acréscimo `--cohort-receiver` seleciona o arquivo candidato 6a,
 regular, protegido e root-owned. Sem `--apply`, a operação é um preflight de leitura: adquire os três
 locks, verifica filas/ingressos, a coorte antiga, recibo/baseline, origem e inventário; não stageia versões,
 altera ponteiros, escreve baseline ou cria journal/fence/receipt.

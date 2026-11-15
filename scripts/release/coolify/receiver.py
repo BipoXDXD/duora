@@ -725,22 +725,29 @@ def atomic_text(path: Any, text: Any) -> None:
     temporary.replace(path)
 
 
+def load_reviewed_manifest_parser(module_path: Path) -> Any:
+    # duora-deploy has no .py suffix, so it needs an explicit SourceFileLoader.
+    # importlib.util does not import importlib.machinery on Python 3.12.
+    import importlib.machinery
+    import importlib.util
+
+    loader = importlib.machinery.SourceFileLoader("duora_manifest", str(module_path))
+    spec = importlib.util.spec_from_loader(loader.name, loader)
+    if spec is None:
+        raise ValueError("Cannot load reviewed manifest parser")
+    module = importlib.util.module_from_spec(spec)
+    sys.modules[spec.name] = module
+    loader.exec_module(module)
+    return module
+
+
 def configure_duora(release: Any, config: Any) -> Any:
     with release_locks(Path("/var/lib/duora/.deploy.lock")):
         # The existing reviewed executor checks schema, backups, WAL and readiness.
         current_id = json_unique(Path("/var/lib/duora/current.json").read_bytes())["releaseId"]
         manifest = link_previous(release["duora"], current_id)
         release["duora"] = manifest
-        module_path = Path("/usr/local/sbin/duora-deploy")
-        import importlib.util
-
-        loader = importlib.machinery.SourceFileLoader("duora_manifest", str(module_path))
-        spec = importlib.util.spec_from_loader(loader.name, loader)
-        if spec is None:
-            raise ValueError("Cannot load reviewed manifest parser")
-        module = importlib.util.module_from_spec(spec)
-        sys.modules[spec.name] = module
-        loader.exec_module(module)
+        module = load_reviewed_manifest_parser(Path("/usr/local/sbin/duora-deploy"))
         module.parse_manifest(json.dumps(manifest), image_prefix="ghcr.io/bipoxdxd/duora-")
         pinned = Path("/etc/duora/coolify-deploy.json")
         current = json_unique(pinned.read_bytes())

@@ -38,8 +38,10 @@ SWAP_FENCE_DIRECTORY = "duora-postgres-swap"
 SWAP_JOURNAL_DIRECTORY = "postgres-swap"
 SWAP_RESEAL_PHASES = {"awaiting-reseal", "aborted-awaiting-reseal"}
 RECEIVER_PATH = Path("/opt/coolify-release/receiver.py")
-RECEIVER_SHA256 = "e9af03f08162ecf2bda094d38511b44b810043863d3104f60ea1046ae687f3b3"
-LEGACY_RECEIVER_SHA256 = "1ccd1ada4777c80081c4f9bb2a64a500b1e221f794406319504d9e66cbb975cb"
+RECEIVER_VERSION = "2.1.2"
+RECEIVER_SHA256 = "6a8352bb8996c15c7c8115ab92ae35328afdffc76a513bde7929d7ea51cfc835"
+LEGACY_RECEIVER_VERSION = "2.1.1"
+LEGACY_RECEIVER_SHA256 = "e9af03f08162ecf2bda094d38511b44b810043863d3104f60ea1046ae687f3b3"
 RECEIPT_NAME = "executor-install-receipt.json"
 REHOST_FENCE_DIRECTORY = "duora-executor-rehost"
 REHOST_HISTORY_DIRECTORY = "executor-rehost-history"
@@ -185,7 +187,7 @@ def _require_root_path(path: Path, *, directory: bool = False) -> None:
 
 
 def receiver_binding() -> dict:
-    """The only symlink exception: the exact qualified receiver leaf and immutable 2.1.1 target."""
+    """The only symlink exception: the exact qualified receiver leaf and immutable candidate target."""
     try:
         _require_root_path(RECEIVER_PATH.parent, directory=True)
         info = RECEIVER_PATH.lstat()
@@ -194,7 +196,7 @@ def receiver_binding() -> dict:
         if stat.S_ISLNK(info.st_mode):
             # Linux symlink permission bits are normally 0777 and do not authorize modifying its target.
             raw_link = os.readlink(RECEIVER_PATH)
-            target = RECEIVER_PATH.parent / "versions" / ("2.1.1-" + RECEIVER_SHA256) / "receiver.py"
+            target = _new_receiver_target()
             if raw_link != str(target): raise InstallError("Receiver link is outside the exact qualified version")
         else:
             target = RECEIVER_PATH
@@ -203,7 +205,7 @@ def receiver_binding() -> dict:
         if resolved != target: raise InstallError("Receiver resolution differs from the qualified target")
         content = _protected_bytes(target)
         checksum = hashlib.sha256(content).hexdigest()
-        if checksum != RECEIVER_SHA256: raise InstallError("Receiver source differs from qualified 2.1.1")
+        if checksum != RECEIVER_SHA256: raise InstallError("Receiver source differs from the qualified candidate")
         after = RECEIVER_PATH.lstat()
         identity = lambda value: (value.st_dev, value.st_ino, value.st_uid, value.st_gid, value.st_nlink, value.st_mode)
         if identity(info) != identity(after) or (raw_link is not None and os.readlink(RECEIVER_PATH) != raw_link):
@@ -226,8 +228,7 @@ def _legacy_receiver_binding() -> dict:
         if before.st_uid != 0 or before.st_nlink != 1:
             raise InstallError("Unowned legacy receiver entry")
         link = os.readlink(RECEIVER_PATH) if stat.S_ISLNK(before.st_mode) else None
-        target = (RECEIVER_PATH.parent / "versions" / ("2.0.2-" + LEGACY_RECEIVER_SHA256) / "receiver.py"
-                  if link is not None else RECEIVER_PATH)
+        target = _legacy_receiver_target() if link is not None else RECEIVER_PATH
         if link is not None and link != str(target):
             raise InstallError("Legacy receiver target differs from the single qualified version")
         _require_root_path(target)
@@ -260,8 +261,16 @@ def _cohort_receiver_state() -> dict:
         return _legacy_receiver_binding()
 
 
+def _versioned_receiver_target(version: str, sha256: str) -> Path:
+    return RECEIVER_PATH.parent / "versions" / (version + "-" + sha256) / "receiver.py"
+
+
 def _new_receiver_target() -> Path:
-    return RECEIVER_PATH.parent / "versions" / ("2.1.1-" + RECEIVER_SHA256) / "receiver.py"
+    return _versioned_receiver_target(RECEIVER_VERSION, RECEIVER_SHA256)
+
+
+def _legacy_receiver_target() -> Path:
+    return _versioned_receiver_target(LEGACY_RECEIVER_VERSION, LEGACY_RECEIVER_SHA256)
 
 
 def _cohort_after_binding() -> dict:
@@ -298,7 +307,7 @@ def _cohort_plan(source: Path, manifest: dict, paths: InstallPaths, expected_exe
         raise InstallError("Receiver cohort transition requires the administrative root identity")
     _require_root_path(source)
     if hashlib.sha256(_protected_bytes(source)).hexdigest() != RECEIVER_SHA256:
-        raise InstallError("Candidate receiver is not the exact qualified e9 source")
+        raise InstallError("Candidate receiver is not the exact qualified source")
     before = _legacy_receiver_binding()
     if before["entry"]["gid"] != 0 or before["target"]["gid"] != 0:
         raise InstallError("Cohort preimages require the reviewed root group ownership")
@@ -387,7 +396,7 @@ def _cohort_record(journal: dict, paths: InstallPaths, preimage: Path) -> dict |
     if any(old[key]["uid"] != 0 or old[key]["gid"] != 0 or old[key]["nlink"] != 1
            for key in ("entry", "target")):
         raise InstallError("Receiver preimage is outside the reviewed root ownership")
-    expected_old_target = RECEIVER_PATH.parent / "versions" / ("2.0.2-" + LEGACY_RECEIVER_SHA256) / "receiver.py"
+    expected_old_target = _legacy_receiver_target()
     if (old.get("kind") not in {"qualified-versioned-symlink", "qualified-regular"}
             or old.get("readlink") not in (None, str(expected_old_target))
             or old.get("resolvedTarget") != str(expected_old_target if old["readlink"] is not None else RECEIVER_PATH)):
@@ -797,7 +806,7 @@ def install_bundle(source: Path, *, expected_commit: str, manifest_sha256: str,
                 if cohort is not None:
                     _cohort_receiver_replace(preimage, cohort["receiverAfter"])
                     if receiver_binding() != cohort["receiverAfter"]:
-                        raise InstallError("Activated receiver differs from the exact planned e9 binding")
+                        raise InstallError("Activated receiver differs from the exact planned candidate binding")
                     _write(preimage / "cohort-phase.json", _json({"attemptSha256": pending["attemptSha256"],
                                                                  "phase": "receiver-active"}))
                 _write(baseline_path, new_baseline)
