@@ -797,7 +797,8 @@ class ReconvergeTests(InstallationFixture, RefusalAssertions):
         self.assertEqual((result["status"], result["pin"]["status"]), ("reconverged", "current"))
         self.assertEqual(self.commands, self.FULL_RECREATE)
         self.assertEqual({role: item["id"] for role, item in result["containers"].items()}, self.recreated)
-        self.assertEqual((self.files[self.pin_path], self.verified), (self.restored_pin, [True]))
+        self.assertEqual(self.files[self.pin_path], self.restored_pin)
+        self.assertEqual((self.ready, self.running, self.verified), ([True], [True], [True]))
 
     def test_apply_interrupted_after_recreating_only_the_backup_recreates_both_on_resume(self) -> None:
         self.apply_interrupted_while_recreating_postgres()
@@ -811,7 +812,8 @@ class ReconvergeTests(InstallationFixture, RefusalAssertions):
         self.assertEqual(self.commands, self.FULL_RECREATE)
         self.assertEqual({role: (item["id"], item["configImage"]) for role, item in result["containers"].items()},
                          {role: (identifier, self.reference) for role, identifier in self.recreated.items()})
-        self.assertEqual((self.files[self.pin_path], self.verified), (self.restored_pin, [True]))
+        self.assertEqual(self.files[self.pin_path], self.restored_pin)
+        self.assertEqual((self.ready, self.running, self.verified), ([True], [True], [True]))
 
     def test_postgres_left_created_but_never_started_by_an_interrupted_recreate_is_started_on_resume(self) -> None:
         self.apply_interrupted_while_recreating_postgres(
