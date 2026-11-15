@@ -364,11 +364,12 @@ def _root_lab(*, trial: int = 1) -> dict:
                 pinned_json.chmod(0o600)
                 link.unlink(missing_ok=True)
         receiver_link = root / "receiver-policy/receiver.py"
-        receiver_target = receiver_link.parent / "versions" / ("2.1.1-" + installer.RECEIVER_SHA256) / "receiver.py"
+        receiver_version = f"{installer.RECEIVER_VERSION}-{installer.RECEIVER_SHA256}"
+        receiver_target = receiver_link.parent / "versions" / receiver_version / "receiver.py"
         receiver_target.parent.mkdir(parents=True)
-        receiver_source = (repo / "scripts/deploy/fixtures/receiver-2.1.1-e9af.py.txt").read_bytes()
+        receiver_source = (repo / "scripts/deploy/fixtures/receiver-2.1.2-6a83.py.txt").read_bytes()
         if hashlib.sha256(receiver_source).hexdigest() != installer.RECEIVER_SHA256:
-            raise RuntimeError("Reviewed cohort receiver fixture differs from installed 2.1.1")
+            raise RuntimeError("Reviewed cohort receiver fixture differs from the installed candidate")
         receiver_target.write_bytes(receiver_source)
         receiver_target.chmod(0o755)
         receiver_link.symlink_to(receiver_target)
@@ -815,7 +816,8 @@ def _root_lab(*, trial: int = 1) -> dict:
                 "pinnedComposePolicy": {"realRootFilesystem": True, "customJsonPathSelected": True,
                     "unsafeParentFileModeDigestSymlinkRefused": True, "scope": "Synthetic pin policy fixture; actual host pin is qualified under installer locks"},
                 "receiverVersionedLinkPolicy": {"realRootFilesystem": True, "sourceSha256": installer.RECEIVER_SHA256,
-                    "layout": "versions/2.1.1-<qualified-sha256>/receiver.py", "verifiedTargetLoaded": True,
+                    "layout": f"versions/{installer.RECEIVER_VERSION}-<qualified-sha256>/receiver.py",
+                    "verifiedTargetLoaded": True,
                     "negativeCases": receiver_negatives, "bindingRestoredExactly": True},
                 "receiver_installer_interlock_proved": True,
                 "observationWindow": {"start": window_start, "end": window_end, "errors": observer_errors,

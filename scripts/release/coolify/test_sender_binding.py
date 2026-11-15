@@ -80,15 +80,21 @@ class SenderBindingTests(unittest.TestCase):
             self.assertNotEqual(result['images'][role], FIXTURE['publication']['images'][role])
         self.assertEqual(result['images']['postgres'], FIXTURE['publication']['images']['postgres'])
 
-    def test_current_sender_emits_the_reviewed_e9_envelope_accepted_by_the_receiver(self):
+    def test_current_sender_emits_the_reviewed_6a_envelope_accepted_by_the_receiver(self):
         result = self.invoke()
         self.assertEqual(result['receiver_sha256'],
-                         'e9af03f08162ecf2bda094d38511b44b810043863d3104f60ea1046ae687f3b3')
+                         '6a8352bb8996c15c7c8115ab92ae35328afdffc76a513bde7929d7ea51cfc835')
         self.assertEqual(receiver.validate_release(result, 'duora', SOURCE), result)
 
-    def test_historical_1ccd_envelope_is_refused_by_the_new_receiver(self):
+    def test_historical_envelopes_are_refused_by_the_new_receiver(self):
+        for historical in ('1ccd1ada4777c80081c4f9bb2a64a500b1e221f794406319504d9e66cbb975cb',
+                           'e9af03f08162ecf2bda094d38511b44b810043863d3104f60ea1046ae687f3b3'):
+            with self.subTest(receiver_sha256=historical):
+                self.assert_refused_envelope(historical)
+
+    def assert_refused_envelope(self, receiver_sha256):
         result = self.invoke()
-        result['receiver_sha256'] = '1ccd1ada4777c80081c4f9bb2a64a500b1e221f794406319504d9e66cbb975cb'
+        result['receiver_sha256'] = receiver_sha256
         with self.assertRaises(ValueError):
             receiver.validate_release(result, 'duora', SOURCE)
 

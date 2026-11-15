@@ -1,5 +1,7 @@
 import io
 import json
+import subprocess
+import sys
 import tarfile
 import tempfile
 import unittest
@@ -153,3 +155,23 @@ class ReviewRegressionTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class ManifestParserLoadTests(unittest.TestCase):
+    def test_loads_suffixless_parser_in_a_fresh_interpreter(self):
+        # A fresh interpreter matters: the test runner may already have importlib.machinery loaded.
+        with tempfile.TemporaryDirectory() as directory:
+            parser = Path(directory) / "duora-deploy"
+            parser.write_text("def parse_manifest(text, image_prefix):\n    return 'parsed:' + image_prefix\n")
+            here = Path(__file__).resolve().parent
+            code = (
+                "import sys; sys.path.insert(0, sys.argv[1]); import receiver; from pathlib import Path; "
+                "print(receiver.load_reviewed_manifest_parser(Path(sys.argv[2])).parse_manifest('{}', image_prefix='p-'))"
+            )
+            result = subprocess.run(
+                [sys.executable, "-I", "-c", code, str(here), str(parser)],
+                capture_output=True, text=True, timeout=60,
+            )
+
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(result.stdout.strip(), "parsed:p-")
