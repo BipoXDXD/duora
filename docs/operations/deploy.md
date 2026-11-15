@@ -803,17 +803,18 @@ segue conectado a ela (incidente de 14/11, na reabertura da troca).
 A saída é recriar a rede numa janela do dono. Há queda: os serviços da rede sobem de novo. `C` é o Compose do pin
 (`compose` em `/etc/duora/coolify-deploy.json`, que pode ser um `compose.coolify.json`), e `ID` é o `releaseId` de
 `/var/lib/duora/current.json` (não o `R` da troca, que é um manifesto). `D` repete o ambiente limpo do `duora-deploy`,
-para o dry-run ler o mesmo projeto e calcular o mesmo hash que ele.
+para o dry-run ler o mesmo projeto e calcular o mesmo hash que ele. `REDE` é o nome de uma das redes reportadas.
 
 ```bash
 D() { sudo env -i PATH=/usr/bin:/bin LC_ALL=C docker compose --file "$C" --env-file /etc/duora/duora.env --env-file /var/lib/duora/releases/$ID.env "$@"; }
 D --progress plain --dry-run up --detach --no-deps postgres backup web worker edge 2>&1
-sudo docker network inspect duora_edge
-sudo docker container inspect --format '{{index .Config.Labels "com.docker.compose.project"}} {{json (index .NetworkSettings.Networks "duora_edge")}}' <container>
+REDE=duora_edge   # exemplo; repita para cada rede reportada
+sudo docker network inspect "$REDE"
+sudo docker container inspect --format '{{index .Config.Labels "com.docker.compose.project"}} {{json .NetworkSettings.Networks}}' <container>
 ```
 
 Confira o código de saída do dry-run e leia a saída inteira. Guarde o IPAM, os labels e a lista de containers do
-`network inspect`. Para cada container dessa lista, a inspeção do endpoint registra o projeto, os aliases e os
+`network inspect`. Para cada container dessa lista, registre o projeto e, na entrada de `REDE`, os aliases e os
 endereços estáticos configurados em `IPAMConfig`, necessários para a reconexão.
 
 O dry-run cobre os cinco serviços, então a recusa também vale para redes que o `up web worker edge` do deploy não
@@ -825,8 +826,13 @@ antes do passo 1 e leve o caso inteiro a uma janela do dono. Recriá-las pararia
 baseline do executor sela, e ainda não há procedimento revisado (#567). Recriar só as outras traria a queda sem
 destravar o preflight.
 
+Antes de intervir, reserve a janela com a coordenação, suspenda novas releases e confirme que o ingresso está ocioso.
+Resolva qualquer instalação do executor, rehost ou recuperação `current-v2` pendente com o comando responsável. Esses
+fluxos registram identidades de containers que a recriação manual pode invalidar. Se a única operação aberta for a troca
+do PostgreSQL, siga a variante do passo 2. Consulte o [protocolo de isolamento](../../scripts/release/coolify/ISOLATION.md).
+
 1. Para cada rede listada, use o label do container para identificar os endpoints alheios ao projeto `duora`.
-   Desconecte cada um com `sudo docker network disconnect duora_edge <container>`.
+   Desconecte cada um com `sudo docker network disconnect "$REDE" <container>`.
 2. Só sem troca aberta: `/var/lib/duora/postgres-swap/attempt.json` não pode existir. Recrie pelo Compose só os
    serviços ligados à rede listada (`networks:` do Compose do pin; na `duora_edge`, `web` e `edge`; na `egress`, só
    `worker`). Para a `duora_edge`, use `D up --detach --wait --no-deps --force-recreate web edge` para reaplicar os
@@ -835,7 +841,7 @@ destravar o preflight.
    argumentos do journal. Essas ações de recuperação não executam o preflight e o `up` da troca pode recriar a rede.
    Confira os endpoints da aplicação antes de repetir uma ação recusada por readiness. Se faltar alias ou IP fixo,
    mantenha a janela aberta e restaure o endpoint conforme o Compose do pin e a fase da troca com o responsável.
-3. Reconecte cada endpoint alheio com `sudo docker network connect --alias <alias> duora_edge <container>`. Repita
+3. Reconecte cada endpoint alheio com `sudo docker network connect --alias <alias> "$REDE" <container>`. Repita
    `--alias` para cada alias anotado e use `--ip` ou `--ip6` quando o endpoint tinha endereço estático configurado.
    A pertença do `deployment-observer` está presa
    ao pin (`observer_networks`); sem ele na rede, o deploy seguinte recusa com "Observer network membership differs from
