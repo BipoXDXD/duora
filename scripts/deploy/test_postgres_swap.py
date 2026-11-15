@@ -71,6 +71,7 @@ class FakeDocker:
         self.other_service_drift = False
         self.counts = {"postgres": 1, "backup": 1}
         self.holds: set[str] = set()
+        self.network_removals: list[str] = []
 
     def __call__(self, command: list[str], *, capture: bool = False, input_text: str | None = None,
                  timeout_seconds: int | None = None) -> subprocess.CompletedProcess[str]:
@@ -79,6 +80,13 @@ class FakeDocker:
         self.commands.append(joined)
         absent = ((command[:3] == ["docker", "image", "inspect"] and command[-1] not in self.local)
                   or (command[:3] == ["docker", "container", "inspect"] and command[-1] not in self.holds))
+        if "--dry-run" in command:
+            # Its service list contains every "--no-deps <service>" substring, so it fails only when named directly.
+            if "--dry-run" in self.fail_on:
+                return subprocess.CompletedProcess(command, 1, "", "falha simulada")
+            # The Compose prints its plan as progress on stderr and changes nothing.
+            plan = "".join(f"DRY-RUN MODE -  Network {name} Removed\n" for name in self.network_removals)
+            return subprocess.CompletedProcess(command, 0, "", plan + " Container duora-web-1 Running \n")
         if absent or any(failure in joined for failure in self.fail_on):
             return subprocess.CompletedProcess(command, 1, "", "falha simulada")
         return subprocess.CompletedProcess(command, 0, self._answer(command, joined), "")
@@ -173,7 +181,8 @@ class FakeDocker:
 
     def mutating(self) -> list[str]:
         # The disposable probe script mentions "stop" but never reaches the project containers.
-        compose = [command for command in self.commands if command.startswith("docker compose")]
+        compose = [command for command in self.commands
+                   if command.startswith("docker compose") and " --dry-run " not in command]
         host = [command for command in self.commands if command.startswith(("docker create", "docker rm"))]
         return host + [command for command in compose if any(item in command for item in MUTATIONS)]
 
@@ -496,6 +505,42 @@ class PreconditionTests(SwapFixture):
                 self.docker.fail_on = {failure}
                 self.refused()
 
+    def test_network_the_compose_would_recreate_refuses_without_effect(self) -> None:
+        self.docker.network_removals = ["duora_edge"]
+        with self.assertRaisesRegex(deploy.DeployError, "rede duora_edge.*nada foi parado"):
+            self.call("plan")
+        self.refused()
+        self.assertFalse((self.state / "postgres-swap").exists())
+
+    def test_failed_compose_dry_run_refuses_without_effect(self) -> None:
+        self.docker.fail_on = {"--dry-run"}
+        with self.assertRaisesRegex(deploy.DeployError, "dry-run do Compose"):
+            self.call("plan")
+        self.refused()
+
+    def test_network_drift_after_review_refuses_apply_before_creating_journal(self) -> None:
+        reviewed = self.plan()
+        before = self.snapshot()
+        self.docker.commands.clear()
+        self.docker.network_removals = ["duora_edge"]
+
+        with self.assertRaisesRegex(deploy.DeployError, "rede duora_edge"):
+            self.call("apply", reviewed=reviewed)
+
+        self.assertEqual(self.docker.mutating(), [])
+        self.assertEqual(self.snapshot(), before)
+        self.assertFalse((self.state / "postgres-swap").exists())
+        self.assertFalse(self.fence().exists())
+
+    def test_compose_dry_run_covers_every_service_before_the_backup_verify(self) -> None:
+        self.call("plan")
+        dry_runs = [i for i, c in enumerate(self.docker.commands) if " --dry-run " in c]
+        verify = next(i for i, c in enumerate(self.docker.commands) if c.endswith("duora-backup verify"))
+        self.assertEqual(len(dry_runs), 1)
+        self.assertTrue(self.docker.commands[dry_runs[0]].endswith(
+            "--progress plain --dry-run up --detach --no-deps postgres backup web worker edge"))
+        self.assertLess(dry_runs[0], verify)
+
     def test_repository_verification_needs_verify_repo_and_verify(self) -> None:
         self.call("plan")
         self.assertTrue(any(c.endswith("duora-backup verify") for c in self.docker.commands))
@@ -590,6 +635,36 @@ class PreconditionTests(SwapFixture):
             with self.assertRaises(deploy.DeployError):
                 self.call(action, reviewed=reviewed)
         self.assertEqual(self.phase(), "awaiting-reseal")
+
+
+class NetworkPreflightOutputTests(unittest.TestCase):
+    """The detector reads the Compose progress text; these pin which lines refuse and which pass."""
+
+    def verdict(self, stderr: str) -> str | None:
+        def run(command, *, capture=False, input_text=None, timeout_seconds=None):
+            return subprocess.CompletedProcess(command, 0, "", stderr)
+        try:
+            swap.require_compose_networks_kept(["docker", "compose"], run)
+        except deploy.DeployError as error:
+            return str(error)
+        return None
+
+    def test_removal_with_a_prefix_still_refuses(self) -> None:
+        for status in ("Removing", "Removed"):
+            with self.subTest(status=status):
+                output = f"DRY-RUN MODE -  Network duora_edge  {status}\n Container duora-web-1 Recreate\n"
+                self.assertIn("rede duora_edge", self.verdict(output) or "")
+
+    def test_network_creation_and_warning_lines_pass(self) -> None:
+        for line in ("Network duora_edge Creating", "Network duora_edge Created",
+                     'level=warning msg="unexpected Network duora_edge Removed message"'):
+            with self.subTest(line=line):
+                self.assertIsNone(self.verdict(" " + line + "\n Container duora-web-1 Running\n"))
+
+    def test_output_without_any_container_line_refuses(self) -> None:
+        for stderr in ("", "something else entirely\n", 'level=warning msg="Container metadata unavailable"\n'):
+            with self.subTest(stderr=stderr):
+                self.assertIn("formato desconhecido", self.verdict(stderr) or "")
 
 
 class FenceTests(SwapFixture):
@@ -716,8 +791,10 @@ class OperatorArgumentsTests(SwapFixture):
             for release, reference in wrong:
                 with self.subTest(action=action, release=release.release_id, reference=reference):
                     self.docker.commands.clear()
-                    with self.assertRaisesRegex(deploy.DeployError, "journal aberto"):
+                    with self.assertRaisesRegex(deploy.DeployError, "journal aberto") as refused:
                         self.call(action, release=release, target=reference)
+                    self.assertIn(self.release.release_id, str(refused.exception))
+                    self.assertIn(NEW_REF, str(refused.exception))
                     self.assertEqual(self.docker.commands, [])
                     self.assertEqual(self.phase(), phase)
                     self.assertTrue(self.fence().exists())
@@ -1466,7 +1543,7 @@ class StrengthenedProtocolTests(SwapFixture):
 
     def test_every_recreation_waits_for_health(self) -> None:
         self.apply()
-        ups = [c for c in self.docker.commands if " up " in c]
+        ups = [c for c in self.docker.commands if " up " in c and " --dry-run " not in c]
         self.assertGreaterEqual(len(ups), 3)
         self.assertTrue(all("up --detach --wait --no-deps" in c for c in ups))
 

@@ -136,7 +136,8 @@ class PreservationDeploymentTests(unittest.TestCase):
         sql = "SELECT 'verified canonical payload';\n"
         with patch.object(deploy, "runtime_recheck"), patch.object(deploy, "runtime_preflight", return_value=sql):
             deploy.deploy(self.release, self.paths, runner, sleep=lambda _: None)
-        for command in runner.commands:
+        # The Compose dry-run names every service but starts or recreates nothing.
+        for command in (c for c in runner.commands if "--dry-run" not in c):
             self.assertFalse(any(op in command for op in ["up", "start", "restart", "create"]) and
                              any(role in command for role in ["postgres", "backup"]))
             if "migrator" in command and "run" in command:
@@ -241,5 +242,5 @@ class RuntimeDriftBoundaryTests(unittest.TestCase):
                 with self.assertRaises(deploy.DeployError):
                     deploy.deploy(release, deploy.Paths(root / "compose.yml", root / "host.env", state),
                                   runner, sleep=lambda _: None)
-            self.assertFalse(runner.ran("up --detach"))
+            self.assertFalse(any("up --detach" in " ".join(c) and "--dry-run" not in c for c in runner.commands))
             self.assertEqual(deploy._current_release_id(state), "current-v2")

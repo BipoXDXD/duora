@@ -80,6 +80,36 @@ def _compose_command(paths: Paths, release_env: Path) -> list[str]:
     ]
 
 
+COMPOSE_SERVICES = ("postgres", "backup", "web", "worker", "edge")
+# Algumas versões do Compose anunciam a remoção só com "Removed", mesmo no dry-run.
+COMPOSE_PROGRESS_PREFIX = r"^[ \t]*(?:DRY-RUN MODE[ \t]*-[ \t]*)?"
+NETWORK_REMOVAL = re.compile(
+    COMPOSE_PROGRESS_PREFIX + r"Network[ \t]+(\S+)[ \t]+(?:Removing|Removed)\b", re.MULTILINE)
+CONTAINER_PLAN = re.compile(
+    COMPOSE_PROGRESS_PREFIX + r"Container[ \t]+\S+[ \t]+"
+    r"(?:Running|Creat(?:ing|ed)|Recreat(?:e|ing|ed)|Start(?:ing|ed)|Waiting|Healthy)\b", re.MULTILINE)
+
+
+def require_compose_networks_kept(compose: list[str], run: QueryRunner) -> None:
+    """Recusa, antes de parar qualquer coisa, um up que recriaria uma rede do projeto.
+
+    O Compose recria a rede quando o label com.docker.compose.config-hash difere do hash que ele calcula, o que muda
+    entre versões. A remoção falha com qualquer endpoint alheio (o deployment-observer do Coolify fica na edge), e o
+    up para no meio com a aplicação fora do ar. O dry-run consulta o daemon sem alterar o stack.
+    """
+    result = _check(run(compose + ["--progress", "plain", "--dry-run", "up", "--detach", "--no-deps", *COMPOSE_SERVICES],
+                        capture=True), "dry-run do Compose")
+    output = (result.stdout or "") + "\n" + (result.stderr or "")
+    networks = sorted(set(NETWORK_REMOVAL.findall(output)))
+    if networks:
+        raise DeployError("o Compose recriaria a rede " + ", ".join(networks) + " (config-hash divergente, comum "
+                          "depois de atualizar o Compose); nada foi parado. Revise as redes afetadas e planeje a "
+                          "janela do dono conforme docs/operations/deploy.md, "
+                          "\"Rede recriada pelo Compose\"")
+    if not CONTAINER_PLAN.search(output):
+        raise DeployError("dry-run do Compose sem nenhuma linha de container: formato desconhecido; nada foi parado")
+
+
 def _release_env_text(release: Release) -> str:
     lines = [f"DUORA_{name.upper()}_IMAGE={reference}" for name, reference in release.images.items()]
     lines.append(f"DUORA_RELEASE_ID={release.release_id}")
@@ -371,6 +401,7 @@ def _swap_plan(current: Release, reference: str, paths: Paths, run: Runner, host
     compose = _compose_command(paths, environment)
     facts = _swap_require_compatible(current, reference, compose, run, host)
     _swap_require_interpolated(current, reference, paths, run)
+    require_compose_networks_kept(compose, run)
     _swap_backup("verify", paths, run, lease)
     read = lambda path: hashlib.sha256(host.read_protected(path)).hexdigest()
     return {"schema": 1, "operation": "postgres-component-swap", "sourceReleaseId": current.release_id,
@@ -831,7 +862,9 @@ def _swap_load(source: Release, reference: str, paths: Paths, run: Runner, host:
         raise DeployError("Fase da troca não pertence a este journal")
     target = host.core.parse_manifest(json.dumps(attempt["target"]), image_prefix=host.image_prefix)
     if attempt["source"] != source.raw or target.images["postgres"] != reference:
-        raise DeployError("--manifest e --target-postgres precisam ser os do journal aberto")
+        recorded_source = host.core.parse_manifest(json.dumps(attempt["source"]), image_prefix=host.image_prefix)
+        raise DeployError(f"use os argumentos do journal aberto: --manifest com o arquivo da release de origem "
+                          f"{recorded_source.release_id} e --target-postgres {target.images['postgres']}")
     if attempt["executor"] != host.executor_identity():
         raise DeployError("Executor diferente do que abriu a troca")
     return _SwapContext(source, target, attempt, digest, record, paths, run, host, lease)

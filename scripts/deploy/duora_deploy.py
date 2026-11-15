@@ -478,6 +478,7 @@ def deploy(release: Release, paths: Paths, run: Runner, *,
     _step("baixando imagens por digest")
     _check(run(compose + ["--profile", "migrate", "pull", "--quiet", "web", "worker", "edge", "migrator"]), "pull das imagens da aplicação")
     _require_image_architectures(release, run)
+    _swap.require_compose_networks_kept(compose, run)
 
     _step("PostgreSQL e backup preservados; nenhuma operação de criação ou reinício")
 
@@ -2997,6 +2998,42 @@ def _recovery_control_phases(store: RecoveryStore, attempt: dict, context: dict,
         "releaseId": current.release_id, "commit": current.commit}
 
 
+OBSERVER_PIN = Path("/etc/duora/coolify-deploy.json")
+ANSIBLE_COMPOSE = Path("/opt/duora/compose.prod.yml")
+
+
+def default_compose_file(*, required_pin: bool, read: Callable[[Path], bytes] | None = None,
+                         pin_exists: Callable[[Path], bool] | None = None) -> Path:
+    """O Compose usado sem --compose-file.
+
+    Na VPS do Coolify é o que o pin do observador fixa por hash, o único que as checagens administrativas e o
+    instalador aceitam. Sem pin, é o que o Ansible instala (VPS nova), porque a forced command do Ansible chama
+    `duora-deploy --manifest -` sem --compose-file. Pin presente, inalcançável ou ilegível falha: não cai no caminho
+    do Ansible.
+    """
+    # Leitor e teste de presença resolvidos na chamada: um patch no módulo também vale aqui.
+    if required_pin or (pin_exists or _observer_pin_present)(OBSERVER_PIN):
+        try:
+            compose = _guard.decode_json((read or _recovery_root_read)(OBSERVER_PIN)).get("compose")
+        except _guard.GuardError as error:
+            raise DeployError("Observer pin is not valid metadata") from error
+        if not isinstance(compose, str) or "\x00" in compose or not Path(compose).is_absolute():
+            raise DeployError("Observer pin does not name the Compose file by absolute path")
+        return Path(compose)
+    return ANSIBLE_COMPOSE
+
+
+def _observer_pin_present(path: Path) -> bool:
+    """Só a ausência comprovada conta como "sem pin"; sem permissão para olhar, o pin pode existir."""
+    try:
+        os.lstat(path)
+    except FileNotFoundError:
+        return False
+    except OSError:
+        return True
+    return True
+
+
 def run_command(command: list[str], *, capture: bool = False,
                 input_text: str | None = None) -> subprocess.CompletedProcess[str]:
     # Só se captura o que o deploy lê (arquitetura, migration, estado). O resto, inclusive a saída do migrador,
@@ -3141,10 +3178,7 @@ def main(argv: list[str] | None = None) -> int:
 
     try:
         if mode: _require_recovery_administrator()
-        compose_file = args.compose_file
-        if compose_file is None:
-            compose_file = (Path(_guard.decode_json(_recovery_root_read(Path("/etc/duora/coolify-deploy.json")))["compose"])
-                            if mode else Path("/opt/duora/compose.prod.yml"))
+        compose_file = args.compose_file or default_compose_file(required_pin=mode is not None)
         paths = Paths(compose_file, args.host_env, args.state_dir)
         lock = (recovery_administrative_locks(paths) if mode else
                 deploy_lock(args.state_dir, readonly=args.preflight_only or args.inventory_only))
