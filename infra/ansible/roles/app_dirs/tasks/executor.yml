@@ -1,0 +1,255 @@
+---
+- name: Provisionar somente o executor de bootstrap
+  vars:
+    app_dirs_executor_members:
+      - duora_deploy.py
+      - reconcile_payload.py
+      - runtime_guard.py
+      - postgres_swap.py
+  block:
+    - name: Inspecionar a entrada de deploy sem seguir o link
+      ansible.builtin.stat:
+        path: "{{ app_dirs_executor_entry }}"
+        follow: false
+        get_checksum: false
+      register: app_dirs_executor_entry_state
+
+    - name: Inspecionar o recibo do executor
+      ansible.builtin.stat:
+        path: "{{ duora_state_dir }}/executor-install-receipt.json"
+        follow: false
+        get_checksum: false
+      register: app_dirs_executor_receipt_state
+
+    - name: Inspecionar o baseline de runtime
+      ansible.builtin.stat:
+        path: "{{ duora_state_dir }}/executor-runtime-baseline.json"
+        follow: false
+        checksum_algorithm: sha256
+      register: app_dirs_executor_baseline_state
+
+    - name: Verificar se há uma instalação administrativa pendente
+      ansible.builtin.stat:
+        path: "{{ duora_state_dir }}/executor-install-pending.json"
+        follow: false
+        get_checksum: false
+      register: app_dirs_executor_pending_state
+
+    - name: Recusar estado de executor ambíguo antes do provisionamento
+      ansible.builtin.assert:
+        that:
+          - not app_dirs_executor_pending_state.stat.exists
+          - app_dirs_executor_receipt_state.stat.exists == app_dirs_executor_baseline_state.stat.exists
+          - app_dirs_executor_entry_state.stat.exists or not app_dirs_executor_receipt_state.stat.exists
+          - >-
+            not app_dirs_executor_entry_state.stat.exists or
+            (app_dirs_executor_entry_state.stat.islnk and app_dirs_executor_entry_state.stat.uid == 0)
+        fail_msg: >-
+          Entrada, recibo, baseline ou instalação pendente requer revisão administrativa do executor.
+          O role só publica uma entrada ausente.
+
+    - name: Conferir a instalação já selada
+      when: app_dirs_executor_receipt_state.stat.exists
+      block:
+        - name: Exigir recibo e baseline protegidos
+          ansible.builtin.assert:
+            that:
+              - item.isreg
+              - item.uid == 0
+              - item.mode == '0600'
+            fail_msg: Recibo ou baseline precisa ser um arquivo regular privado de root.
+          loop:
+            - "{{ app_dirs_executor_receipt_state.stat }}"
+            - "{{ app_dirs_executor_baseline_state.stat }}"
+          loop_control:
+            label: "{{ item.path }}"
+
+        - name: Ler o recibo protegido do executor
+          ansible.builtin.slurp:
+            src: "{{ duora_state_dir }}/executor-install-receipt.json"
+          register: app_dirs_executor_receipt_raw
+          no_log: true
+
+        - name: Conferir o vínculo do selo com o link literal
+          vars:
+            app_dirs_executor_receipt: "{{ app_dirs_executor_receipt_raw.content | b64decode | from_json }}"
+          ansible.builtin.assert:
+            that:
+              - app_dirs_executor_receipt.schema | default(0) == 1
+              - app_dirs_executor_receipt.status | default('') == 'installed'
+              - app_dirs_executor_receipt.sourceCommit | default('') is match('^[0-9a-f]{40}$')
+              - app_dirs_executor_receipt.baselineSha256 | default('') == app_dirs_executor_baseline_state.stat.checksum
+              - >-
+                app_dirs_executor_entry_state.stat.lnk_target ==
+                app_dirs_executor_releases ~ '/' ~ app_dirs_executor_receipt.sourceCommit ~ '/duora_deploy.py'
+            fail_msg: O recibo, o baseline e o link literal do executor precisam descrever a mesma versão instalada.
+
+        - name: Inspecionar os diretórios da versão selada sem seguir links
+          ansible.builtin.stat:
+            path: "{{ item }}"
+            follow: false
+            get_checksum: false
+          loop:
+            - "{{ app_dirs_executor_releases | dirname }}"
+            - "{{ app_dirs_executor_releases }}"
+            - "{{ app_dirs_executor_entry_state.stat.lnk_target | dirname }}"
+          register: app_dirs_executor_sealed_directories
+
+        - name: Exigir diretórios protegidos e reais para a versão selada
+          ansible.builtin.assert:
+            that:
+              - item.stat.exists
+              - item.stat.isdir
+              - item.stat.uid == 0
+              - item.stat.gid == 0
+              # O instalador exige releases privado, mas aceita um pai root:root preexistente sem escrita por terceiros.
+              - >-
+                (item.stat.mode is match('^0[0-7][0145]{2}$'))
+                if item.item == (app_dirs_executor_releases | dirname)
+                else item.stat.mode == '0700'
+            fail_msg: A versão selada precisa estar sob diretórios protegidos e reais de root.
+          loop: "{{ app_dirs_executor_sealed_directories.results }}"
+          loop_control:
+            label: "{{ item.item }}"
+
+        - name: Inspecionar o executor selado e seus módulos
+          ansible.builtin.stat:
+            path: "{{ app_dirs_executor_entry_state.stat.lnk_target | dirname }}/{{ item }}"
+            follow: false
+            checksum_algorithm: sha256
+          loop: "{{ app_dirs_executor_members }}"
+          register: app_dirs_executor_installed
+
+        - name: Conferir o executor e os módulos selados sem alterar os arquivos
+          vars:
+            app_dirs_executor_receipt: "{{ app_dirs_executor_receipt_raw.content | b64decode | from_json }}"
+          ansible.builtin.assert:
+            that:
+              - item.stat.exists
+              - item.stat.isreg
+              - item.stat.uid == 0
+              - item.stat.gid == 0
+              - item.stat.nlink == 1
+              - item.stat.mode == ('0755' if item.item == 'duora_deploy.py' else '0600')
+              - item.item in (app_dirs_executor_receipt.files | default({}))
+              - app_dirs_executor_receipt.files[item.item].mode == (item.stat.mode | int(base=8))
+              - app_dirs_executor_receipt.files[item.item].sha256 == item.stat.checksum
+              - >-
+                item.item != 'duora_deploy.py' or
+                app_dirs_executor_receipt.executorSha256 | default('') == item.stat.checksum
+            fail_msg: Um arquivo da versão selada diverge do recibo ou está ausente.
+          loop: "{{ app_dirs_executor_installed.results }}"
+          loop_control:
+            label: "{{ item.item }}"
+
+    - name: Preparar ou conferir o executor de bootstrap
+      when: not app_dirs_executor_receipt_state.stat.exists
+      vars:
+        app_dirs_executor_source: "{{ playbook_dir }}/../../scripts/deploy"
+        app_dirs_executor_bootstrap: "{{ duora_install_dir }}/executor-bootstrap"
+        app_dirs_executor_sources: "{{ app_dirs_executor_members | map('regex_replace', '^', app_dirs_executor_source ~ '/') | list }}"
+        app_dirs_executor_source_hashes: >-
+          {{ query('ansible.builtin.file', *app_dirs_executor_sources, lstrip=false, rstrip=false)
+             | map('hash', 'sha256') | list }}
+        app_dirs_executor_snapshot: >-
+          {{ (app_dirs_executor_entry_state.stat.lnk_target | dirname) if app_dirs_executor_entry_state.stat.exists
+             else (app_dirs_executor_bootstrap ~ '/' ~ (app_dirs_executor_source_hashes | join | hash('sha256'))) }}
+      block:
+        - name: Conferir que o snapshot pertence ao bootstrap local
+          ansible.builtin.assert:
+            that:
+              - >-
+                not app_dirs_executor_entry_state.stat.exists or app_dirs_executor_entry_state.stat.lnk_target
+                is match('^' ~ (app_dirs_executor_bootstrap | regex_escape) ~ '/[0-9a-f]{64}/duora_deploy[.]py$')
+            fail_msg: O link existente aponta para fora do bootstrap e não tem selo de instalação.
+
+        - name: Preparar os arquivos juntos antes de publicar a entrada
+          when: not app_dirs_executor_entry_state.stat.exists
+          block:
+            - name: Criar o diretório privado do snapshot
+              ansible.builtin.file:
+                path: "{{ item }}"
+                state: directory
+                follow: false
+                owner: root
+                group: root
+                mode: "0700"
+              loop:
+                - "{{ app_dirs_executor_bootstrap }}"
+                - "{{ app_dirs_executor_snapshot }}"
+
+            - name: Copiar o executor e os três módulos da mesma revisão
+              ansible.builtin.copy:
+                src: "{{ app_dirs_executor_source }}/{{ item }}"
+                dest: "{{ app_dirs_executor_snapshot }}/"
+                follow: false
+                owner: root
+                group: root
+                mode: "{{ '0755' if item == 'duora_deploy.py' else '0600' }}"
+              loop: "{{ app_dirs_executor_members }}"
+
+        - name: Verificar a integridade do snapshot antes de expor ou reutilizar a entrada
+          when: not ansible_check_mode or app_dirs_executor_entry_state.stat.exists
+          block:
+            - name: Inspecionar os diretórios privados do bootstrap
+              ansible.builtin.stat:
+                path: "{{ item }}"
+                follow: false
+                get_checksum: false
+              loop:
+                - "{{ app_dirs_executor_bootstrap }}"
+                - "{{ app_dirs_executor_snapshot }}"
+              register: app_dirs_executor_directories
+
+            - name: Exigir diretórios privados de root
+              ansible.builtin.assert:
+                that:
+                  - item.stat.exists
+                  - item.stat.isdir
+                  - item.stat.uid == 0
+                  - item.stat.mode == '0700'
+                fail_msg: O diretório do bootstrap precisa ser privado e de root.
+              loop: "{{ app_dirs_executor_directories.results }}"
+              loop_control:
+                label: "{{ item.item }}"
+
+            - name: Calcular os hashes dos arquivos instalados
+              ansible.builtin.stat:
+                path: "{{ app_dirs_executor_snapshot }}/{{ item }}"
+                follow: false
+                checksum_algorithm: sha256
+              loop: "{{ app_dirs_executor_members }}"
+              register: app_dirs_executor_files
+
+            - name: Exigir arquivos protegidos de root
+              ansible.builtin.assert:
+                that:
+                  - item.stat.exists
+                  - item.stat.isreg
+                  - item.stat.uid == 0
+                  - item.stat.mode == ('0755' if item.item == 'duora_deploy.py' else '0600')
+                fail_msg: O snapshot do executor está incompleto ou tem permissões inesperadas.
+              loop: "{{ app_dirs_executor_files.results }}"
+              loop_control:
+                label: "{{ item.item }}"
+
+            - name: Conferir os quatro arquivos contra o nome do snapshot
+              ansible.builtin.assert:
+                that:
+                  - >-
+                    (app_dirs_executor_files.results | map(attribute='stat.checksum') | join | hash('sha256'))
+                    == (app_dirs_executor_snapshot | basename)
+                fail_msg: Os arquivos de bootstrap divergem dos hashes do snapshot.
+
+        # ln sem -f não troca uma entrada criada por outro processo após o stat.
+        - name: Publicar a entrada apenas se ela ainda não existir
+          ansible.builtin.command:
+            argv:
+              - /usr/bin/ln
+              - --symbolic
+              - --no-target-directory
+              - --
+              - "{{ app_dirs_executor_snapshot }}/duora_deploy.py"
+              - "{{ app_dirs_executor_entry }}"
+            creates: "{{ app_dirs_executor_entry }}"
+          when: not app_dirs_executor_entry_state.stat.exists

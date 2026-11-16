@@ -145,6 +145,9 @@ mantém `pythonVersion` 3.12 para barrar o que a VPS não tem.
 - `app_dirs`: `/opt/duora`, `/etc/duora` (0750), `/etc/duora/secrets` (0700), `/var/lib/duora` (0700),
   os comandos em `/usr/local/sbin`, os segredos gerados uma vez e o usuário `duora-deploy`: chave do CI presa a
   `sudo -n /usr/local/sbin/duora-deploy --manifest -` e sudoers só para esse comando (sem `sudo ALL`).
+  Para testar o bootstrap do executor com Ansible em Linux descartável, rode
+  `python infra/ansible/tests/test_executor_bootstrap.py -v` na raiz, como root nesse ambiente. O teste chama o
+  executor instalado com `python3.12` e usa destinos temporários para conferir donos e modos.
 
 ### Docker e UFW
 

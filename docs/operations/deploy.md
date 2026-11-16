@@ -1023,10 +1023,17 @@ python3 -E -s "$B/install_executor.py" --bundle "$B" --source-commit <commit rev
    entram `duora_b2_backup_bucket` e `duora_backup_s3_cidrs` (blocos IPv4 da Backblaze).
 1. O `ansible-playbook` (ver [infra/README.md](../../infra/README.md)) cria usuários, diretórios, configuração,
    segredos do banco (`duora-secrets init`), segredos do backup (`duora-secrets init-backup`) e os timers de backup;
-   nada disso sobrescreve o que já existe. Depois grave os segredos do repositório de backup
+   os arquivos de configuração são gerenciados pelo playbook, e a geração de segredos ocorre uma única vez.
+   Depois grave os segredos do repositório de backup
    (`pgbackrest_repo.conf` com `duora-secrets write-backup-repo`, `pgbackrest_cipher.conf`;
    [backup-restore.md](backup-restore.md#segredos-do-repositório-operador-uma-vez)) no `/etc/duora/secrets` que o
    playbook criou.
+   Em host novo, o role `app_dirs` prepara `duora_deploy.py`, `reconcile_payload.py`, `runtime_guard.py` e
+   `postgres_swap.py` juntos em `/opt/duora/executor-bootstrap/<sha256>/`. Depois de conferir os quatro arquivos,
+   cria o link `/usr/local/sbin/duora-deploy`. Na reaplicação, as tarefas do executor conferem e preservam
+   o bootstrap ou a versão selada. Um executável legado em arquivo regular, link divergente ou selo incompleto
+   exige revisão administrativa. A qualificação do runtime e a instalação ou atualização do bundle seguem o
+   [procedimento estático](../../scripts/deploy/EXECUTOR_BUNDLE.md).
 2. O primeiro deploy é do operador, com `--accept-missing-backup-check` (a stanza ainda não existe), seguido de
    `duora-backup stanza-create`, `full` e `verify` ([backup-restore.md](backup-restore.md#primeira-configuração)).
    Ele cria os volumes; o PostgreSQL roda `10-duora-roles.sh` e `20-duora-config.sh` uma única vez e cria
