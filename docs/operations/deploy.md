@@ -563,7 +563,7 @@ ressela comum.
 
 | Valor | Origem |
 |---|---|
-| `N` | commit da main com a checagem de saúde do reconverge mesmo com plano vazio |
+| `N` | SHA completo do commit da main com a checagem de saúde do reconverge mesmo com plano vazio |
 | `<run>` e `<artifactId>` | run do CI de push de `N` com todos os jobs verdes; artefato `duora-executor-amd64` dela |
 | bundle | o artefato, extraído em diretório root-only (0700) no host, por exemplo `/root/requalify-N`; o bundle é a pasta `bundle/` dele (ao lado de `qualification.json`) |
 | `<manifestSha256>` | `sha256sum /root/requalify-N/bundle/bundle.json` |
@@ -573,6 +573,19 @@ ressela comum.
 
 Antes de começar, guarde fora do host uma cópia root-only do baseline, do recibo e do pin, com os sha256. Confira também
 que não existe `pending.json` sob `/var/lib/coolify-release/` nem journal em `/var/lib/duora/postgres-swap/`.
+Se a próxima operação for a troca do PostgreSQL, confira já no recibo ativo a entrada `files.postgres_swap.py` e a
+validade do artefato de qualificação desse recibo, conforme [Antes da janela da troca](#troca-do-digest-do-postgresql).
+
+Antes de qualquer apply, confira que a run de CI bem-sucedida qualifica o SHA exato de `N` e que o artefato nativo
+de `N` continua disponível e dentro da validade para o reconverge e o rehost. Confira também o recibo do executor
+ativo. O destino literal do link `/usr/local/sbin/duora-deploy` deve ser
+`/opt/duora-executor/releases/<sourceCommit do recibo>/duora_deploy.py`, com o hash `executorSha256` do recibo.
+O `bundle.json` nesse diretório deve bater com `manifestSha256` do recibo. Compare os sha256 do
+`runtime_guard.py` desse diretório e do bundle `N` extraído. Ambos devem bater com `files.runtime_guard.py.sha256`
+nos respectivos manifestos e no recibo ativo. Qualquer divergência impede o apply do reconverge: o rehost exige
+a mesma guarda, e o reconverge já pode parar a aplicação. Confira a [coorte do receptor](receiver-cohort.md) para
+`N`. O rehost sela o executor ativo. Se a troca posterior exigir instalar `N`, faça a instalação pelo caminho
+normal depois do rehost e antes de abrir a troca.
 
 ```bash
 B=/root/requalify-N/bundle
@@ -586,9 +599,10 @@ I --rehost --apply --reviewed-inventory-sha256 <inventorySha256> --expected-exec
   --previous-baseline-sha256 <previousBaselineSha256> --previous-receipt-sha256 <previousReceiptSha256>
 ```
 
-**Revise no plano do passo 1.** `recreate` lista só `postgres` e `backup`, cada um com `configImage` igual ao id cru ou à
-referência; `imageId` é o id local da referência do manifesto corrente; o volume é `duora_pgdata`, com o `createdAt`
-esperado. `pin.stage` vem como `restore`, com `incomingReleaseId` igual à release que falhou, ou como `current`. O apply
+**Revise no plano do passo 1.** `recreate` lista os papéis de banco que precisam ser recriados. Em `containers.<papel>`,
+confira `id` e `configImage`, que deve ser o id cru ou a referência por digest. `imageId` é o id local da referência
+do manifesto corrente. O volume é `duora_pgdata`, com o `createdAt` esperado. `pin.stage` vem como `restore`, com
+`incomingReleaseId` igual à release que falhou, ou como `current`. O apply
 para worker, web, postgres e backup, sobe `backup` e depois `postgres` com `--force-recreate --no-deps` (nunca `down` nem
 `-v`), religa web e worker, espera a saúde e, no fim, exige o `collect_runtime` limpo. A saúde vale também com `recreate`
 e `start` vazios: antes de `reconverged`, o apply exige o web pronto (`GET /health/ready` a partir do `edge`) e web, worker
@@ -617,8 +631,10 @@ novo a ele é a sua revisão do `inventorySha256`. Revise o inventário inteiro 
 - fila global do Coolify ocupada;
 - env registrado da release corrente diferente do `_release_env_text` dela, ou manifesto do pin diferente do registrado;
 - pin com `compose` diferente do Compose em uso, ou que não seja exatamente a reescrita da release seguinte à corrente;
-- container com imagem diferente do id da referência, `Config.Image` com outra tag, mais de um container por papel,
-  montagem diferente de `duora_pgdata` (RW só no `postgres`), `edge` fora de `running` (o reconverge nunca o para);
+- `Exactly one container per database role is required` indica container ausente ou duplicado em `postgres` ou
+  `backup`, contando os parados. Após um recreate interrompido, siga a conferência manual abaixo antes de reinspecionar;
+- container com imagem diferente do id da referência, `Config.Image` com outra tag, montagem diferente de
+  `duora_pgdata` (RW só no `postgres`), `edge` fora de `running` (o reconverge nunca o para);
 - serviço `paused`, `dead` ou `removing`, ou mais de um container por serviço da aplicação: o `up` não resolve isso;
 - baseline ou recibo diferentes dos sha256 revisados, recibo que não sela o baseline, entrada fora da versão do recibo;
 - `Same host as the sealed baseline` (é ressela comum) ou `Host differs from the sealed baseline` (é rehost);
@@ -629,18 +645,77 @@ novo a ele é a sua revisão do `inventorySha256`. Revise o inventário inteiro 
 - a env do Coolify `DUORA_OBSERVER_IMAGE` diferente do `edge` da release corrente. O reconverge não toca no Coolify; a
   release que falhou pode ter reescrito essa env. Acerte pelo painel antes da troca, revisando o valor.
 
-**Interrupção.** Um apply do reconverge que caiu no meio não grava estado próprio: rode de novo a inspeção. Quando
-`pin.stage` é `restore`, o primeiro efeito do apply é o pin do observer, antes de parar qualquer container; uma queda nessa escrita pode deixar
-`/etc/duora/.duora-recovery-pin-<nonce>.tmp`, que fica de propósito: revise-o à mão antes de repetir. O plano novo mostra
-o que já convergiu. Se `postgres` ou `backup` ainda estiver no id cru, `recreate` o lista e o apply recria os dois de
-novo. Com os dois já recriados, `recreate` vem vazio e `start` lista os serviços que ficaram parados, na ordem `backup`, `postgres`, `web`, `worker`; o apply só os religa e
-espera a saúde. Com tudo convergido, `recreate` e `start` vêm vazios, e o apply ainda exige a saúde do web e os três
-serviços em `running` antes de `reconverged`: repetir o apply depois de uma recusa de saúde é seguro e não devolve
-`reconverged` enquanto o web não estiver pronto. Um rehost interrompido deixa
-`/var/lib/coolify-release/duora-executor-rehost/pending.json`, e esse arquivo trava toda release, de qualquer projeto. A
-inspeção mostra `rehost-interrupted`, mesmo que a queda tenha sido entre arquivar o recibo antigo e gravar o novo (a
-versão instalada vem então do journal sob a fence). Repita o mesmo `--apply` com os mesmos argumentos; ele é idempotente
-por arquivo, nunca apaga nada e só remove a fence depois de reinspecionar o runtime.
+**Interrupção.** Um apply do reconverge que caiu no meio não grava estado próprio. Rode de novo a inspeção. Quando
+`pin.stage` é `restore`, o primeiro efeito do apply é o pin do observer, antes de parar qualquer container. Uma
+queda nessa escrita pode deixar `/etc/duora/.duora-recovery-pin-<nonce>.tmp` para revisão manual. Revise-o antes de
+repetir. O plano novo mostra o que já convergiu.
+
+Se a inspeção recusar com `Exactly one container per database role is required` após o recreate, mantenha a janela e o
+freeze. Confirme que o apply e o cliente Compose terminaram. Confira a ociosidade do Coolify, das releases, das
+operações administrativas e do backup pelo [protocolo de isolamento](../../scripts/release/coolify/ISOLATION.md).
+Confira a [janela dos timers de backup](backup-restore.md) e mantenha margem até a próxima execução, inclusive
+do `verify --scheduled`, que roda fora do lock de deploy.
+
+Como root, confirme que os três arquivos de lock já existem, são regulares, pertencem a root e têm escrita restrita
+ao dono. Preserve os arquivos e trate links simbólicos como recusa. Execute a classificação, o dry-run, a única ação
+manual e a contagem final no mesmo subshell Bash, no lugar do comentário. A ordem é host, release e deploy, todos
+exclusivos e sem espera. Qualquer falha de abertura ou aquisição encerra o subshell antes da ação manual.
+
+```bash
+(
+  set -e
+  exec 9</var/lib/coolify-release/host.lock
+  flock -x -n 9
+  exec 8</var/lib/coolify-release/duora/release.lock
+  flock -x -n 8
+  exec 7</var/lib/duora/.deploy.lock
+  flock -x -n 7
+  # Reconfirme a ociosidade e execute a recuperação manual descrita abaixo aqui.
+)
+```
+
+Com os três locks, reconfirme fila global do Coolify vazia, ausência de releases e operações administrativas pendentes,
+backup ocioso e margem até o próximo timer. Conte os containers com `docker ps --all --no-trunc` pelos labels
+`com.docker.compose.project=duora` e `com.docker.compose.service` de cada papel. Compare com o
+`ps --all --quiet` do mesmo Compose e env do plano e
+inspecione os IDs, nomes, imagem, estado e montagens. Confirme que o volume `duora_pgdata` existe com o mesmo
+`createdAt` do plano revisado. Na dúvida sobre identidade, contagem ou volume, preserve o estado e chame o dono.
+
+- Com dois containers no papel, só remova com `docker container rm <id>` o container antigo que o Compose renomeou,
+  se o ID bater com o plano anterior e a inspeção confirmar que está parado e que o outro é o substituto do mesmo
+  papel, com a imagem e a montagem esperadas. Se a remoção recusar, mantenha a janela. Preserve o volume e dispense
+  `--force` e `--volumes`.
+- Sem container no papel, confirme que a release corrente e o `composeSha256` ainda batem com o plano. Use o Compose
+  do pin, com `/etc/duora/duora.env` e o env registrado em `/var/lib/duora/releases/<releaseId>.env`, sem variáveis
+  do shell que sobrescrevam esses arquivos. Confira que a configuração resolve o papel para `postgresReference`,
+  com a imagem local no mesmo ID do plano, e que as redes do papel já existem. Para recuperar `postgres`, confira
+  primeiro que `backup` está saudável. Faça o `--progress plain --dry-run up --detach --no-deps <papel>`. Prossiga
+  com `up --detach --wait --no-deps <papel>` apenas se o dry-run terminar com código zero e mostrar somente a
+  criação do container desse papel, com as redes preservadas. Se o dry-run indicar criação ou remoção de rede,
+  mantenha o freeze e leve o caso ao dono conforme [Rede recriada pelo Compose](#rede-recriada-pelo-compose).
+
+Repita a contagem dentro do subshell e exija um container por papel. O `postgres` pode ter ficado parado.
+Saia do subshell para soltar os três locks antes de chamar o instalador, a troca ou um comando de backup que
+adquira esses mesmos locks. Só então refaça a inspeção de `--reconverge-runtime` e revise o novo `planSha256`.
+Se `postgres` ou `backup` ainda estiver no id cru, `recreate` o lista e o apply recria os dois de novo. Com os dois
+já recriados, `recreate` vem vazio e `start` lista os serviços que ficaram parados, na ordem `backup`, `postgres`,
+`web`, `worker`. O apply os religa e espera a saúde. Com tudo convergido, `recreate` e `start` vêm vazios. O apply
+ainda exige a saúde do web e os três serviços em `running` antes de `reconverged`. Se a saúde tiver recusado, um
+novo apply só devolve `reconverged` quando o web estiver pronto e os serviços em `running`.
+
+No rehost, o instalador grava a fence `/var/lib/coolify-release/duora-executor-rehost/pending.json` depois do
+journal e antes de substituir os arquivos do selo. A fence trava as releases de todos os projetos. Se a fence
+própria existir, confira o hash do journal no arquivo histórico e use a inspeção para confirmar
+`rehost-interrupted`. Só nesse estado repita
+`--rehost --apply` com os mesmos argumentos revisados, o mesmo bundle `N` e seu artefato ainda válido. O apply
+é idempotente por arquivo e só remove a fence depois de reinspecionar o runtime.
+
+Sem fence, confira os hashes do baseline e do recibo ativos e o vínculo `baselineSha256` do recibo. Se os dois
+arquivos anteriores ainda estiverem íntegros e ativos, refaça a inspeção e a revisão do inventário desde o
+início. Se os dois arquivos novos estiverem ativos, confira os hashes no journal, os dois arquivos anteriores
+no histórico e o vínculo `rehost.archive` do recibo. Confirme o runtime antes de tratar a operação como concluída.
+Se houver arquivo faltante, hashes misturados ou histórico inconclusivo, mantenha o freeze e leve o estado ao
+dono. Preserve recibo, baseline, journal e fence para diagnóstico.
 
 **Depois.** Siga a [troca](#troca-do-digest-do-postgresql) como está: `troca --preflight-only` agora passa por
 `_swap_recorded_pin`, porque o pin descreve a release corrente. A ressela da troca é no mesmo host, pelo instalador comum
@@ -660,9 +735,27 @@ Só serve para mesma major, catálogo, pgBackRest e colação, recusados antes d
 não passa por aqui.
 
 **Antes da janela.** Decisão do dono, janela e freeze dos três projetos (a fence recusa StillOn e GoblinShift até a
-ressela), executor com esta operação instalado pelo caminho normal, artefato de qualificação desse executor ainda válido
-(a ressela consulta o GitHub) e, se o lock for junto, a ordem abaixo. Aviso de indisponibilidade: os monitores vão acusar
-a janela e nenhum é alterado.
+ressela), executor com esta operação instalado pelo caminho normal e, se o lock for junto, a ordem abaixo. Avise da
+indisponibilidade prevista na janela.
+
+Confira `/var/lib/duora/executor-install-receipt.json` como root. O `status` é `installed`, a entrada
+`/usr/local/sbin/duora-deploy` aponta para `/opt/duora-executor/releases/<sourceCommit>/duora_deploy.py` e o hash
+do arquivo bate com `executorSha256`. Confira também que o recibo tem `files.postgres_swap.py.sha256` e que ele
+bate com o arquivo ao lado do executor. A troca confere os dois hashes. Se a operação não estiver no executor ativo,
+siga a [instalação normal](../../scripts/deploy/EXECUTOR_BUNDLE.md) antes de planejar a troca.
+
+Confira o artefato pelo `qualificationArtifactId` do mesmo recibo, pois a ressela verifica a proveniência no GitHub.
+A CI publica o artefato do executor com [retenção de 90 dias](../../.github/workflows/ci.yml). Na sua máquina, defina
+`ARTEFATO` com o ID lido do recibo.
+
+```bash
+gh api "repos/BipoXDXD/duora/actions/artifacts/$ARTEFATO" \
+  --jq '[.name, .expired, .workflow_run.id, .workflow_run.head_sha, .expires_at] | @tsv'
+```
+
+Espere `duora-executor-amd64`, `false`, o ID da execução no fim de `qualificationRun`, o mesmo `sourceCommit`
+e expiração posterior à janela. Se o artefato estiver ausente, expirado ou prestes a expirar durante a janela,
+instale um bundle qualificado pelo caminho normal antes de abrir a troca.
 
 **Janela.** Entre 07:00 e 21:00 UTC; quarta e quinta só depois das 08:00. O comando recusa fora disso, para não cruzar
 backups, `verify-repo` nem o prune diário. Plano e apply na mesma janela: o prune remove imagem sem container.
@@ -688,6 +781,16 @@ troca --reviewed-plan-sha256 <planSha256>         # para em awaiting-reseal, com
 
 Rode como root, em shell próprio. O comando não existe no sudoers do executor de deploy e recusa o `SSH_ORIGINAL_COMMAND`
 do envio. `Ctrl-C` no `journalctl` só para de seguir o log; a unit continua.
+
+**Revisão do plano.** Guarde a linha JSON com `"status": "plan"` da execução de `--preflight-only` e use o
+`planSha256` dessa linha depois das conferências abaixo. O apply refaz o plano e recusa se o hash mudou.
+
+| Campo | Conferência |
+|---|---|
+| `sourceReleaseId`, `sourcePostgres`, `targetPostgres` | Release corrente em `/var/lib/duora/current.json`, digest do seu manifesto e referência alvo revisada em `ALVO`. |
+| `executor` | `sourceCommit`, `manifestSha256` e `executorSha256` coincidem com o recibo ativo. |
+| `facts` | `sourceImageId` e `targetImageId` são distintos. Confira a major de `postgres`, a versão de `pgbackrest`, `compatibility` e `collationVersion` do banco corrente com os valores esperados para a troca. |
+| `stateSha256` | Compare o SHA-256 dos arquivos de cada chave. `baseline` é `/var/lib/duora/executor-runtime-baseline.json`, `pin` é `/etc/duora/coolify-deploy.json`, `current` é `/var/lib/duora/current.json`, `compose` é o arquivo do pin e `hostEnvironment` é `/etc/duora/duora.env`. |
 
 | Passo | Fase no journal | O que acontece | Falhou aqui |
 |---|---|---|---|
@@ -739,12 +842,20 @@ API do Docker; a contagem de containers cobre o efeito, não a intenção.
 Do passo 4 em diante, e em todo `--abort`, nenhuma das duas barra a recuperação.
 
 **Ressela.** Com a fase em `awaiting-reseal`, o baseline ainda descreve os containers antigos. Use o procedimento da
-ressela da [selfie](#selfie-de-presença-no-coolify-93): inspeção, revisão e `--apply`. No `profile` só podem mudar
-`services.*` e `configHashes`; host, Docker, volume e `composeSha256` iguais. O instalador só isenta a fence da troca
+ressela da [selfie](#selfie-de-presença-no-coolify-93): inspeção, revisão e `--apply`. Os valores do bundle e do
+executor vêm do recibo ativo. Compare o `inventory.profile` da inspeção com o baseline selado e use o
+`inventorySha256` da mesma inspeção para o apply. No `profile` só podem mudar `services.*` e `context.configHashes`.
+Confirme host, Docker, volume e `context.composeSha256` iguais. O instalador só isenta a fence da troca
 nas fases `awaiting-reseal` e `aborted-awaiting-reseal`, com o hash do journal conferido e o `sourceCommit` igual ao do
 executor ativo. Com journal aberto sem fence, ou numa transição de coorte do receiver, o instalador recusa. Depois feche
 com `troca --resume`, que recusa com instalação pendente, confere o baseline contra o runtime, roda `verify-repo`, arquiva
 o journal em `/var/lib/duora/postgres-swap-history/<swapId>/` e remove a fence. Só então uma release volta a andar.
+
+Após o fechamento, confira o journal arquivado e a ausência de `attempt.json` ativo, fence e containers
+`duora-postgres-swap-hold-*` da troca. Se a troca foi confirmada, o manifesto da release apontada por `current.json`
+deve trazer o digest alvo em `images.postgres`. Confira um container saudável por papel, com `Config.Image` na
+referência alvo, `Image` igual a `facts.targetImageId` do plano e a montagem de `duora_pgdata` com escrita só para
+`postgres`. Após um abort concluído, o manifesto e os containers devem apontar para a imagem de origem.
 
 **Abort.** Dos passos 1 a 3 fecha sozinho, salvo se um reboot ou OOM mudou o `startedAt`: aí o banco não é tocado e o
 abort termina em `aborted-awaiting-reseal`. A partir do passo 4 ele recria o digest antigo, compara a foto e reabre a
