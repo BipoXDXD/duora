@@ -163,6 +163,9 @@ class ChromiumProbeWiringTests(unittest.TestCase):
         spec = frontend / "e2e" / "edge-csp-probe.spec.ts"
         self.assertTrue(spec.is_file(), "A spec da sonda Chromium precisa existir")
         source = spec.read_text(encoding="utf-8")
+        self.assertNotRegex(
+            source, r"\btest\s*\.\s*skip\s*\(", "A sonda Chromium não pode chamar test.skip"
+        )
         self.assertRegex(source, r"(?m)^\s*test\(")
         self.assertIn("CaddySecurityHeadersTests.test_browser_enforces_the_policies", source)
         self.assertRegex(source, r"""(?m)^\s*DUORA_TEST_BROWSER:\s*['"]1['"]""")
