@@ -56,16 +56,19 @@
     group: root
     mode: "0644"
 
-- name: Instalar os comandos de operação (root, sem escrita para mais ninguém)
+- name: Preparar a entrada do executor de deploy
+  ansible.builtin.import_tasks: executor.yml
+  vars:
+    app_dirs_executor_entry: /usr/local/sbin/duora-deploy
+    app_dirs_executor_releases: /opt/duora-executor/releases
+
+- name: Instalar o comando de segredos
   ansible.builtin.copy:
-    src: "{{ playbook_dir }}/../../scripts/deploy/{{ item.src }}"
-    dest: "/usr/local/sbin/{{ item.dest }}"
+    src: "{{ playbook_dir }}/../../scripts/deploy/duora_secrets.py"
+    dest: /usr/local/sbin/duora-secrets
     owner: root
     group: root
     mode: "0755"
-  loop:
-    - { src: duora_deploy.py, dest: duora-deploy }
-    - { src: duora_secrets.py, dest: duora-secrets }
 
 - name: Escrever a configuração não sensível do host (lida pelo Compose e pelo duora-deploy)
   ansible.builtin.template:
