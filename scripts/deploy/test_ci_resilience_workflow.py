@@ -1,6 +1,7 @@
 """Resiliência a falhas de infraestrutura nos passos de CI (#549, #500); estrutura lida dos YAML, sem rodar jobs."""
 from __future__ import annotations
 
+import json
 from pathlib import Path
 import re
 import unittest
@@ -137,6 +138,37 @@ class OpsGalaxyRetryTests(unittest.TestCase):
     def test_retries_fit_well_inside_the_ops_job_deadline(self):
         # lint, syntax-check, testes e pyright dividem os mesmos minutos do job.
         self.assertLessEqual(_worst_case_seconds(self.step["env"]), self.job_seconds // 2)
+
+
+class ChromiumProbeWiringTests(unittest.TestCase):
+    def test_chromium_probe_is_present_in_the_required_e2e_gate(self):
+        job = yaml.safe_load(CI.read_text(encoding="utf-8"))["jobs"]["e2e"]
+        runs = [step for step in job["steps"] if step.get("run") == "pnpm e2e"]
+        self.assertEqual(1, len(runs), "O job e2e deve rodar pnpm e2e uma vez")
+        for gate in (job, runs[0]):
+            self.assertNotIn("if", gate)
+            self.assertFalse(gate.get("continue-on-error", False))
+
+        frontend = ROOT / "frontend"
+        scripts = json.loads((frontend / "package.json").read_text(encoding="utf-8"))["scripts"]
+        self.assertEqual("playwright test", scripts["e2e"])
+        config = (frontend / "playwright.config.ts").read_text(encoding="utf-8")
+        self.assertRegex(
+            config,
+            r"""(?m)^\s*\{\s*name:\s*['"]edge-csp-probe['"]\s*,"""
+            r"""\s*testMatch:\s*['"]\*\*/edge-csp-probe\.spec\.ts['"]\s*,?\s*\}\s*,?$""",
+            "O Playwright deve incluir o projeto dedicado à sonda Chromium",
+        )
+
+        spec = frontend / "e2e" / "edge-csp-probe.spec.ts"
+        self.assertTrue(spec.is_file(), "A spec da sonda Chromium precisa existir")
+        source = spec.read_text(encoding="utf-8")
+        self.assertNotRegex(
+            source, r"\btest\s*\.\s*skip\s*\(", "A sonda Chromium não pode chamar test.skip"
+        )
+        self.assertRegex(source, r"(?m)^\s*test\(")
+        self.assertIn("CaddySecurityHeadersTests.test_browser_enforces_the_policies", source)
+        self.assertRegex(source, r"""(?m)^\s*DUORA_TEST_BROWSER:\s*['"]1['"]""")
 
 
 if __name__ == "__main__":
