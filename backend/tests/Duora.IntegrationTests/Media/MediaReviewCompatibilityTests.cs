@@ -63,6 +63,9 @@ public sealed class MediaReviewCompatibilityTests(PostgresFixture postgres) : IA
         using var missing = await stranger.GetAsync($"/api/v1/me/photos/{Guid.NewGuid()}/status");
         Assert.Equal(HttpStatusCode.NotFound, foreign.StatusCode);
         Assert.Equal(HttpStatusCode.NotFound, missing.StatusCode);
+        var foreignBody = await ProblemAssert.BodyWithoutTraceIdAsync(foreign);
+        Assert.Equal(await ProblemAssert.BodyWithoutTraceIdAsync(missing), foreignBody);
+        Assert.DoesNotContain(photoId.ToString(), foreignBody, StringComparison.OrdinalIgnoreCase);
         Assert.Single(await scenario.UploadsOfAsync(account.UserId));
         Assert.Single(await scenario.ProcessingEventsAsync(photoId));
         Assert.Equal(0, scenario.StoredObjectCount());

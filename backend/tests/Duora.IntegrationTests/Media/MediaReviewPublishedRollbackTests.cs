@@ -83,7 +83,12 @@ public sealed class MediaReviewPublishedRollbackTests
                 using var changed = await UploadToPublishedAsync(owner, MediaScenario.JpegLike(fill: 3), sample.Key);
                 await ProblemAssert.IsProblemAsync(changed, HttpStatusCode.Conflict, "IDEMPOTENCY_KEY_REUSED");
                 using var foreign = await outsider.GetAsync($"/api/v1/me/photos/{sample.Id}/status");
+                using var missing = await outsider.GetAsync($"/api/v1/me/photos/{Guid.NewGuid()}/status");
                 Assert.Equal(HttpStatusCode.NotFound, foreign.StatusCode);
+                Assert.Equal(HttpStatusCode.NotFound, missing.StatusCode);
+                var foreignBody = await ProblemAssert.BodyWithoutTraceIdAsync(foreign);
+                Assert.Equal(await ProblemAssert.BodyWithoutTraceIdAsync(missing), foreignBody);
+                Assert.DoesNotContain(sample.Id.ToString(), foreignBody, StringComparison.OrdinalIgnoreCase);
             }
             using var limitedOwner = historical.CreateBrowser();
             using var limitedLogin = await IdentityScenario.LoginAsync(limitedOwner, limited.Email, limited.Password);
