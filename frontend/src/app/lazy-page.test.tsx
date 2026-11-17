@@ -90,6 +90,7 @@ describe('lazyPage', () => {
 
       await act(async () => {
         rejectLoad(new Error('404 no chunk'))
+        await pending.catch(() => undefined)
       })
       expect(screen.getByRole('heading', { level: 1, name: NEW_VERSION_TITLE })).toBeInTheDocument()
 
