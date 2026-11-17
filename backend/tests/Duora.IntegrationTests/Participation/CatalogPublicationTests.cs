@@ -61,14 +61,12 @@ public sealed class CatalogPublicationTests(PostgresFixture postgres)
         Assert.Equal("audio/wav", bytes.Content.Headers.ContentType!.MediaType);
         Assert.Equal(Wave(), await bytes.Content.ReadAsByteArrayAsync(ct));
         Assert.True(bytes.Headers.CacheControl!.NoStore);
-        using var wrongLocale = await alice.GetAsync($"/api/v1/rooms/{room}/audio/intro-pt");
-        using var outsider = await third.GetAsync($"/api/v1/rooms/{room}/audio/intro-pt");
-        Assert.Equal(HttpStatusCode.NotFound, wrongLocale.StatusCode);
-        Assert.Equal(HttpStatusCode.NotFound, outsider.StatusCode);
+        var missingRoom = Guid.NewGuid();
+        await AssertAudioNotFoundLikeMissingAsync(alice, room, missingRoom);
+        await AssertAudioNotFoundLikeMissingAsync(third, room, missingRoom);
         using var blocked = await alice.PutAsync($"/api/v1/me/blocks/{seed.Bob}");
         Assert.Equal(HttpStatusCode.NoContent, blocked.StatusCode);
-        using var afterBlock = await bob.GetAsync($"/api/v1/rooms/{room}/audio/intro-pt");
-        Assert.Equal(HttpStatusCode.NotFound, afterBlock.StatusCode);
+        await AssertAudioNotFoundLikeMissingAsync(bob, room, missingRoom);
         await AssertImmutable(source, contentId, ct);
     }
 
@@ -104,6 +102,19 @@ public sealed class CatalogPublicationTests(PostgresFixture postgres)
         await connection.OpenAsync(ct);
         await using var query = Command(connection, "select count(*) from experiences.experience_versions where approved_by=$1", admin.UserId);
         Assert.Equal(0L, await query.ExecuteScalarAsync(ct));
+    }
+
+    private static async Task AssertAudioNotFoundLikeMissingAsync(Browser browser, Guid room, Guid missingRoom)
+    {
+        using var denied = await browser.GetAsync($"/api/v1/rooms/{room}/audio/intro-pt");
+        using var missing = await browser.GetAsync($"/api/v1/rooms/{missingRoom}/audio/intro-pt");
+        Assert.Equal(HttpStatusCode.NotFound, denied.StatusCode);
+        Assert.Equal(HttpStatusCode.NotFound, missing.StatusCode);
+        Assert.NotEqual("audio/wav", denied.Content.Headers.ContentType?.MediaType);
+        var body = await ProblemAssert.BodyWithoutTraceIdAsync(denied);
+        Assert.Equal(await ProblemAssert.BodyWithoutTraceIdAsync(missing), body);
+        Assert.DoesNotContain(room.ToString(), body, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("RIFF", body, StringComparison.Ordinal);
     }
 
     private static async Task AssertImmutable(NpgsqlDataSource source, Guid content, CancellationToken ct)
