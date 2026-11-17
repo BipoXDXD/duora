@@ -1,5 +1,6 @@
 using System.Net;
 using Duora.IntegrationTests.Identity;
+using Microsoft.AspNetCore.Http;
 
 namespace Duora.IntegrationTests.Media;
 
@@ -11,8 +12,7 @@ namespace Duora.IntegrationTests.Media;
 /// </summary>
 public sealed class MediaStorageUnavailableTests(PostgresFixture postgres) : IAsyncDisposable
 {
-    private const string Bucket = "duora-media-test";
-
+    private readonly string _canary = Guid.NewGuid().ToString("N");
     private readonly DuoraWebFactory _seed = new(postgres.ConnectionString);
 
     public ValueTask DisposeAsync() => _seed.DisposeAsync();
@@ -23,7 +23,7 @@ public sealed class MediaStorageUnavailableTests(PostgresFixture postgres) : IAs
     [InlineData(HttpStatusCode.InternalServerError, "InternalError")]
     public async Task ATransientS3ErrorOnReadAnswers503WithRetryAfter(HttpStatusCode status, string code)
     {
-        await using var fake = await FakeS3Server.StartAsync(FakeS3Server.Error(status, code));
+        await using var fake = await StartS3WithCanaryAsync(FakeS3Server.Error(status, code));
 
         await ReadApprovedAssetAsync(fake.Url, AssertUnavailableAsync);
     }
@@ -35,13 +35,12 @@ public sealed class MediaStorageUnavailableTests(PostgresFixture postgres) : IAs
     [Fact]
     public async Task AStreamFailureBeforeTheFirstByteAnswers503WithTheStreamRetryAfter()
     {
-        await using var fake = await FakeS3Server.StartAsync(FakeS3Server.BodyDropped());
+        await using var fake = await StartS3WithCanaryAsync(FakeS3Server.BodyDropped());
 
         await ReadApprovedAssetAsync(fake.Url, async response =>
         {
             await ProblemAssert.IsProblemAsync(response, HttpStatusCode.ServiceUnavailable, "TEMPORARILY_UNAVAILABLE");
             Assert.Equal("2", Assert.Single(response.Headers.GetValues("Retry-After")));
-            AssertNoInternalLeak(await BodyAsync(response));
         });
     }
 
@@ -54,13 +53,12 @@ public sealed class MediaStorageUnavailableTests(PostgresFixture postgres) : IAs
         HttpStatusCode status,
         string code)
     {
-        await using var fake = await FakeS3Server.StartAsync(FakeS3Server.Error(status, code));
+        await using var fake = await StartS3WithCanaryAsync(FakeS3Server.Error(status, code));
 
         await ReadApprovedAssetAsync(fake.Url, async response =>
         {
             await ProblemAssert.IsProblemAsync(response, HttpStatusCode.InternalServerError, "INTERNAL_ERROR");
             Assert.False(response.Headers.Contains("Retry-After"));
-            AssertNoInternalLeak(await BodyAsync(response));
         });
     }
 
@@ -68,24 +66,32 @@ public sealed class MediaStorageUnavailableTests(PostgresFixture postgres) : IAs
     {
         await ProblemAssert.IsProblemAsync(response, HttpStatusCode.ServiceUnavailable, "TEMPORARILY_UNAVAILABLE");
         Assert.True(ProblemAssert.RetryAfterSeconds(response) > 0);
-        AssertNoInternalLeak(await BodyAsync(response));
     }
 
-    /// <summary>
-    /// O corpo de erro não carrega tipo de exceção, stack trace, namespace do código ou do SDK nem o nome do bucket.
-    /// </summary>
-    private static void AssertNoInternalLeak(string body)
+    private Task<FakeS3Server> StartS3WithCanaryAsync(Func<HttpContext, Task> respond) =>
+        FakeS3Server.StartAsync(context =>
+        {
+            context.Response.Headers["x-amz-meta-duora-canary"] = _canary;
+            return respond(context);
+        });
+
+    private async Task AssertNoInternalLeakAsync(HttpResponseMessage response, CapturingLoggerProvider logs)
     {
+        var body = await response.Content.ReadAsStringAsync(TestContext.Current.CancellationToken);
         Assert.DoesNotContain("Exception", body, StringComparison.Ordinal);
         Assert.DoesNotContain("   at ", body, StringComparison.Ordinal);
         Assert.DoesNotContain("Duora.", body, StringComparison.Ordinal);
         Assert.DoesNotContain("Amazon", body, StringComparison.Ordinal);
         Assert.DoesNotContain("System.", body, StringComparison.Ordinal);
-        Assert.DoesNotContain(Bucket, body, StringComparison.Ordinal);
+        Assert.DoesNotContain(_canary, body, StringComparison.OrdinalIgnoreCase);
+        var headers = response.Headers.Concat(response.Content.Headers).ToArray();
+        Assert.DoesNotContain(headers, header => header.Key.StartsWith("x-amz-", StringComparison.OrdinalIgnoreCase));
+        Assert.DoesNotContain(headers.SelectMany(header => header.Value),
+            value => value.Contains(_canary, StringComparison.OrdinalIgnoreCase));
+        Assert.NotEmpty(logs.Entries);
+        Assert.DoesNotContain(logs.Entries, entry => entry.Text.Contains(_canary, StringComparison.OrdinalIgnoreCase)
+            || entry.Fields.Values.Any(value => value?.ToString()?.Contains(_canary, StringComparison.OrdinalIgnoreCase) == true));
     }
-
-    private static Task<string> BodyAsync(HttpResponseMessage response) =>
-        response.Content.ReadAsStringAsync(TestContext.Current.CancellationToken);
 
     /// <summary>
     /// Semeia a foto aprovada pelo host com filesystem e a lê por um segundo host, ligado ao S3 de mentira, com a
@@ -100,16 +106,17 @@ public sealed class MediaStorageUnavailableTests(PostgresFixture postgres) : IAs
         Assert.Equal(HttpStatusCode.Accepted, upload.StatusCode);
         var asset = await media.ApproveWithVariantsAsync(Assert.Single(await media.UploadsOfAsync(account.UserId)));
 
-        await using var s3 = new DuoraWebFactory(postgres.ConnectionString)
+        using var logs = new CapturingLoggerProvider();
+        await using var s3 = new DuoraWebFactory(postgres.ConnectionString, logs)
         {
             Settings = new Dictionary<string, string?>
             {
                 ["Media:Storage:Provider"] = "S3",
                 ["Media:Storage:S3:ServiceUrl"] = s3Url,
                 ["Media:Storage:S3:Region"] = "us-east-1",
-                ["Media:Storage:S3:Bucket"] = Bucket,
-                ["Media:Storage:S3:AccessKeyId"] = "synthetic-access",
-                ["Media:Storage:S3:SecretAccessKey"] = "synthetic-secret",
+                ["Media:Storage:S3:Bucket"] = $"duora-media-test-{_canary}",
+                ["Media:Storage:S3:AccessKeyId"] = $"synthetic-access-{_canary}",
+                ["Media:Storage:S3:SecretAccessKey"] = $"synthetic-secret-{_canary}",
                 ["Media:Storage:S3:AllowInsecureHttp"] = "true",
             },
         };
@@ -117,5 +124,6 @@ public sealed class MediaStorageUnavailableTests(PostgresFixture postgres) : IAs
 
         using var response = await browser.GetAsync($"/api/v1/media/{asset.AssetId}");
         await assertAsync(response);
+        await AssertNoInternalLeakAsync(response, logs);
     }
 }
