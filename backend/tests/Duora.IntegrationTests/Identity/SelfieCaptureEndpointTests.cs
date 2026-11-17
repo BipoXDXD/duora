@@ -36,13 +36,17 @@ public sealed class SelfieCaptureEndpointTests(PostgresFixture postgres)
 
     private static CancellationToken Ct => TestContext.Current.CancellationToken;
 
-    private const string AssumeRoleSuccess = """
+    private const string TemporaryAccessKeyId = "SYNTHETICTEMPKEYID";
+    private const string TemporarySecretAccessKey = "synthetic-temporary-secret";
+    private const string TemporarySessionToken = "synthetic-session-token";
+
+    private const string AssumeRoleSuccess = $$"""
         <AssumeRoleResponse xmlns="https://sts.amazonaws.com/doc/2011-06-15/">
           <AssumeRoleResult>
             <Credentials>
-              <AccessKeyId>SYNTHETICTEMPKEYID</AccessKeyId>
-              <SecretAccessKey>synthetic-temporary-secret</SecretAccessKey>
-              <SessionToken>synthetic-session-token</SessionToken>
+              <AccessKeyId>{{TemporaryAccessKeyId}}</AccessKeyId>
+              <SecretAccessKey>{{TemporarySecretAccessKey}}</SecretAccessKey>
+              <SessionToken>{{TemporarySessionToken}}</SessionToken>
               <Expiration>2099-01-01T00:00:00Z</Expiration>
             </Credentials>
             <AssumedRoleUser>
@@ -83,7 +87,7 @@ public sealed class SelfieCaptureEndpointTests(PostgresFixture postgres)
         var body = await response.Content.ReadAsStringAsync(TestContext.Current.CancellationToken);
 
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);
-        Assert.Contains("SYNTHETICTEMPKEYID", body, StringComparison.Ordinal);
+        Assert.Contains(TemporaryAccessKeyId, body, StringComparison.Ordinal);
         var call = Assert.Single(transport.Calls);
         Assert.Equal("sts.us-east-1.amazonaws.com", call.Host);
         Assert.Contains($"Credential={keyId}/", call.Authorization, StringComparison.Ordinal);
@@ -272,7 +276,7 @@ public sealed class SelfieCaptureEndpointTests(PostgresFixture postgres)
         Assert.DoesNotContain(attempt.ToString(), body, StringComparison.OrdinalIgnoreCase);
         Assert.DoesNotContain(owner.UserId.ToString(), body, StringComparison.OrdinalIgnoreCase);
         Assert.DoesNotContain("synthetic-reference", body, StringComparison.Ordinal);
-        Assert.DoesNotContain("SYNTHETICTEMPKEYID", body, StringComparison.Ordinal);
+        Assert.DoesNotContain(TemporaryAccessKeyId, body, StringComparison.Ordinal);
         Assert.Empty(transport.Calls);
         Assert.Equal("Capturing", await scenario.ScalarTextAsync(
             "select state from identity.selfie_verifications where id = $1", attempt));
@@ -290,20 +294,42 @@ public sealed class SelfieCaptureEndpointTests(PostgresFixture postgres)
         var attempt = await CapturingAttemptAsync(scenario, factory, owner.UserId);
         using var browser = await scenario.SignedInBrowserAsync(owner);
         var path = $"/api/v1/me/selfie-verifications/{attempt}/capture";
+        string[] temporaryCredentials = [TemporaryAccessKeyId, TemporarySecretAccessKey, TemporarySessionToken];
         for (var i = 1; i <= 3; i++)
         {
             using var allowed = await browser.PostJsonAsync(path, new { }, RemoteAddressFromTestHeader.From($"198.51.100.{i}"));
             Assert.Equal(HttpStatusCode.OK, allowed.StatusCode);
+            var allowedBody = await allowed.Content.ReadAsStringAsync(Ct);
+            foreach (var credential in temporaryCredentials)
+            {
+                Assert.Contains(credential, allowedBody, StringComparison.Ordinal);
+            }
         }
 
         using var limited = await browser.PostJsonAsync(path, new { }, RemoteAddressFromTestHeader.From("203.0.113.9"));
 
         await ProblemAssert.IsProblemAsync(limited, HttpStatusCode.TooManyRequests, "RATE_LIMITED");
         ProblemAssert.RetryAfterSeconds(limited);
-        Assert.Equal(3, transport.Calls.Count);
         using var other = await scenario.SignedInBrowserAsync(neighbour);
-        using var neighbourResponse = await other.PostJsonAsync(path, new { }, RemoteAddressFromTestHeader.From("203.0.113.9"));
+        var address = RemoteAddressFromTestHeader.From("203.0.113.9");
+        using var neighbourResponse = await other.PostJsonAsync(path, new { }, address);
+        using var missing = await other.PostJsonAsync($"/api/v1/me/selfie-verifications/{Guid.NewGuid()}/capture", new { }, address);
         Assert.Equal(HttpStatusCode.NotFound, neighbourResponse.StatusCode);
+        Assert.Equal(HttpStatusCode.NotFound, missing.StatusCode);
+        string[] privateValues = [attempt.ToString(), owner.UserId.ToString(), "synthetic-reference", .. temporaryCredentials];
+        foreach (var response in new[] { neighbourResponse, missing })
+        {
+            var body = await response.Content.ReadAsStringAsync(Ct);
+            var headers = response.Headers.Concat(response.Content.Headers);
+            foreach (var value in privateValues)
+            {
+                Assert.DoesNotContain(value, body, StringComparison.OrdinalIgnoreCase);
+                Assert.DoesNotContain(headers, header => header.Key.Contains(value, StringComparison.OrdinalIgnoreCase)
+                    || header.Value.Any(headerValue => headerValue.Contains(value, StringComparison.OrdinalIgnoreCase)));
+            }
+        }
+        Assert.Equal(await ProblemAssert.BodyWithoutTraceIdAsync(missing), await ProblemAssert.BodyWithoutTraceIdAsync(neighbourResponse));
+        Assert.Equal(3, transport.Calls.Count);
     }
 
     [Fact]
