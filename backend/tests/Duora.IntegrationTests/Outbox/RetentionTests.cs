@@ -276,6 +276,34 @@ public sealed partial class RetentionTests(PostgresFixture postgres)
     }
 
     [Fact]
+    public void WorkerObservationUsesElapsedTimeDespiteCivilClockChanges()
+    {
+        var time = new ObservationClock();
+        var first = time.GetTimestamp();
+        Assert.True(RetentionJobService.IsObservationDue(time, null, first));
+
+        time.UtcNow = time.UtcNow.AddDays(2);
+        Assert.False(RetentionJobService.IsObservationDue(time, first, time.GetTimestamp()));
+
+        time.UtcNow = time.UtcNow.AddDays(-4);
+        time.Timestamp = TimeSpan.FromMinutes(1).Ticks - 1;
+        Assert.False(RetentionJobService.IsObservationDue(time, first, time.GetTimestamp()));
+
+        time.Timestamp++;
+        Assert.True(RetentionJobService.IsObservationDue(time, first, time.GetTimestamp()));
+    }
+
+    private sealed class ObservationClock : TimeProvider
+    {
+        public DateTimeOffset UtcNow { get; set; } = DateTimeOffset.UnixEpoch;
+        public long Timestamp { get; set; }
+
+        public override long TimestampFrequency => TimeSpan.TicksPerSecond;
+        public override long GetTimestamp() => Timestamp;
+        public override DateTimeOffset GetUtcNow() => UtcNow;
+    }
+
+    [Fact]
     public async Task WorkerStillCleansWhenMonitoringFails()
     {
         await using var h = await Harness.CreateAsync(postgres);
