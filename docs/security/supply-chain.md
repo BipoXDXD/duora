@@ -9,7 +9,7 @@ arquivo quando entrar pacote ou ferramenta nova, quando mudar uma versão fixada
 |---|---|---|
 | Lockfiles e fontes | `dotnet restore --locked-mode`, `pnpm install --frozen-lockfile`, `pip install --require-hashes --only-binary=:all:` no job `ops` (`scripts/deploy/requirements.txt` e `tools/visual/requirements.txt`), `nuget.config` só com nuget.org | lockfile diverge, hash de pacote Python diverge ou aparece fonte não mapeada |
 | Auditoria do NuGet | `NuGetAudit` em `Directory.Build.props` (modo `all`, nível `low`) | o build encontra pacote com vulnerabilidade conhecida |
-| Vulnerabilidades de dependências | job `supply-chain`, Trivy `fs` sobre o repositório (`packages.lock.json`, `Directory.Packages.props`, `pnpm-lock.yaml`, incluindo devDependencies, e os lockfiles pip `scripts/deploy/requirements.txt` e `tools/visual/requirements.txt`) | achado HIGH ou CRITICAL fora do `.trivyignore` |
+| Vulnerabilidades de dependências | job `supply-chain`, Trivy `fs` sobre o repositório (`packages.lock.json`, `Directory.Packages.props`, `pnpm-lock.yaml`, incluindo devDependencies, e os lockfiles pip `scripts/deploy/requirements.txt` e `tools/visual/requirements.txt`) | achado HIGH ou CRITICAL ativo no relatório final, ou divergência entre o relatório bruto, o artefato verificado e o relatório final |
 | Misconfiguration | mesmo passo do Trivy (`--scanners vuln,misconfig`) | achado HIGH ou CRITICAL em Dockerfile e demais formatos de IaC que o Trivy reconhece |
 | SBOM | job `supply-chain`, Trivy `--format cyclonedx` para `backend/` e `frontend/` | falha ao gerar; os arquivos saem no artifact `sbom-cyclonedx` (30 dias) |
 | Licenças | `scripts/supply-chain/check_licenses.py` sobre os SBOMs | licença fora da allowlist, ou componente sem licença, sem exceção escrita |
@@ -19,6 +19,33 @@ arquivo quando entrar pacote ou ferramenta nova, quando mudar uma versão fixada
 | Atualizações | `.github/dependabot.yml`: NuGet, npm, Actions, Compose e pip (`/scripts/deploy`, `/tools/visual`). Cooldown de 7 dias em `nuget`, `npm` e `pip`; `github-actions` e `docker-compose` não têm cooldown | não bloqueia; abre PRs semanais revisados por humano |
 
 Os achados aparecem no log do job; o inventário de licenças e o changelog do contrato vão para o resumo do job.
+
+## Backport do Picomatch 4.0.7
+
+O frontend aplica um patch de segurança ao parser do Picomatch para
+CVE-2026-112366/GHSA-fc5q-39xc-vjpf. O pacote mantém nome, versão e licença MIT
+do upstream. O lockfile fixa o hash do patch. A implementação deriva do
+[PR upstream #264](https://github.com/micromatch/picomatch/pull/264), commit
+`8144a1a22a8fa1766951411f220cc8c6228cb041`, com correções locais para propagar
+a informação de repetição nas reescritas e conferir o consumo completo de
+caracteres na análise de padrões com a flag multiline.
+
+`frontend/security/backports/picomatch.json` registra a origem, a integridade
+do tarball, os arquivos instalados e os hashes do patch, do lockfile e da
+regressão. O gate confere esses bytes e a resolução dos consumidores antes de
+gerar um OpenVEX temporário com estado `fixed` para esse aviso. O relatório
+bruto do Trivy, a declaração e o relatório final são publicados juntos.
+A reconciliação exige que todos os achados brutos continuem representados.
+Outros avisos e alterações inesperadas do artefato continuam bloqueantes.
+
+A revisão independente cobre o commit que contém o patch, o manifesto,
+os testes e o workflow. Cada mudança de lockfile exige atualizar e revisar
+o digest correspondente. A qualificação do backport inclui os 1.983 testes
+da release upstream, os 15 testes adicionais do PR e regressões para as
+duas correções locais, além dos checks integrais do projeto. Quando uma
+release oficial corrigida estiver disponível, a substituição deve remover
+o patch e o tratamento VEX após a mesma validação. Os avisos baseados apenas
+na versão publicada do pacote podem continuar aparecendo em outros scanners.
 
 ## Ferramentas fixadas
 
