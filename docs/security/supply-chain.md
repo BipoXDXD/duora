@@ -18,7 +18,9 @@ arquivo quando entrar pacote ou ferramenta nova, quando mudar uma versão fixada
 | Liveness da selfie | `frontend/config/liveness-supply-chain.test.ts` e `frontend/src/features/account/SelfieCapture.test.tsx`; inventário em [liveness-supply-chain.md](liveness-supply-chain.md) | muda a versão do pacote, o lockfile, as URLs do WASM e do modelo ou as origens `https://` e `wss://` explícitas da CSP da selfie; o conteúdo servido pelo CDN não é verificado |
 | Atualizações | `.github/dependabot.yml`: NuGet, npm, Actions, Compose e pip (`/scripts/deploy`, `/tools/visual`). Cooldown de 7 dias em `nuget`, `npm` e `pip`; `github-actions` e `docker-compose` não têm cooldown | não bloqueia; abre PRs semanais revisados por humano |
 
-Os achados aparecem no log do job; o inventário de licenças e o changelog do contrato vão para o resumo do job.
+Os relatórios bruto e de política do Trivy ficam no artefato `supply-chain-scan-evidence`.
+O log mostra o código de saída da varredura de política auditada. O inventário de licenças e o
+changelog do contrato vão para o resumo do job.
 
 ## Backport do Picomatch 4.0.7
 
@@ -37,6 +39,11 @@ gerar um OpenVEX temporário com estado `fixed` para esse aviso. O relatório
 bruto do Trivy, a declaração e o relatório final são publicados juntos.
 A reconciliação exige que todos os achados brutos continuem representados.
 Outros avisos e alterações inesperadas do artefato continuam bloqueantes.
+
+Em PRs em que a varredura normal emite OpenVEX, o CI repete o mesmo gate em uma cópia descartável do
+checkout. Um manifesto sintético, lido apenas pelo Trivy, adiciona a CVE-2020-14343. O teste exige que
+esse achado CRITICAL seja o único bloqueio após aplicar o VEX e que o gate auditado saia com código 1.
+Os dois relatórios e a prova do ensaio vão para o artefato `supply-chain-openvex-regression`.
 
 A revisão independente cobre o commit que contém o patch, o manifesto,
 os testes e o workflow. Cada mudança de lockfile exige atualizar e revisar

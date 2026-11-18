@@ -17,6 +17,10 @@ class BackportGateTests(TestCase):
         self.modules = self.root / 'frontend/node_modules'
         self.package = self.modules / '.pnpm/picomatch@4.0.7/node_modules/picomatch'
         self.create_package(self.package)
+        self.consumers = {}
+        for name, version in [('fdir', '6.5.0'), ('tinyglobby', '0.2.17'),
+                              ('vite', '8.3.5'), ('vitest', '5.1.0')]:
+            self.consumers[name] = self.install_consumer(name, version)
         self.patch = self.put(f'frontend/{gate.PATCH}', 'reviewed patch\n')
         patch_hash = gate.sha256(self.patch)
         self.lock = self.put(gate.TARGET, f'''---
@@ -29,11 +33,25 @@ importers:
 lockfileVersion: '9.0'
 patchedDependencies:
   picomatch@4.0.7: {patch_hash}
+importers:
+  .: {{}}
 packages:
   picomatch@4.0.7:
     resolution: {{integrity: {gate.SRI}}}
 snapshots:
   'picomatch@4.0.7(patch_hash={patch_hash})': {{}}
+  'fdir@6.5.0(picomatch@4.0.7(patch_hash={patch_hash}))':
+    optionalDependencies:
+      picomatch: 4.0.7(patch_hash={patch_hash})
+  tinyglobby@0.2.17:
+    dependencies:
+      picomatch: 4.0.7(patch_hash={patch_hash})
+  vite@8.3.5:
+    dependencies:
+      picomatch: 4.0.7(patch_hash={patch_hash})
+  vitest@5.1.0(vite@8.3.5):
+    dependencies:
+      picomatch: 4.0.7(patch_hash={patch_hash})
 ''')
         workspace = self.put('frontend/pnpm-workspace.yaml',
                              f'patchedDependencies:\n  picomatch@4.0.7: {gate.PATCH}\n')
@@ -61,16 +79,33 @@ snapshots:
         file.write_text(contents, encoding='utf-8')
         return file
 
+    def approve_fixture_change(self, field, path):
+        manifest = self.root / gate.MANIFEST
+        metadata = gate.read_json(manifest)
+        metadata[field] = gate.sha256(path)
+        manifest.unlink()
+        gate.write_json(manifest, metadata)
+
     def create_package(self, path):
         (path / 'lib').mkdir(parents=True)
         gate.write_json(path / 'package.json', {'name': gate.PACKAGE, 'version': gate.VERSION})
+        (path / 'index.js').write_text('module.exports = {};', encoding='utf-8')
         (path / 'LICENSE').write_text('synthetic license', encoding='utf-8')
         (path / 'lib/parse.js').write_text('synthetic bytes', encoding='utf-8')
 
-    def report(self, path, vulnerabilities, *, target=gate.TARGET, modified=(), artifact_type='filesystem'):
+    def install_consumer(self, name, version, suffix=''):
+        consumer = self.modules / f'.pnpm/{name}-fixture{suffix}/node_modules' / name
+        consumer.mkdir(parents=True)
+        gate.write_json(consumer / 'package.json', {'name': name, 'version': version})
+        (consumer.parent / 'picomatch').symlink_to(self.package, target_is_directory=True)
+        return consumer
+
+    def report(self, path, vulnerabilities, *, target=gate.TARGET, modified=(),
+               misconfigurations=(), artifact_type='filesystem'):
         gate.write_json(path, {'SchemaVersion': 2, 'ArtifactName': '.', 'ArtifactType': artifact_type,
                                'Trivy': {'Version': '0.75.0'}, 'Results': [{
             'Target': target, 'Class': 'lang-pkgs', 'Type': 'pnpm', 'Vulnerabilities': vulnerabilities,
+            'Misconfigurations': list(misconfigurations),
             'Packages': [{'Name': gate.PACKAGE, 'Version': gate.VERSION,
                           'Identifier': {'PURL': gate.PURL}}],
             'ExperimentalModifiedFindings': list(modified),
@@ -78,6 +113,42 @@ snapshots:
 
     def fixed(self, finding):
         return {'Type': 'vulnerability', 'Status': 'fixed', 'Source': gate.VEX_SOURCE, 'Finding': finding}
+
+    def ignore(self, category, finding):
+        return {'Type': category, 'Status': 'ignored', 'Source': '.trivyignore', 'Finding': finding}
+
+    def test_refuses_to_emit_when_the_only_patched_copy_is_orphaned(self):
+        for consumer in self.consumers.values():
+            (consumer.parent / 'picomatch').unlink()
+        self.report(self.raw, [self.advisory])
+        with mock.patch.object(gate.subprocess, 'check_output', return_value='a' * 40):
+            with self.assertRaisesRegex(ValueError, 'missing.*Picomatch.*edge'):
+                gate.emit(self.root, self.raw, self.vex, self.proof)
+        self.assertFalse(self.vex.exists())
+        self.assertFalse(self.proof.exists())
+
+    def test_rejects_missing_optional_consumer(self):
+        self.consumers['fdir'].rename(self.temp / 'missing-consumer')
+        with self.assertRaisesRegex(ValueError, 'unexpected installed consumer count.*fdir'):
+            gate.verify(self.root)
+
+    def test_rejects_consumer_that_resolves_a_shadow_module(self):
+        self.put('frontend/node_modules/.pnpm/vite-fixture/node_modules/vite/node_modules/picomatch.js',
+                 'module.exports = {};')
+        with self.assertRaisesRegex(ValueError, 'vite.*outside the verified Picomatch package'):
+            gate.verify(self.root)
+
+    def test_accepts_two_installed_copies_for_distinct_consumer_snapshots(self):
+        patch_hash = gate.sha256(self.patch)
+        lock = self.lock.read_text(encoding='utf-8')
+        self.lock.write_text(lock + f'  vitest@5.1.0(vite@8.4.0):\n'
+                             f'    dependencies:\n      picomatch: 4.0.7(patch_hash={patch_hash})\n',
+                             encoding='utf-8')
+        self.approve_fixture_change('lockSha256', self.lock)
+        with self.assertRaisesRegex(ValueError, 'unexpected installed consumer count.*vitest'):
+            gate.verify(self.root)
+        self.install_consumer('vitest', '5.1.0', suffix='-second')
+        self.assertEqual(gate.verify(self.root)[1], self.package)
 
     def test_accepts_single_physical_copy_with_an_alias(self):
         (self.modules / 'alias').symlink_to(self.package, target_is_directory=True)
@@ -146,19 +217,33 @@ snapshots:
         with self.assertRaisesRegex(ValueError, 'missing approved pnpm patch hash'):
             gate.check_lock(lock, patch_hash)
 
+    def test_rejects_direct_picomatch_importer_edges(self):
+        patch_hash = gate.sha256(self.patch)
+        lock = self.lock.read_text(encoding='utf-8')
+        for section, name, specifier in [
+            ('dependencies', 'picomatch', '4.0.7'),
+            ('optionalDependencies', "'picomatch'", '4.0.7'),
+            ('devDependencies', 'pattern-matcher', 'npm:picomatch@4.0.7'),
+        ]:
+            with self.subTest(section=section, name=name):
+                importer = (f'  .:\n    {section}:\n      {name}:\n'
+                            f'        specifier: {specifier}\n'
+                            f'        version: 4.0.7(patch_hash={patch_hash})\n')
+                with self.assertRaisesRegex(ValueError, 'direct Picomatch importer dependency'):
+                    gate.check_lock(lock.replace('  .: {}\n', importer), patch_hash)
+
     def test_vex_is_absent_when_regression_fails(self):
         self.report(self.raw, [self.advisory])
-        failed = subprocess.CalledProcessError(1, 'node')
-        with mock.patch.object(gate.subprocess, 'run', side_effect=failed):
-            with self.assertRaises(subprocess.CalledProcessError):
-                gate.emit(self.root, self.raw, self.vex, self.proof)
+        regression = self.put(gate.REGRESSION, 'process.exitCode = 1;\n')
+        self.approve_fixture_change('regressionSha256', regression)
+        with self.assertRaises(subprocess.CalledProcessError):
+            gate.emit(self.root, self.raw, self.vex, self.proof)
         self.assertFalse(self.vex.exists())
         self.assertFalse(self.proof.exists())
 
     def test_rejects_change_between_emit_and_scan(self):
         self.report(self.raw, [self.advisory])
-        with mock.patch.object(gate.subprocess, 'run'), \
-             mock.patch.object(gate.subprocess, 'check_output', return_value='a' * 40):
+        with mock.patch.object(gate.subprocess, 'check_output', return_value='a' * 40):
             gate.emit(self.root, self.raw, self.vex, self.proof)
             gate.check_evidence(self.root, self.raw, self.vex, self.proof)
             original = self.vex.read_bytes()
@@ -166,6 +251,11 @@ snapshots:
             with self.assertRaisesRegex(ValueError, 'evidence no longer matches'):
                 gate.check_evidence(self.root, self.raw, self.vex, self.proof)
             self.vex.write_bytes(original)
+            edge = self.consumers['vitest'].parent / 'picomatch'
+            edge.unlink()
+            with self.assertRaisesRegex(ValueError, 'missing.*Picomatch.*edge'):
+                gate.check_evidence(self.root, self.raw, self.vex, self.proof)
+            edge.symlink_to(self.package, target_is_directory=True)
             (self.package / 'lib/parse.js').write_text('mutated bytes', encoding='utf-8')
             with self.assertRaisesRegex(ValueError, 'installed package digest mismatch'):
                 gate.check_evidence(self.root, self.raw, self.vex, self.proof)
@@ -188,6 +278,76 @@ snapshots:
         self.policy.unlink()
         self.report(self.policy, [], modified=[self.fixed(self.advisory)])
         with self.assertRaisesRegex(ValueError, 'raw finding is missing'):
+            gate.audit(self.raw, self.policy)
+
+    def test_accepts_ignored_vulnerability_duplicates_retaining_the_raw_winner(self):
+        earlier = {**self.other, 'PkgID': 'synthetic@1.0', 'PkgPath': 'some/path', 'FixedVersion': '2.0'}
+        winner = {**earlier, 'FixedVersion': '3.0'}
+        self.report(self.raw, [self.advisory, winner])
+        self.report(self.policy, [], modified=[self.fixed(self.advisory),
+                                               self.ignore('vulnerability', earlier),
+                                               self.ignore('vulnerability', winner)])
+        gate.audit(self.raw, self.policy)
+
+    def test_rejects_duplicate_with_a_different_pkg_path(self):
+        winner = {**self.other, 'PkgID': 'synthetic@1.0', 'PkgPath': 'some/path', 'FixedVersion': '3.0'}
+        other_path = {**winner, 'PkgPath': 'another/path', 'FixedVersion': '2.0'}
+        self.report(self.raw, [winner])
+        self.report(self.policy, [], modified=[self.ignore('vulnerability', winner),
+                                               self.ignore('vulnerability', other_path)])
+        with self.assertRaisesRegex(ValueError, 'raw finding is missing or changed'):
+            gate.audit(self.raw, self.policy)
+
+    def test_rejects_ignored_duplicates_without_exact_raw_winner(self):
+        changed = {**self.other, 'FixedVersion': '3.0', 'Title': 'changed'}
+        earlier = {**self.other, 'FixedVersion': '2.0'}
+        self.report(self.raw, [{**self.other, 'FixedVersion': '3.0'}])
+        self.report(self.policy, [], modified=[self.ignore('vulnerability', changed),
+                                               self.ignore('vulnerability', earlier)])
+        with self.assertRaisesRegex(ValueError, 'raw finding is missing or changed'):
+            gate.audit(self.raw, self.policy)
+
+    def test_rejects_ignored_duplicate_that_should_have_won_in_raw(self):
+        winner = {**self.other, 'FixedVersion': '3.0'}
+        invalid = {**self.other, 'FixedVersion': '4.0'}
+        self.report(self.raw, [winner])
+        self.report(self.policy, [], modified=[self.ignore('vulnerability', winner),
+                                               self.ignore('vulnerability', invalid)])
+        with self.assertRaisesRegex(ValueError, 'raw finding is missing or changed'):
+            gate.audit(self.raw, self.policy)
+
+    def test_rejects_ignored_duplicate_alongside_an_active_winner(self):
+        winner = {**self.other, 'FixedVersion': '3.0'}
+        earlier = {**self.other, 'FixedVersion': '2.0'}
+        self.report(self.raw, [winner])
+        self.report(self.policy, [winner], modified=[self.ignore('vulnerability', earlier)])
+        with self.assertRaisesRegex(ValueError, 'raw finding is missing or changed'):
+            gate.audit(self.raw, self.policy)
+
+    def test_accepts_ignored_nonfailing_misconfiguration_omitted_from_raw(self):
+        self.report(self.raw, [])
+        for status in ['PASS', 'EXCEPTION']:
+            with self.subTest(status=status):
+                finding = {'ID': 'SYNTH001', 'Status': status}
+                self.policy.unlink(missing_ok=True)
+                self.report(self.policy, [], modified=[self.ignore('misconfiguration', finding)])
+                gate.audit(self.raw, self.policy)
+
+    def test_rejects_unknown_or_unexpected_failing_misconfiguration(self):
+        self.report(self.raw, [])
+        for status in ['NOT_A_STATUS', 'FAIL']:
+            with self.subTest(status=status):
+                finding = {'ID': 'SYNTH001', 'Status': status}
+                self.report(self.policy, [], modified=[self.ignore('misconfiguration', finding)])
+                with self.assertRaises(ValueError):
+                    gate.audit(self.raw, self.policy)
+                self.policy.unlink()
+
+    def test_rejects_failing_misconfiguration_when_it_disappears(self):
+        fail = {'ID': 'SYNTH001', 'Status': 'FAIL'}
+        self.report(self.raw, [], misconfigurations=[fail])
+        self.report(self.policy, [], modified=[self.ignore('misconfiguration', {**fail, 'Status': 'PASS'})])
+        with self.assertRaisesRegex(ValueError, 'raw finding is missing or changed'):
             gate.audit(self.raw, self.policy)
 
     def test_rejects_report_without_picomatch_inventory(self):
