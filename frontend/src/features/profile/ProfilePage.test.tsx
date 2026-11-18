@@ -245,12 +245,13 @@ describe('perfil: região', () => {
     expect(await screen.findByRole('combobox', { name: 'Região' })).toHaveValue('')
   })
 
-  it('código de região que esta versão não conhece aparece como "Não informar" e não é apagado', async () => {
-    const backend = useProfileBackend({ displayName: 'Ana', bio: null, regionCode: 'BR-ZZ', version: 1 })
+  it.each(['BR-ZZ', 'US-CA'])('campo legado com %s fica como "Não informar" e é preservado', async (regionCode) => {
+    const backend = useProfileBackend({ displayName: 'Ana', bio: null, regionCode, version: 1 })
     const { user } = await renderApp('/account/profile')
 
     const region = await screen.findByRole('combobox', { name: 'Região' })
     expect(region).toHaveValue('')
+    expect(screen.getByRole('combobox', { name: 'País' })).toHaveValue('')
     expect(screen.getByRole('textbox', { name: 'Nome de exibição' })).toHaveValue('Ana')
 
     await user.clear(screen.getByRole('textbox', { name: 'Nome de exibição' }))
