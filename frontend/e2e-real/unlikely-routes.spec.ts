@@ -98,6 +98,11 @@ test('real PostgreSQL Routes: bilingual private clues, alternating choices, revi
     expect((await request.post('/__test/advance?seconds=301')).ok()).toBeTruthy()
     const id = await roomId(alice, eventId)
     const path = `/api/v1/rooms/${id}`
+    const audioReads: string[] = []
+    alice.on('request', (outgoing) => {
+      const pathname = new URL(outgoing.url()).pathname
+      if (outgoing.method() === 'GET' && pathname.startsWith(`${path}/audio/`)) audioReads.push(pathname)
+    })
     const refresh = async () => {
       await Promise.all([alice.reload(), bob.reload()])
     }
@@ -121,9 +126,20 @@ test('real PostgreSQL Routes: bilingual private clues, alternating choices, revi
     expect(intro.audio[0]?.assetId).toBe('route-intro-en')
     const translated = await readPrivateJson<Room>(bob, path)
     expect(translated.audio[0]?.assetId).toBe('route-intro-pt')
-    expect((await requestPrivateApi(alice, at(intro.audio, 0).url)).status).toBe(200)
-    expect((await requestPrivateApi(bob, at(intro.audio, 0).url)).status).toBe(404)
-    await expect(alice.locator('audio')).toHaveAttribute('preload', 'none')
+    const audioPath = at(intro.audio, 0).url
+    const playAudio = alice.getByRole('button', { name: 'Play audio', exact: true })
+    await expect(playAudio).toBeVisible()
+    await expect(alice.locator('audio, source')).toHaveCount(0)
+    expect(audioReads).toEqual([])
+    const [audioResponse] = await Promise.all([
+      alice.waitForResponse(
+        (result) => new URL(result.url()).pathname === audioPath && result.request().method() === 'GET',
+      ),
+      playAudio.click(),
+    ])
+    expect(audioResponse.status()).toBe(200)
+    expect(audioReads).toEqual([audioPath])
+    expect((await requestPrivateApi(bob, audioPath)).status).toBe(404)
     await clickAction(alice, 'Got it')
     await expect(alice.getByText('Waiting for the other person to confirm.')).toBeVisible()
     await clickAction(bob, 'Entendi')
