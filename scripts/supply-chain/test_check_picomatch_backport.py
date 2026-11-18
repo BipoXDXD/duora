@@ -67,8 +67,8 @@ snapshots:
         (path / 'LICENSE').write_text('synthetic license', encoding='utf-8')
         (path / 'lib/parse.js').write_text('synthetic bytes', encoding='utf-8')
 
-    def report(self, path, vulnerabilities, *, target=gate.TARGET, modified=()):
-        gate.write_json(path, {'SchemaVersion': 2, 'ArtifactName': '.', 'ArtifactType': 'filesystem',
+    def report(self, path, vulnerabilities, *, target=gate.TARGET, modified=(), artifact_type='filesystem'):
+        gate.write_json(path, {'SchemaVersion': 2, 'ArtifactName': '.', 'ArtifactType': artifact_type,
                                'Trivy': {'Version': '0.75.0'}, 'Results': [{
             'Target': target, 'Class': 'lang-pkgs', 'Type': 'pnpm', 'Vulnerabilities': vulnerabilities,
             'Packages': [{'Name': gate.PACKAGE, 'Version': gate.VERSION,
@@ -197,8 +197,27 @@ snapshots:
         with self.assertRaisesRegex(ValueError, 'must inventory exactly one'):
             gate.expected_findings(raw)
 
+    def test_accepts_repository_reports_and_rejects_changed_artifact_type(self):
+        self.report(self.raw, [self.advisory], artifact_type='repository')
+        self.report(self.policy, [], modified=[self.fixed(self.advisory)], artifact_type='repository')
+        gate.audit(self.raw, self.policy)
+        self.policy.unlink()
+        self.report(self.policy, [], modified=[self.fixed(self.advisory)])
+        with self.assertRaisesRegex(ValueError, 'artifact type changed'):
+            gate.audit(self.raw, self.policy)
+
     def test_rejects_vex_for_any_other_advisory(self):
         self.report(self.raw, [self.advisory, self.other])
         self.report(self.policy, [], modified=[self.fixed(self.advisory), self.fixed(self.other)])
         with self.assertRaisesRegex(ValueError, 'unexpected VEX suppression'):
+            gate.audit(self.raw, self.policy)
+
+    def test_rejects_changed_artifact_identity(self):
+        self.report(self.raw, [self.advisory], artifact_type='repository')
+        self.report(self.policy, [], modified=[self.fixed(self.advisory)], artifact_type='repository')
+        policy = gate.read_json(self.policy)
+        policy['ArtifactID'] = 'sha256:changed-checkout'
+        self.policy.unlink()
+        gate.write_json(self.policy, policy)
+        with self.assertRaisesRegex(ValueError, 'artifact identity changed'):
             gate.audit(self.raw, self.policy)

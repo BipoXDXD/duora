@@ -175,7 +175,7 @@ def verify(root):
 
 
 def results(report):
-    require(report.get('SchemaVersion') == 2 and report.get('ArtifactType') == 'filesystem'
+    require(report.get('SchemaVersion') == 2 and report.get('ArtifactType') in {'filesystem', 'repository'}
             and report.get('Trivy', {}).get('Version') == '0.75.0', 'unexpected Trivy report identity')
     scan_results = report.get('Results') or []
     packages = [(result, package) for result in scan_results
@@ -279,6 +279,8 @@ def audit(raw_report, policy_report):
     raw = read_json(raw_report)
     policy = read_json(policy_report)
     require(raw.get('ArtifactName') == policy.get('ArtifactName'), 'Trivy target changed between scans')
+    require(raw.get('ArtifactType') == policy.get('ArtifactType'), 'Trivy artifact type changed between scans')
+    require(raw.get('ArtifactID') == policy.get('ArtifactID'), 'Trivy artifact identity changed between scans')
     expected = expected_findings(raw)
     accounted = active_findings(policy)
     actual = []
