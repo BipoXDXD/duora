@@ -443,14 +443,16 @@ improvisado (spec 10.5; D-EF-04). A lista de erros transitórios da estratégia 
 
 Spec 10.6: até 8 tentativas, backoff exponencial com jitter e teto de 15 min.
 
-| Tentativa | Atraso-base | Atraso aplicado |
+Com os valores padrão do consumidor de e-mail (`Outbox`), a espera após uma tentativa que falhou segue a tabela.
+
+| Tentativa que falhou | Atraso-base | Atraso até a próxima tentativa |
 |---|---|---|
-| 1 | 15 s | entre 7,5 s e 15 s |
-| 2 | 30 s | entre 15 s e 30 s |
-| 3 | 1 min | entre 30 s e 1 min |
-| 4 | 2 min | entre 1 e 2 min |
-| 5 | 4 min | entre 2 e 4 min |
-| 6 | 8 min | entre 4 e 8 min |
+| 1 | 30 s | entre 15 s e 30 s |
+| 2 | 1 min | entre 30 s e 1 min |
+| 3 | 2 min | entre 1 e 2 min |
+| 4 | 4 min | entre 2 e 4 min |
+| 5 | 8 min | entre 4 e 8 min |
+| 6 | 15 min (teto) | entre 7,5 e 15 min |
 | 7 | 15 min (teto) | entre 7,5 e 15 min |
 | 8 | — | Última; falhou → `Failed` |
 
