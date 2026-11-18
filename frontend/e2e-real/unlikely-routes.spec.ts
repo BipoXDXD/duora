@@ -1,4 +1,5 @@
 import { expect, test, type Page, type BrowserContext } from '@playwright/test'
+import { enroll, readPrivateJson, requestPrivateApi } from './private-api.ts'
 
 interface Seed {
   events: string[]
@@ -25,11 +26,6 @@ function at<T>(values: T[], index: number): T {
   if (value === undefined) throw new Error('Missing seeded fixture')
   return value
 }
-async function json<T>(page: Page, path: string): Promise<T> {
-  const response = await page.request.get(path)
-  expect(response.status()).toBe(200)
-  return (await response.json()) as T
-}
 async function declare(page: Page, language: 'English' | 'Portuguese', optIn: boolean): Promise<void> {
   await page.goto('/account/preferences')
   const english = page.getByRole('checkbox', { name: 'English', exact: true })
@@ -40,32 +36,8 @@ async function declare(page: Page, language: 'English' | 'Portuguese', optIn: bo
   await page.getByRole('button', { name: 'Save preferences', exact: true }).click()
   await expect(page.getByText('Preferences saved.', { exact: true })).toBeVisible()
 }
-async function enroll(page: Page, eventId: string): Promise<void> {
-  // Read and write the real API with the same browser cookies/CSRF. No route interception or mocked responses.
-  for (const [method, path] of [
-    ['PUT', `/api/v1/events/${eventId}/registration`],
-    ['POST', `/api/v1/events/${eventId}/check-in`],
-  ] as const) {
-    const result = await page.evaluate(
-      async ({ method: verb, path: endpoint }) => {
-        await fetch('/api/v1/auth/csrf')
-        const token = document.cookie
-          .split('; ')
-          .find((cookie) => cookie.startsWith('XSRF-TOKEN='))
-          ?.slice('XSRF-TOKEN='.length)
-        const response = await fetch(endpoint, {
-          method: verb,
-          headers: { 'X-XSRF-TOKEN': decodeURIComponent(token ?? '') },
-        })
-        return response.status
-      },
-      { method, path },
-    )
-    expect(result).toBe(204)
-  }
-}
 async function roomId(page: Page, eventId: string): Promise<string> {
-  const status = await json<Invitation>(page, `/api/v1/events/${eventId}/participation`)
+  const status = await readPrivateJson<Invitation>(page, `/api/v1/events/${eventId}/participation`)
   expect(status.roomId).not.toBeNull()
   if (status.roomId === null) throw new Error('Missing invitation')
   return status.roomId
@@ -142,21 +114,21 @@ test('real PostgreSQL Routes: bilingual private clues, alternating choices, revi
     await Promise.all([alice.goto(`/rooms/${id}`), bob.goto(`/rooms/${id}`)])
     await alice.getByRole('button', { name: 'Accept invitation' }).click()
     await bob.getByRole('button', { name: 'Aceitar convite' }).click()
-    await expect.poll(async () => (await json<Room>(alice, path)).state).toBe('Active')
+    await expect.poll(async () => (await readPrivateJson<Room>(alice, path)).state).toBe('Active')
     await refresh()
-    const intro = await json<Room>(alice, path)
+    const intro = await readPrivateJson<Room>(alice, path)
     expect(intro.routesGame.myClues).toEqual([])
     expect(intro.audio[0]?.assetId).toBe('route-intro-en')
-    const translated = await json<Room>(bob, path)
+    const translated = await readPrivateJson<Room>(bob, path)
     expect(translated.audio[0]?.assetId).toBe('route-intro-pt')
-    expect((await alice.request.get(at(intro.audio, 0).url)).status()).toBe(200)
-    expect((await bob.request.get(at(intro.audio, 0).url)).status()).toBe(404)
+    expect((await requestPrivateApi(alice, at(intro.audio, 0).url)).status).toBe(200)
+    expect((await requestPrivateApi(bob, at(intro.audio, 0).url)).status).toBe(404)
     await expect(alice.locator('audio')).toHaveAttribute('preload', 'none')
     await clickAction(alice, 'Got it')
     await expect(alice.getByText('Waiting for the other person to confirm.')).toBeVisible()
     await clickAction(bob, 'Entendi')
-    const left = await json<Room>(alice, path)
-    const right = await json<Room>(bob, path)
+    const left = await readPrivateJson<Room>(alice, path)
+    const right = await readPrivateJson<Room>(bob, path)
     expect(left.routesGame.stage).toBe('Clues')
     expect(left.routesGame.myClues).toHaveLength(1)
     expect(right.routesGame.myClues).toHaveLength(1)
@@ -176,7 +148,7 @@ test('real PostgreSQL Routes: bilingual private clues, alternating choices, revi
     const chooseRoute = async () => {
       const choosers: Page[] = []
       for (let index = 0; index < 2; index++) {
-        const current = await json<Room>(alice, path)
+        const current = await readPrivateJson<Room>(alice, path)
         const page = current.routesGame.isMyTurn ? alice : bob
         const waiting = page === alice ? bob : alice
         choosers.push(page)
@@ -185,21 +157,21 @@ test('real PostgreSQL Routes: bilingual private clues, alternating choices, revi
         await clickAction(page, page === alice ? 'Choose' : 'Escolher')
       }
       expect(choosers[0]).not.toBe(choosers[1])
-      expect((await json<Room>(alice, path)).routesGame.stage).toBe('Adjustment')
+      expect((await readPrivateJson<Room>(alice, path)).routesGame.stage).toBe('Adjustment')
     }
     await chooseRoute()
-    const revisions = (await json<Room>(alice, path)).routesGame.revisionsRemaining
+    const revisions = (await readPrivateJson<Room>(alice, path)).routesGame.revisionsRemaining
     await clickAction(bob, 'Pedir revisão')
-    const revised = await json<Room>(alice, path)
+    const revised = await readPrivateJson<Room>(alice, path)
     expect(revised.routesGame.route).toEqual([])
     expect(revised.routesGame.revisionsRemaining).toBe(revisions - 1)
     await chooseRoute()
     await clickAction(alice, 'Confirm route')
-    expect((await json<Room>(bob, path)).state).toBe('Active')
+    expect((await readPrivateJson<Room>(bob, path)).state).toBe('Active')
     await clickAction(bob, 'Confirmar roteiro')
     await expect(alice.getByText('Experience completed.')).toBeVisible()
     await expect(bob.getByText('Experiência concluída.')).toBeVisible()
-    const concluded = await json<Room>(alice, path)
+    const concluded = await readPrivateJson<Room>(alice, path)
     expect(concluded.routesGame.stage).toBe('Conclusion')
     expect(concluded.routesGame.route).toHaveLength(2)
     expect(microphoneCalls).toBe(0)
