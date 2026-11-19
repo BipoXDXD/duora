@@ -40,10 +40,12 @@ bruto do Trivy, a declaração e o relatório final são publicados juntos.
 A reconciliação exige que todos os achados brutos continuem representados.
 Outros avisos e alterações inesperadas do artefato continuam bloqueantes.
 
-Em PRs em que a varredura normal emite OpenVEX, o CI repete o mesmo gate em uma cópia descartável do
-checkout. Um manifesto sintético, lido apenas pelo Trivy, adiciona a CVE-2020-14343. O teste exige que
-esse achado CRITICAL seja o único bloqueio após aplicar o VEX e que o gate auditado saia com código 1.
-Os dois relatórios e a prova do ensaio vão para o artefato `supply-chain-openvex-regression`.
+Nos PRs em que o gate normal passa, o Trivy fixado também recebe respostas estáticas de um servidor de
+teste no loopback. A fixture só fornece metadados. O Trivy aplica o OpenVEX e a allowlist de severidade,
+e a auditoria do repositório confere os relatórios. Sem VEX, os dois achados bloqueiam. Com VEX, o achado
+CRITICAL independente é o único bloqueio e a saída é 1. No controle que contém só o alvo do VEX, a saída
+é 0. O ensaio independe do banco corrente de avisos. Os relatórios e o recibo do checkout saem no artefato
+`supply-chain-openvex-regression`.
 
 A revisão independente cobre o commit que contém o patch, o manifesto,
 os testes e o workflow. Cada mudança de lockfile exige atualizar e revisar

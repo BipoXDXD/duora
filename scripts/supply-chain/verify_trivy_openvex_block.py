@@ -1,26 +1,122 @@
-"""Use the real repository gate to check a critical finding with the backport VEX active."""
+"""Check Trivy policy and the repository audit with inert scanner responses."""
 
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 import os
 from pathlib import Path
-import shutil
 import subprocess
-from tempfile import mkdtemp
+from tempfile import TemporaryDirectory, mkdtemp
+from threading import Thread
 
-from check_picomatch_backport import ADVISORY_IDS, TARGET, VEX_SOURCE, read_json, require
+from check_picomatch_backport import (
+    ADVISORY_IDS, PACKAGE, PURL, TARGET, VERSION, VEX_SOURCE, audit, read_json, require, sha256, write_json,
+)
 
-GATE = 'scripts/supply-chain/run_trivy_gate.sh'
-FIXTURE = 'tools/trivy-openvex-regression/requirements.txt'
-CRITICAL = 'CVE-2020-14343'
+BACKPORT = 'CVE-2026-112366'
+CRITICAL = 'CVE-2099-10001'
+SEVERITY_HIGH = 3
+SEVERITY_CRITICAL = 4
+FIXTURE = 'fixture/critical.json'
+FIXTURE_PACKAGE = 'fixture-critical'
+SCAN_PATH = '/twirp/trivy.scanner.v1.Scanner/Scan'
+CACHE_PATHS = {
+    f'/twirp/trivy.cache.v1.Cache/{method}'
+    for method in ('MissingBlobs', 'PutArtifact', 'PutBlob', 'DeleteBlobs')
+}
+
+
+# Minimal protobuf fields from rpc/{scanner,common}/service.proto at Trivy v0.75.0.
+# Only vulnerability metadata is serialized. The fixture never contains package code.
+def varint(value):
+    data = bytearray()
+    while value >= 128:
+        data.append((value & 127) | 128)
+        value >>= 7
+    data.append(value)
+    return bytes(data)
+
+
+def field(number, value):
+    if isinstance(value, int):
+        return varint(number << 3) + varint(value)
+    data = value.encode() if isinstance(value, str) else value
+    return varint((number << 3) | 2) + varint(len(data)) + data
+
+
+def result_fixture(target, ecosystem, package, version, purl, advisory, severity):
+    package_id = f'{package}@{version}'
+    identifier = field(1, purl) + field(3, package_id)
+    inventory = field(1, package) + field(2, version) + field(13, package_id) + field(19, identifier)
+    finding = (field(1, advisory) + field(2, package) + field(3, version) + field(7, severity)
+               + field(23, package_id) + field(25, identifier))
+    result = (field(1, target) + field(2, finding) + field(3, ecosystem)
+              + field(5, inventory) + field(6, 'lang-pkgs'))
+    return field(3, result)
+
+
+class ScannerFixture(ThreadingHTTPServer):
+    response = b''
+    scans = 0
+
+
+class FixtureHandler(BaseHTTPRequestHandler):
+    def reply(self, data, content_type):
+        self.send_response(200)
+        self.send_header('Content-Type', content_type)
+        self.send_header('Content-Length', str(len(data)))
+        self.end_headers()
+        self.wfile.write(data)
+
+    def do_GET(self):
+        if self.path == '/version':
+            self.reply(b'{"Version":"fixture"}', 'application/json')
+        else:
+            self.send_error(404)
+
+    def do_POST(self):
+        length = int(self.headers.get('Content-Length', '0'))
+        if not 0 <= length <= 1024 * 1024 or self.headers.get('Content-Type') != 'application/protobuf':
+            self.send_error(400)
+            return
+        self.rfile.read(length)
+        if self.path == SCAN_PATH:
+            server = self.server
+            assert isinstance(server, ScannerFixture)
+            server.scans += 1
+            self.reply(server.response, 'application/protobuf')
+        elif self.path in CACHE_PATHS:
+            # The fixture scanner has no cache. Acknowledge writes and declare no missing blobs.
+            self.reply(b'', 'application/protobuf')
+        else:
+            self.send_error(404)
+
+    def log_message(self, format, *args):
+        pass
 
 
 def has_critical_fixture(report):
     return any(
-        finding['VulnerabilityID'] == CRITICAL
-        and finding['PkgName'].lower() == 'pyyaml'
+        finding['VulnerabilityID'] == CRITICAL and finding['PkgName'] == FIXTURE_PACKAGE
         and finding['Severity'] == 'CRITICAL'
         for result in report['Results'] if result['Target'] == FIXTURE
         for finding in result.get('Vulnerabilities', [])
     )
+
+
+def count_blockers(report):
+    return sum(
+        len(result.get('Vulnerabilities', []))
+        + sum(finding['Status'] == 'FAIL' for finding in result.get('Misconfigurations', []))
+        for result in report['Results']
+    )
+
+
+def verify_fixed(report):
+    require(any(
+        row['Source'] == VEX_SOURCE and row['Status'] == 'fixed'
+        and row['Finding']['VulnerabilityID'] in ADVISORY_IDS
+        for result in report['Results'] if result['Target'] == TARGET
+        for row in result.get('ExperimentalModifiedFindings', [])
+    ), 'the policy scan did not apply the Picomatch OpenVEX declaration')
 
 
 def verify_reports(reports):
@@ -30,52 +126,93 @@ def verify_reports(reports):
     policy = read_json(reports / 'trivy-policy.json')
     require(has_critical_fixture(raw) and has_critical_fixture(policy),
             f'{CRITICAL} must be present and CRITICAL in both scan reports')
-    blockers = sum(
-        len(result.get('Vulnerabilities', []))
-        + sum(finding['Status'] == 'FAIL' for finding in result.get('Misconfigurations', []))
-        for result in policy['Results']
-    )
-    require(blockers == 1, f'{CRITICAL} must be the only blocker in the regression scan')
-    require(any(
-        row['Source'] == VEX_SOURCE and row['Status'] == 'fixed'
-        and row['Finding']['VulnerabilityID'] in ADVISORY_IDS
-        for result in policy['Results'] if result['Target'] == TARGET
-        for row in result.get('ExperimentalModifiedFindings', [])
-    ), 'the policy scan did not apply the Picomatch OpenVEX declaration')
+    require(count_blockers(policy) == 1, f'{CRITICAL} must be the only blocker in the regression scan')
+    verify_fixed(policy)
+
+
+def scan(server, source, reports, target, name, expected_exit, *, vex=False):
+    output = f'{name}.json'
+    args = [
+        'docker', 'run', '--rm', '--pull=never', '--network', 'host',
+        '-v', f'{target}:/input:ro', '-v', f'{reports}:/reports',
+        '-v', f'{source / ".trivyignore"}:/fixture-ignore:ro',
+        os.environ['TRIVY_IMAGE'], '--config', '', 'fs', '/input',
+        '--server', f'http://127.0.0.1:{server.server_port}', '--offline-scan', '--scanners', 'vuln',
+        '--severity', 'HIGH,CRITICAL', '--format', 'json', '--list-all-pkgs', '--show-suppressed',
+        '--ignorefile', '/fixture-ignore' if vex else '/dev/null',
+        '--exit-code', '1', '--output', f'/reports/{output}',
+    ]
+    if vex:
+        args.extend(('--vex', VEX_SOURCE))
+    previously_scanned = server.scans
+    result = subprocess.run(args, check=False, timeout=60)
+    (reports / f'{name.removeprefix("trivy-")}-exit-code.txt').write_text(f'{result.returncode}\n', encoding='utf-8')
+    require(result.returncode == expected_exit, f'{name} expected exit {expected_exit}, got {result.returncode}')
+    require(server.scans == previously_scanned + 1, f'{name} did not consume the static scanner response')
+    return reports / output
 
 
 def main():
-    control = Path(os.environ['SUPPLY_CHAIN_REPORTS'])
-    if not (control / 'picomatch.openvex.json').is_file():
-        print('OpenVEX regression not exercised: the normal scan found no Picomatch advisory.')
-        return
-
     source = Path(os.environ['GITHUB_WORKSPACE'])
-    scratch = Path(mkdtemp(prefix='openvex-regression.', dir=os.environ['RUNNER_TEMP'])).resolve()
-    target = scratch / 'repo'
+    run = os.environ['GITHUB_RUN_ID']
+    attempt = os.environ['GITHUB_RUN_ATTEMPT']
     commit = subprocess.check_output(['git', 'rev-parse', 'HEAD'], cwd=source, text=True).strip()
-    subprocess.run(['git', 'clone', '--quiet', '--shared', '--no-checkout', str(source), str(target)], check=True)
-    try:
-        subprocess.run(['git', 'checkout', '--quiet', '--detach', commit], cwd=target, check=True)
-        shutil.copytree(source / 'frontend/node_modules', target / 'frontend/node_modules', symlinks=True)
-        fixture = target / FIXTURE
-        fixture.parent.mkdir()
-        # Scanner input only. Nothing from this manifest is installed or executed.
-        fixture.write_text('PyYAML==5.3.1\n', encoding='utf-8')
+    require(commit == os.environ['GITHUB_SHA'] and run.isdecimal() and attempt.isdecimal(), 'unexpected checkout identity')
+    reports = Path(mkdtemp(prefix='openvex-regression.', dir=os.environ['RUNNER_TEMP'])).resolve()
+    with Path(os.environ['GITHUB_ENV']).open('a', encoding='utf-8') as environment:
+        print(f'OPENVEX_TEST_REPORTS={reports}', file=environment)
 
-        environment_file = scratch / 'gate.env'
-        env = dict(os.environ, GITHUB_WORKSPACE=str(target), RUNNER_TEMP=str(scratch),
-                   GITHUB_ENV=str(environment_file))
-        result = subprocess.run(['bash', GATE], cwd=target, env=env, check=False)
-        key, _, path = environment_file.read_text(encoding='utf-8').strip().partition('=')
-        require(key == 'SUPPLY_CHAIN_REPORTS' and Path(path).parent == scratch, 'missing gate reports')
-        with Path(os.environ['GITHUB_ENV']).open('a', encoding='utf-8') as environment:
-            print(f'OPENVEX_TEST_REPORTS={path}', file=environment)
-        verify_reports(Path(path))
-        require(result.returncode == 1, f'expected gate exit 1, got {result.returncode}')
-        print(f'OpenVEX active. {CRITICAL} stayed CRITICAL, and the repository gate exited 1.')
-    finally:
-        shutil.rmtree(target)
+    backport = result_fixture(TARGET, 'pnpm', PACKAGE, VERSION, PURL, BACKPORT, SEVERITY_HIGH)
+    independent = result_fixture(FIXTURE, 'pip', FIXTURE_PACKAGE, '1.0.0',
+                                 f'pkg:pypi/{FIXTURE_PACKAGE}@1.0.0', CRITICAL, SEVERITY_CRITICAL)
+    (reports / 'scanner-response.pb').write_bytes(backport + independent)
+    (reports / 'scanner-control.pb').write_bytes(backport)
+    write_json(reports / Path(VEX_SOURCE).name, {
+        '@context': 'https://openvex.dev/ns/v0.2.0',
+        '@id': f'urn:duora:fixture:openvex:{commit}',
+        'author': 'Duora CI fixture',
+        'timestamp': '2026-11-19T00:00:00Z',
+        'version': 1,
+        'statements': [{'vulnerability': {'name': BACKPORT}, 'products': [{'@id': PURL}],
+                        'status': 'fixed', 'action_statement': 'Static policy fixture only.'}],
+    })
+
+    with (TemporaryDirectory(dir=os.environ['RUNNER_TEMP']) as temporary,
+          ScannerFixture(('127.0.0.1', 0), FixtureHandler) as server):
+        target = Path(temporary)
+        (target / 'fixture.txt').write_text('Inert Trivy policy fixture.\n', encoding='utf-8')
+        worker = Thread(target=server.serve_forever)
+        worker.start()
+        try:
+            server.response = backport + independent
+            raw = scan(server, source, reports, target, 'trivy-raw', 1)
+            policy = scan(server, source, reports, target, 'trivy-policy', 1, vex=True)
+            server.response = backport
+            control = scan(server, source, reports, target, 'trivy-control', 0, vex=True)
+        finally:
+            server.shutdown()
+            worker.join()
+
+    # The production audit must account for every finding and reject a changed or lost one.
+    require(count_blockers(read_json(raw)) == 2, 'both findings must block without VEX')
+    audit(raw, policy)
+    verify_reports(reports)
+    require(count_blockers(read_json(control)) == 0, 'the VEX-only control must have no blockers')
+    verify_fixed(read_json(control))
+    control_raw = read_json(raw)
+    control_raw['Results'] = [r for r in control_raw['Results'] if r['Target'] == TARGET]
+    control_input = reports / 'trivy-control-raw.json'
+    write_json(control_input, control_raw)
+    audit(control_input, control)
+
+    write_json(reports / 'receipt.json', {
+        'schema': 1, 'checkout': commit, 'run': run, 'attempt': attempt, 'trivyImage': os.environ['TRIVY_IMAGE'],
+        'scope': 'Trivy policy with inert scanner responses; no advisory database',
+        'exitCodes': {'withoutVex': 1, 'withIndependentCritical': 1, 'vexOnlyControl': 0},
+        'fixtureCritical': CRITICAL,
+        'sha256': {file.name: sha256(file) for file in sorted(reports.iterdir())},
+    })
+    print(f'OpenVEX policy exercised. {CRITICAL} remained the only CRITICAL blocker. VEX-only control exited 0.')
 
 
 if __name__ == '__main__':

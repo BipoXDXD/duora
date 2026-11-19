@@ -3,14 +3,14 @@ from tempfile import TemporaryDirectory
 from unittest import TestCase
 
 from check_picomatch_backport import TARGET, VEX_SOURCE, write_json
-from verify_trivy_openvex_block import CRITICAL, FIXTURE, verify_reports
+from verify_trivy_openvex_block import CRITICAL, FIXTURE, FIXTURE_PACKAGE, verify_reports
 
 
 class TrivyOpenVexBlockTests(TestCase):
     def verify(self, *, other=None, fixed=True):
         fixture = {
             'Target': FIXTURE, 'Vulnerabilities': [
-                {'VulnerabilityID': CRITICAL, 'PkgName': 'PyYAML', 'Severity': 'CRITICAL'}
+                {'VulnerabilityID': CRITICAL, 'PkgName': FIXTURE_PACKAGE, 'Severity': 'CRITICAL'}
             ],
         }
         backport = {'Target': TARGET, 'ExperimentalModifiedFindings': [{
