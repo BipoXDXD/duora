@@ -1,2 +1,8 @@
+# Materializa o fallback WASI do Rolldown e seus manifestos para o inventário de licenças do Trivy.
+supportedArchitectures:
+  cpu:
+    - current
+    - wasm32
+
 patchedDependencies:
   '@mswjs/interceptors@0.45.8': patches/@mswjs__interceptors@0.45.8.patch
