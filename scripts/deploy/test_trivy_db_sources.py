@@ -26,10 +26,12 @@ FORBIDDEN_SETTINGS = re.compile(
     r"DOWNLOAD_DB_ONLY|DOWNLOAD_JAVA_DB_ONLY)\b|--(?:db-repository|env-file)\b"
 )
 PAIR_STEP = "Vulnerabilidades e misconfig (HIGH e CRITICAL bloqueiam)"
+PAIR_PATH = "scripts/supply-chain/run_trivy_gate.sh"
 
 # Review this ordered shell sequence with any change to the offline exception. A missing or
 # conditional guard, reassigned cache, or masked scanner status must fail the contract.
 PAIR_SCRIPT = r'''
+set -eo pipefail
 reports=$(mktemp -d "$RUNNER_TEMP/supply-chain-report.XXXXXX")
 cache=$(mktemp -d "$RUNNER_TEMP/supply-chain-cache.XXXXXX")
 echo "SUPPLY_CHAIN_REPORTS=$reports" >> "$GITHUB_ENV"
@@ -65,6 +67,8 @@ trivy_fs none --offline-scan --skip-db-update --skip-java-db-update --skip-check
   --exit-code 1 --output /reports/trivy-policy.json || policy_status=$?
 dataset_digests | cmp - "$reports/dataset-digests.sha256"
 python3 "$verifier" audit "${evidence[@]}" "$reports/trivy-policy.json"
+printf '%s\n' "$policy_status" > "$reports/policy-exit-code.txt"
+printf 'Trivy policy exit code: %s\n' "$policy_status"
 exit "$policy_status"
 '''
 PAIR_DOCKER_OPTIONS = shlex.split(
@@ -95,13 +99,19 @@ def check_filesystem_pair(job: dict[str, Any], step: dict[str, Any], lines: list
             raise AssertionError(f"filesystem scan pair changed: expected {expected!r}, found {found!r}")
 
 
-def checked_invocations(name: str, workflow: dict[str, Any], expected_count: int) -> int:
+def checked_invocations(name: str, workflow: dict[str, Any], expected_count: int,
+                        *, pair_script: str | None = None) -> int:
     """Count Docker launch sites and verify the two executions of the shared filesystem site."""
     seen = 0
     pairs = 0
     for job_name, job in workflow["jobs"].items():
         for step in job.get("steps", []):
             script = step.get("run", "")
+            pair = name == "ci.yml" and job_name == "supply-chain" and step.get("name") == PAIR_STEP
+            if pair:
+                if script != f"bash {PAIR_PATH}":
+                    raise AssertionError("filesystem scan pair entry point changed")
+                script = (ROOT / PAIR_PATH).read_text() if pair_script is None else pair_script
             if not isinstance(script, str):
                 continue
             lines = shell_lines(script)
@@ -118,7 +128,6 @@ def checked_invocations(name: str, workflow: dict[str, Any], expected_count: int
                 raise AssertionError("official DB source priority/schema changed")
             if FORBIDDEN_SETTINGS.search("\n".join([*environment, *lines])):
                 raise AssertionError("DB/scan bypass setting is forbidden")
-            pair = name == "ci.yml" and job_name == "supply-chain" and step.get("name") == PAIR_STEP
             if not pair and any(OFFLINE_FLAGS.search(line) for line in lines):
                 raise AssertionError("DB/scan bypass is forbidden outside the verified filesystem pair")
             for line, match in launches:
@@ -176,8 +185,9 @@ class TrivyDatabaseSourcesTests(unittest.TestCase):
                 for step in job.get("steps", []):
                     if isinstance(step.get("run"), str):
                         step["run"] = step["run"].replace("-e TRIVY_DB_REPOSITORY ", "")
+            broken_pair = (ROOT / PAIR_PATH).read_text().replace("-e TRIVY_DB_REPOSITORY ", "")
             with self.subTest(workflow=name), self.assertRaisesRegex(AssertionError, "not passed"):
-                checked_invocations(name, broken, count)
+                checked_invocations(name, broken, count, pair_script=broken_pair)
 
     def test_mirror_first_unapproved_repository_and_step_override_are_refused(self):
         for name, count, workflow in self.workflows():
@@ -219,15 +229,13 @@ class TrivyDatabaseSourcesTests(unittest.TestCase):
             ("scanner not executed", "docker run --rm --network", "echo docker run --rm --network"),
             ("policy exit swallowed", 'exit "$policy_status"', "exit 0"),
         )
+        script = (ROOT / PAIR_PATH).read_text()
         for label, original, replacement in mutations:
-            changed = copy.deepcopy(workflow)
-            step = next(step for step in changed["jobs"]["supply-chain"]["steps"]
-                        if "trivy_fs()" in step.get("run", ""))
             with self.subTest(mutation=label):
-                self.assertIn(original, step["run"])
-                step["run"] = step["run"].replace(original, replacement, 1)
+                self.assertIn(original, script)
+                changed = script.replace(original, replacement, 1)
                 with self.assertRaises(AssertionError):
-                    checked_invocations(name, changed, WORKFLOWS[name])
+                    checked_invocations(name, workflow, WORKFLOWS[name], pair_script=changed)
 
     def test_filesystem_pair_cannot_be_skipped_or_allowed_to_fail(self):
         name = "ci.yml"
@@ -238,6 +246,16 @@ class TrivyDatabaseSourcesTests(unittest.TestCase):
             step[option] = value
             with self.subTest(option=option), self.assertRaisesRegex(AssertionError, "must run and fail closed"):
                 checked_invocations(name, changed, WORKFLOWS[name])
+
+    def test_openvex_critical_is_exercised_in_pull_request_ci(self):
+        workflow = yaml.safe_load((ROOT / ".github/workflows/ci.yml").read_text())
+        steps = workflow["jobs"]["supply-chain"]["steps"]
+        scan, = (step for step in steps if step.get("name") == PAIR_STEP)
+        regression, = (step for step in steps
+                       if step.get("run") == "python3 scripts/supply-chain/verify_trivy_openvex_block.py")
+        self.assertLess(steps.index(scan), steps.index(regression))
+        self.assertEqual(regression.get("if"), "${{ success() && github.event_name == 'pull_request' }}")
+        self.assertFalse(regression.get("continue-on-error", False))
 
     def test_other_launch_sites_cannot_use_offline_modes(self):
         name = "publish-images.yml"
