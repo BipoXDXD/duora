@@ -27,6 +27,7 @@ Os achados aparecem no log do job; o inventário de licenças e o changelog do c
 | Trivy | 0.75.0 | `ghcr.io/aquasecurity/trivy@sha256:af6acf9a6b85dfe389a1941505c0ce9efef52a4719635e1a962f022a3d855daa` (índice multi-arquitetura; mesmo digest em `aquasec/trivy:0.75.0`) | assinatura cosign keyless conferida em 2026-10-15 contra os workflows de `aquasecurity/trivy` (comando abaixo) |
 | oasdiff | v1.33.0 | `tufin/oasdiff@sha256:6263a96dd2ef0726c54e21fea9b8e1607eac4841add0079324b424c1f52b819c` (índice multi-arquitetura) | a imagem não é assinada; o digest foi lido da tag `v1.33.0` em 2026-10-15 e só muda por PR |
 | Gitleaks | v8.30.1 | `ghcr.io/gitleaks/gitleaks@sha256:c00b6bd0…` (ver `ci.yml`) | digest fixado |
+| Go do Caddy | 1.26.11 | tag e digest do índice em [infra/images/edge/Dockerfile](../../infra/images/edge/Dockerfile) | corrige [CVE-2026-97054](https://pkg.go.dev/vuln/GO-2026-6859). O Trivy confere o binário recompilado em AMD64 e ARM64 |
 | openapi-typescript | 7.13.0 | versão exata em `frontend/package.json` + `pnpm-lock.yaml` | lockfile com integridade; versão exata porque um bump muda a saída gerada |
 | Microsoft.Extensions.ApiDescription.Server | 10.0.13 | `Directory.Packages.props` + `packages.lock.json` | lockfile com content hash |
 | pyright, ansible-core, ansible-lint | 1.1.408, 2.21.5, 26.10.1 | `scripts/deploy/requirements.in` + `scripts/deploy/requirements.txt` com hashes (`uv pip compile --generate-hashes`) | `pip install --require-hashes` no job `ops`; o mesmo pyright checa `scripts/` e `tools/visual` |
