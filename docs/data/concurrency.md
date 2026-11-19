@@ -459,12 +459,15 @@ Com os valores padrão do consumidor de e-mail (`Outbox`), a espera após uma te
 O atraso aplicado é metade do atraso-base mais um valor aleatório de até a outra metade. Esse jitter mantém
 a espera acima de zero.
 
-O uso de `Retry-After` é uma proposta ainda não implementada. Para respostas `429` ou `503` do fornecedor
-HTTP, a proposta prevê usar o cabeçalho no lugar do atraso calculado, respeitando o prazo da entrega.
-Hoje o dispatcher usa o backoff da tabela ao reagendar uma falha.
+Se o payload falhar na validação durante a composição do e-mail, a entrega passa imediatamente a `Failed`.
+Exceções HTTP durante o envio seguem o backoff da tabela e encerram a entrega como `Failed` se o limite de
+tentativas for atingido.
 
-Erro definitivo (`4xx` de validação, destinatário inválido, assinatura rejeitada) vai direto a `Failed`.
-Deadline vencido → `Expired`, nunca envio atrasado (notificação de convite não sai dias depois).
+Ainda são propostas duas mudanças para respostas do fornecedor. Em `429` ou `503`, usar `Retry-After`
+no lugar do atraso calculado, respeitando o prazo da entrega. Para respostas `4xx` classificadas como
+falhas definitivas, encerrar a entrega imediatamente como `Failed`.
+
+Se o prazo já venceu quando o dispatcher processa a entrega, ela passa a `Expired` antes do envio.
 `Failed` entra na fila de revisão com causa sanitizada; reprocessar exige permissão, chave de operação e nova
 verificação de elegibilidade (API-ADM20).
 
