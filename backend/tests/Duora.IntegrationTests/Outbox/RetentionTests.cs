@@ -5,6 +5,7 @@ using Duora.Infrastructure.Participation;
 using Duora.Web.Admin;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
+using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Time.Testing;
 using Npgsql;
 using worker::Duora.Worker;
@@ -304,10 +305,12 @@ public sealed partial class RetentionTests(PostgresFixture postgres)
     }
 
     [Fact]
-    public async Task WorkerStillCleansWhenMonitoringFails()
+    public async Task WorkerCleansAndHonorsObservationIntervalAfterMonitoringFails()
     {
         await using var h = await Harness.CreateAsync(postgres);
         var delivery = await h.Delivery("Delivered", h.Time.GetUtcNow().AddDays(-8));
+        // Keep an event visible to the failing observation after the old delivery is removed.
+        var pending = await h.Delivery("Pending", null);
         await using var admin = await h.AdminConnection(postgres);
         await using var setup = new NpgsqlCommand("""
             create function ops.reject_observation() returns boolean language plpgsql as $$
@@ -317,26 +320,56 @@ public sealed partial class RetentionTests(PostgresFixture postgres)
             """, admin);
         await setup.ExecuteNonQueryAsync(Ct);
         await Assert.ThrowsAsync<PostgresException>(() => h.Service.ObserveAsync(Ct));
+        using var logs = new CapturingLoggerProvider();
+        var clock = new ObservationLoopClock(h.Time.GetUtcNow(), logs);
         var builder = WorkerHost.CreateBuilder([
             "--environment", "Testing", $"--ConnectionStrings:Duora={h.ConnectionString}",
             "--Duora:PublicOrigin=https://duora.test", "--Email:PickupDirectory=/tmp/duora-unused-retention-test",
             "--Retention:Enabled=true"]);
-        builder.Services.AddSingleton<TimeProvider>(h.Time);
+        builder.Services.AddSingleton<TimeProvider>(clock);
+        builder.Logging.AddProvider(logs);
         using var host = builder.Build();
         var worker = Assert.Single(host.Services.GetServices<IHostedService>().OfType<RetentionJobService>());
         await worker.StartAsync(Ct);
         try
         {
-            using var timeout = CancellationTokenSource.CreateLinkedTokenSource(Ct);
-            timeout.CancelAfter(TimeSpan.FromSeconds(5));
-            while (await h.Exists("outbox_deliveries", delivery) != 0)
-            {
-                await Task.Delay(20, timeout.Token);
-            }
+            var warnings = await clock.WarningsAfterIterations.WaitAsync(TimeSpan.FromSeconds(10), Ct);
+            Assert.Equal([1, 1, 2], warnings);
+            Assert.Equal(0, await h.Exists("outbox_deliveries", delivery));
+            Assert.Equal(1, await h.Exists("outbox_deliveries", pending));
         }
         finally
         {
             await worker.StopAsync(Ct);
+        }
+    }
+
+    private sealed class ObservationLoopClock(DateTimeOffset utcNow, CapturingLoggerProvider logs) : TimeProvider
+    {
+        private static readonly long[] Timestamps = [0, TimeSpan.TicksPerMinute - 1, TimeSpan.TicksPerMinute];
+        private readonly int[] _warnings = new int[Timestamps.Length];
+        private readonly TaskCompletionSource<int[]> _completed = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        private int _iteration;
+
+        public Task<int[]> WarningsAfterIterations => _completed.Task;
+        public override long TimestampFrequency => TimeSpan.TicksPerSecond;
+        public override DateTimeOffset GetUtcNow() => utcNow;
+
+        public override long GetTimestamp()
+        {
+            var iteration = _iteration++;
+            // The worker samples time at the start of each iteration, after the previous one completes.
+            if (iteration > 0 && iteration <= _warnings.Length)
+            {
+                _warnings[iteration - 1] = logs.Entries.Count(entry =>
+                    entry.Category == typeof(RetentionJobService).FullName && entry.Level == LogLevel.Warning);
+                if (iteration == _warnings.Length)
+                {
+                    _completed.TrySetResult(_warnings);
+                }
+            }
+
+            return Timestamps[Math.Min(iteration, Timestamps.Length - 1)];
         }
     }
 
