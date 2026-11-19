@@ -14,6 +14,16 @@ const origin = `https://localhost:${port}`;
 const otherOrigin = `https://127.0.0.1:${port}`;
 const focusFeature = 'focus-without-user-activation';
 
+// A avaliação do Playwright pode simular ativação. A sonda usa o CDP com userGesture: false.
+async function evaluateWithoutGesture(cdp, expression) {
+  const result = await cdp.send('Runtime.evaluate', {
+    expression: `Promise.race([(async () => { ${expression} })(), new Promise((_, reject) => setTimeout(() => reject(new Error('probe timeout')), 8000))])`,
+    awaitPromise: true, returnByValue: true, userGesture: false,
+  });
+  assert.equal(result.exceptionDetails, undefined, JSON.stringify(result.exceptionDetails));
+  return result.result.value;
+}
+
 async function checkAppFocus(browser, appOrigin) {
   const { withSessionContext } = await import(pathToFileURL(path.resolve(frontend, 'e2e/support/private-context.ts')));
   const context = await browser.newContext({ ignoreHTTPSErrors: true, locale: 'pt-BR' });
@@ -53,23 +63,39 @@ async function checkAppFocus(browser, appOrigin) {
 
     await page.goto(appOrigin);
     const cdp = await context.newCDPSession(page);
-    await expect.poll(async () => (await cdp.send('Runtime.evaluate', {
-      expression: `Boolean(document.querySelector('main a[href="/login"]'))`,
-      returnByValue: true, userGesture: false,
-    })).result.value).toBe(true);
-    await Promise.all([
-      page.waitForRequest(request => /\/assets\/LoginPage-[^/]+\.js$/.test(new URL(request.url()).pathname)),
-      cdp.send('Runtime.evaluate', {
-        expression: `(() => {
-          const link = document.querySelector('main a[href="/login"]');
-          if (!link || navigator.userActivation.isActive) return false;
-          link.click();
-          return !navigator.userActivation.isActive;
-        })()`, returnByValue: true, userGesture: false,
-      }).then(({result}) => assert.equal(result.value, true, 'a SPA iniciou a navegação sem ativação do usuário')),
-    ]);
-    await expect(page.getByRole('heading', {level: 1, name: 'Entrar'})).toBeFocused();
-    await expect(page.getByTestId('anuncio-de-rota')).toHaveText('Página carregada: Entrar · Duora');
+    const evaluate = expression => evaluateWithoutGesture(cdp, expression);
+    await expect.poll(() => evaluate(`return Boolean(document.querySelector('main a[href="/login"]'));`)).toBe(true);
+    const hasLoginChunk = `performance.getEntriesByType('resource').some(({name}) => {
+      const path = new URL(name).pathname;
+      return path.startsWith('/assets/LoginPage-') && path.endsWith('.js');
+    })`;
+    assert.deepEqual(await evaluate(`
+      const activation = () => [navigator.userActivation.isActive, navigator.userActivation.hasBeenActive];
+      const before = activation();
+      const chunkBefore = ${hasLoginChunk};
+      document.addEventListener('focusin', event => {
+        if (event.target === document.querySelector('main h1') && event.target.textContent.trim() === 'Entrar') {
+          globalThis.duoraProbeFocusActivation = activation();
+        }
+      }, {capture: true});
+      document.querySelector('main a[href="/login"]').click();
+      return {before, after: activation(), chunkBefore};
+    `), {before: [false, false], after: [false, false], chunkBefore: false});
+    // As leituras de foco e anúncio também precisam permanecer sem userGesture enquanto o chunk chega.
+    await expect.poll(() => evaluate(`
+      const heading = document.querySelector('main h1');
+      return {
+        pathname: location.pathname,
+        chunkLoaded: ${hasLoginChunk},
+        focused: heading === document.activeElement ? heading?.textContent.trim() : null,
+        announcement: document.querySelector('[data-testid="anuncio-de-rota"]')?.textContent,
+        focusActivation: globalThis.duoraProbeFocusActivation ?? null,
+        observedActivation: [navigator.userActivation.isActive, navigator.userActivation.hasBeenActive],
+      };
+    `)).toEqual({
+      pathname: '/login', chunkLoaded: true, focused: 'Entrar', announcement: 'Página carregada: Entrar · Duora',
+      focusActivation: [false, false], observedActivation: [false, false],
+    });
     console.log('PASS app lazy SPA navigation focuses and announces through Caddy without activation');
 
     signedIn = true;
@@ -115,15 +141,7 @@ async function checkAppFocus(browser, appOrigin) {
     const response = await page.goto(origin);
     assert.equal(response.status(), 200);
     const cdp = await context.newCDPSession(page);
-    // O page.evaluate do Playwright pode simular ativação do usuário; o Runtime.evaluate do CDP sem userGesture não.
-    async function evaluate(expression) {
-      const result = await cdp.send('Runtime.evaluate', {
-        expression: `Promise.race([(async () => { ${expression} })(), new Promise((_, reject) => setTimeout(() => reject(new Error('probe timeout')), 8000))])`,
-        awaitPromise: true, returnByValue: true, userGesture: false,
-      });
-      assert.equal(result.exceptionDetails, undefined, JSON.stringify(result.exceptionDetails));
-      return result.result.value;
-    }
+    const evaluate = expression => evaluateWithoutGesture(cdp, expression);
     let passed = 0;
     function check(name, actual, expected) {
       assert.deepEqual(actual, expected, name);
