@@ -40,8 +40,8 @@ bruto do Trivy, a declaração e o relatório final são publicados juntos.
 A reconciliação exige que todos os achados brutos continuem representados.
 Outros avisos e alterações inesperadas do artefato continuam bloqueantes.
 
-Nos PRs em que o gate normal passa, o Trivy fixado também recebe respostas estáticas de um servidor de
-teste no loopback. A fixture só fornece metadados. O Trivy aplica o OpenVEX e a allowlist de severidade,
+Nos PRs em que as etapas anteriores do job `supply-chain` passam, o Trivy fixado recebe respostas estáticas
+de um servidor de teste no loopback. A fixture fornece metadados. O Trivy aplica o OpenVEX e o filtro de severidade,
 e a auditoria do repositório confere os relatórios. Sem VEX, os dois achados bloqueiam. Com VEX, o achado
 CRITICAL independente é o único bloqueio e a saída é 1. No controle que contém só o alvo do VEX, a saída
 é 0. O ensaio independe do banco corrente de avisos. Os relatórios e o recibo do checkout saem no artefato

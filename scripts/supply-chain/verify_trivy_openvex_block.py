@@ -138,6 +138,7 @@ def scan(server, source, reports, target, name, expected_exit, *, vex=False):
         '-v', f'{source / ".trivyignore"}:/fixture-ignore:ro',
         os.environ['TRIVY_IMAGE'], '--config', '', 'fs', '/input',
         '--server', f'http://127.0.0.1:{server.server_port}', '--offline-scan', '--scanners', 'vuln',
+        '--skip-version-check', '--disable-telemetry', '--timeout', '45s',
         '--severity', 'HIGH,CRITICAL', '--format', 'json', '--list-all-pkgs', '--show-suppressed',
         '--ignorefile', '/fixture-ignore' if vex else '/dev/null',
         '--exit-code', '1', '--output', f'/reports/{output}',
