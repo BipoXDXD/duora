@@ -11,7 +11,7 @@ Referências: [plano aprovado](../superpowers/plans/2026-10-22-issue-108-operati
 
 ## O que fica preparado
 
-O workflow `IPinfo Lite G2` tem preflight sintético em PR, sem segredos, e despacho manual com três modos:
+O workflow `IPinfo Lite G2 synthetic` executa os testes sintéticos em PR, sem ambiente ou segredos. O workflow `IPinfo Lite G2` é manual e executa o mesmo preflight antes dos modos abaixo.
 
 | Modo | Acesso ao fornecedor | Resultado |
 |---|---|---|
