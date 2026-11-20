@@ -108,7 +108,8 @@ por revisão humana no PR que a cria.
   pacote mudar de licença, o job volta a reprovar.
 - `missingLicenseAllowed`: padrões de pacote que podem aparecer sem licença, com justificativa. Hoje são só os
   binários nativos opcionais por plataforma (rolldown, Tailwind oxide, lightningcss, fsevents): o lockfile lista
-  todos, mas só o da plataforma do runner é instalado, e é dele que a licença é lida e conferida.
+  todos. O pnpm instala os da plataforma do runner e admite também a CPU `wasm32` para materializar o fallback
+  WASI do Rolldown e suas dependências. O Trivy lê as licenças dos manifestos instalados junto ao lockfile.
 - `missingLicenseAllowed` aceita `version` (exata) quando a licença foi lida à mão daquela versão, porque o
   pacote a declara só como arquivo, que o Trivy não lê. Outra versão volta a reprovar: quem atualiza (inclusive o
   PR do Dependabot) relê o `LICENSE` da versão nova e troca o campo, no mesmo PR.
