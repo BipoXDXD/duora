@@ -164,6 +164,7 @@ settings:
 
 patchedDependencies:
   '@mswjs/interceptors@0.45.8': 653ad6e6fa0cc3cbf8738215beda439d076ed85d9cf3a91d249f7e1c16857918
+  picomatch@4.0.7: a5e0dd867d4594e411a3b9c8a61478476901be3c7e641064aa0ce2af88d55789
 
 importers:
 
@@ -5936,9 +5937,9 @@ snapshots:
       strnum: 2.5.1
       xml-naming: 0.3.0
 
-  fdir@6.5.0(picomatch@4.0.7):
+  fdir@6.5.0(picomatch@4.0.7(patch_hash=a5e0dd867d4594e411a3b9c8a61478476901be3c7e641064aa0ce2af88d55789)):
     optionalDependencies:
-      picomatch: 4.0.7
+      picomatch: 4.0.7(patch_hash=a5e0dd867d4594e411a3b9c8a61478476901be3c7e641064aa0ce2af88d55789)
 
   file-entry-cache@11.1.5:
     dependencies:
@@ -6291,7 +6292,7 @@ snapshots:
 
   picocolors@1.1.1: {}
 
-  picomatch@4.0.7: {}
+  picomatch@4.0.7(patch_hash=a5e0dd867d4594e411a3b9c8a61478476901be3c7e641064aa0ce2af88d55789): {}
 
   playwright-core@1.64.1: {}
 
@@ -6587,8 +6588,8 @@ snapshots:
 
   tinyglobby@0.2.17:
     dependencies:
-      fdir: 6.5.0(picomatch@4.0.7)
-      picomatch: 4.0.7
+      fdir: 6.5.0(picomatch@4.0.7(patch_hash=a5e0dd867d4594e411a3b9c8a61478476901be3c7e641064aa0ce2af88d55789))
+      picomatch: 4.0.7(patch_hash=a5e0dd867d4594e411a3b9c8a61478476901be3c7e641064aa0ce2af88d55789)
 
   tldts-core@7.4.18: {}
 
@@ -6685,7 +6686,7 @@ snapshots:
   vite@8.3.8(@types/node@24.19.2)(jiti@2.7.0)(terser@5.51.2):
     dependencies:
       lightningcss: 1.33.0
-      picomatch: 4.0.7
+      picomatch: 4.0.7(patch_hash=a5e0dd867d4594e411a3b9c8a61478476901be3c7e641064aa0ce2af88d55789)
       postcss: 8.5.32
       rolldown: 1.2.19
       tinyglobby: 0.2.17
@@ -6704,7 +6705,7 @@ snapshots:
       expect-type: 1.4.0
       magic-string: 1.4.3
       obug: 3.0.0
-      picomatch: 4.0.7
+      picomatch: 4.0.7(patch_hash=a5e0dd867d4594e411a3b9c8a61478476901be3c7e641064aa0ce2af88d55789)
       std-env: 4.3.0
       tinybench: 6.2.2
       tinyexec: 1.3.1

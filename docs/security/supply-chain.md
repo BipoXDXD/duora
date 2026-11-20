@@ -9,7 +9,7 @@ arquivo quando entrar pacote ou ferramenta nova, quando mudar uma versão fixada
 |---|---|---|
 | Lockfiles e fontes | `dotnet restore --locked-mode`, `pnpm install --frozen-lockfile`, `pip install --require-hashes --only-binary=:all:` no job `ops` (`scripts/deploy/requirements.txt` e `tools/visual/requirements.txt`), `nuget.config` só com nuget.org | lockfile diverge, hash de pacote Python diverge ou aparece fonte não mapeada |
 | Auditoria do NuGet | `NuGetAudit` em `Directory.Build.props` (modo `all`, nível `low`) | o build encontra pacote com vulnerabilidade conhecida |
-| Vulnerabilidades de dependências | job `supply-chain`, Trivy `fs` sobre o repositório (`packages.lock.json`, `Directory.Packages.props`, `pnpm-lock.yaml`, incluindo devDependencies, e os lockfiles pip `scripts/deploy/requirements.txt` e `tools/visual/requirements.txt`) | achado HIGH ou CRITICAL fora do `.trivyignore` |
+| Vulnerabilidades de dependências | job `supply-chain`, Trivy `fs` sobre o repositório (`packages.lock.json`, `Directory.Packages.props`, `pnpm-lock.yaml`, incluindo devDependencies, e os lockfiles pip `scripts/deploy/requirements.txt` e `tools/visual/requirements.txt`) | achado HIGH ou CRITICAL ativo no relatório final, ou divergência entre o relatório bruto, o artefato verificado e o relatório final |
 | Misconfiguration | mesmo passo do Trivy (`--scanners vuln,misconfig`) | achado HIGH ou CRITICAL em Dockerfile e demais formatos de IaC que o Trivy reconhece |
 | SBOM | job `supply-chain`, Trivy `--format cyclonedx` para `backend/` e `frontend/` | falha ao gerar; os arquivos saem no artifact `sbom-cyclonedx` (30 dias) |
 | Licenças | `scripts/supply-chain/check_licenses.py` sobre os SBOMs | licença fora da allowlist, ou componente sem licença, sem exceção escrita |
@@ -18,7 +18,43 @@ arquivo quando entrar pacote ou ferramenta nova, quando mudar uma versão fixada
 | Liveness da selfie | `frontend/config/liveness-supply-chain.test.ts` e `frontend/src/features/account/SelfieCapture.test.tsx`; inventário em [liveness-supply-chain.md](liveness-supply-chain.md) | muda a versão do pacote, o lockfile, as URLs do WASM e do modelo ou as origens `https://` e `wss://` explícitas da CSP da selfie; o conteúdo servido pelo CDN não é verificado |
 | Atualizações | `.github/dependabot.yml`: NuGet, npm, Actions, Compose e pip (`/scripts/deploy`, `/tools/visual`). Cooldown de 7 dias em `nuget`, `npm` e `pip`; `github-actions` e `docker-compose` não têm cooldown | não bloqueia; abre PRs semanais revisados por humano |
 
-Os achados aparecem no log do job; o inventário de licenças e o changelog do contrato vão para o resumo do job.
+Os relatórios bruto e de política do Trivy ficam no artefato `supply-chain-scan-evidence`.
+O log mostra o código de saída da varredura de política auditada. O inventário de licenças e o
+changelog do contrato vão para o resumo do job.
+
+## Backport do Picomatch 4.0.7
+
+O frontend aplica um patch de segurança ao parser do Picomatch para
+CVE-2026-112366/GHSA-fc5q-39xc-vjpf. O pacote mantém nome, versão e licença MIT
+do upstream. O lockfile fixa o hash do patch. A implementação deriva do
+[PR upstream #264](https://github.com/micromatch/picomatch/pull/264), commit
+`8144a1a22a8fa1766951411f220cc8c6228cb041`, com correções locais para propagar
+a informação de repetição nas reescritas e conferir o consumo completo de
+caracteres na análise de padrões com a flag multiline.
+
+`frontend/security/backports/picomatch.json` registra a origem, a integridade
+do tarball, os arquivos instalados e os hashes do patch, do lockfile e da
+regressão. O gate confere esses bytes e a resolução dos consumidores antes de
+gerar um OpenVEX temporário com estado `fixed` para esse aviso. O relatório
+bruto do Trivy, a declaração e o relatório final são publicados juntos.
+A reconciliação exige que todos os achados brutos continuem representados.
+Outros avisos e alterações inesperadas do artefato continuam bloqueantes.
+
+Nos PRs em que as etapas anteriores do job `supply-chain` passam, o Trivy fixado recebe respostas estáticas
+de um servidor de teste no loopback. A fixture fornece metadados. O Trivy aplica o OpenVEX e o filtro de severidade,
+e a auditoria do repositório confere os relatórios. Sem VEX, os dois achados bloqueiam. Com VEX, o achado
+CRITICAL independente é o único bloqueio e a saída é 1. No controle que contém só o alvo do VEX, a saída
+é 0. O ensaio independe do banco corrente de avisos. Os relatórios e o recibo do checkout saem no artefato
+`supply-chain-openvex-regression`.
+
+A revisão independente cobre o commit que contém o patch, o manifesto,
+os testes e o workflow. Cada mudança de lockfile exige atualizar e revisar
+o digest correspondente. A qualificação do backport inclui os 1.983 testes
+da release upstream, os 15 testes adicionais do PR e regressões para as
+duas correções locais, além dos checks integrais do projeto. Quando uma
+release oficial corrigida estiver disponível, a substituição deve remover
+o patch e o tratamento VEX após a mesma validação. Os avisos baseados apenas
+na versão publicada do pacote podem continuar aparecendo em outros scanners.
 
 ## Ferramentas fixadas
 
@@ -27,6 +63,7 @@ Os achados aparecem no log do job; o inventário de licenças e o changelog do c
 | Trivy | 0.75.0 | `ghcr.io/aquasecurity/trivy@sha256:af6acf9a6b85dfe389a1941505c0ce9efef52a4719635e1a962f022a3d855daa` (índice multi-arquitetura; mesmo digest em `aquasec/trivy:0.75.0`) | assinatura cosign keyless conferida em 2026-10-15 contra os workflows de `aquasecurity/trivy` (comando abaixo) |
 | oasdiff | v1.33.0 | `tufin/oasdiff@sha256:6263a96dd2ef0726c54e21fea9b8e1607eac4841add0079324b424c1f52b819c` (índice multi-arquitetura) | a imagem não é assinada; o digest foi lido da tag `v1.33.0` em 2026-10-15 e só muda por PR |
 | Gitleaks | v8.30.1 | `ghcr.io/gitleaks/gitleaks@sha256:c00b6bd0…` (ver `ci.yml`) | digest fixado |
+| Go do Caddy | 1.26.11 | tag e digest do índice em [infra/images/edge/Dockerfile](../../infra/images/edge/Dockerfile) | corrige [CVE-2026-97054](https://pkg.go.dev/vuln/GO-2026-6859). O Trivy confere o binário recompilado em AMD64 e ARM64 |
 | openapi-typescript | 7.13.0 | versão exata em `frontend/package.json` + `pnpm-lock.yaml` | lockfile com integridade; versão exata porque um bump muda a saída gerada |
 | Microsoft.Extensions.ApiDescription.Server | 10.0.13 | `Directory.Packages.props` + `packages.lock.json` | lockfile com content hash |
 | pyright, ansible-core, ansible-lint | 1.1.408, 2.21.5, 26.10.1 | `scripts/deploy/requirements.in` + `scripts/deploy/requirements.txt` com hashes (`uv pip compile --generate-hashes`) | `pip install --require-hashes` no job `ops`; o mesmo pyright checa `scripts/` e `tools/visual` |
