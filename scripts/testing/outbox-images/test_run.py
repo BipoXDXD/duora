@@ -71,9 +71,25 @@ class SafetyTests(unittest.TestCase):
                 stderr='')) as process:
             result = rehearsal.failure_diagnostics()
         self.assertEqual({'exception_types': ['InvalidOperationException'],
-                          'config_keys': ['Duora:SupportContact']}, result)
+                          'config_keys': ['Duora:SupportContact'], 'failures': []}, result)
         process.assert_called_once()
         self.assertEqual(['docker', 'logs', '--tail', '120', 'worker'], process.call_args.args[0])
+
+    def test_failure_diagnostics_records_collection_failures_and_keeps_other_results(self):
+        rehearsal = lab.Rehearsal()
+        rehearsal.resources.containers = ['failed', 'timeout', 'worker']
+        rehearsal.app_containers = set(rehearsal.resources.containers)
+        observations = [
+            SimpleNamespace(returncode=17, stdout='PostgresException', stderr='private-error-value'),
+            lab.subprocess.TimeoutExpired(['docker', 'logs', 'timeout'], 10, output='private-output-value'),
+            SimpleNamespace(returncode=0, stdout='NpgsqlException: Email:PickupDirectory=/private/pickup', stderr=''),
+        ]
+        with patch.object(lab.subprocess, 'run', side_effect=observations) as process:
+            result = rehearsal.failure_diagnostics()
+        self.assertEqual(3, process.call_count)
+        self.assertEqual({'exception_types': ['NpgsqlException'],
+                          'config_keys': ['Email:PickupDirectory'],
+                          'failures': ['docker logs exited 17', 'TimeoutExpired']}, result)
 
     def test_local_and_self_hosted_refused_before_process(self):
         for values in ({}, {'GITHUB_ACTIONS': 'true', 'RUNNER_ENVIRONMENT': 'self-hosted'}):

@@ -385,18 +385,20 @@ class Rehearsal:
     def failure_diagnostics(self):
         """Classify logs from our registered app containers before cleanup."""
         types, keys = set(), set()
+        failures = []
         for name in sorted(self.app_containers.intersection(self.resources.containers)):
             try:
                 observed = subprocess.run(['docker', 'logs', '--tail', '120', name], cwd=ROOT,
                                           text=True, capture_output=True, timeout=10, check=False)
                 if observed.returncode:
+                    failures.append(f'docker logs exited {observed.returncode}')
                     continue
                 classified = classify_app_logs(observed.stdout + observed.stderr)
                 types.update(classified['exception_types'])
                 keys.update(classified['config_keys'])
-            except Exception:
-                continue
-        return {'exception_types': sorted(types), 'config_keys': sorted(keys)}
+            except Exception as error:
+                failures.append(safe_exception_type(error))
+        return {'exception_types': sorted(types), 'config_keys': sorted(keys), 'failures': failures}
 
     def receipt(self, delivery_id, database='duora'):
         pickup = self.path / ('negative-pickup' if database != 'duora' else 'pickup')
