@@ -5,9 +5,12 @@ da linha com carimbo de hora do barramento de mensagens. As fixtures abaixo repr
 """
 from __future__ import annotations
 
+from contextlib import redirect_stdout
 import importlib.util
+from io import StringIO
 from pathlib import Path
 import sys
+from tempfile import TemporaryDirectory
 import unittest
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -223,6 +226,42 @@ class SummaryTests(unittest.TestCase):
 
     def test_markdown_of_an_empty_diag_is_explicit(self):
         self.assertIn("Nenhuma mensagem de teste", diag.render_markdown("m", [], top=5))
+
+
+class CommandTests(unittest.TestCase):
+    def test_an_unexpanded_diag_glob_reports_missing_diagnostics(self):
+        with TemporaryDirectory() as directory:
+            results = Path(directory) / "backend-test-results"
+            for directory_exists in (False, True):
+                with self.subTest(directory_exists=directory_exists):
+                    if directory_exists:
+                        results.mkdir()
+                    with redirect_stdout(StringIO()) as output:
+                        exit_code = diag.main([str(results / "*.diag")])
+
+                    self.assertEqual(0, exit_code)
+                    self.assertEqual("Nenhum arquivo `.diag` foi gerado.\n", output.getvalue())
+
+    def test_an_explicit_missing_diag_raises_a_file_error(self):
+        with TemporaryDirectory() as directory:
+            with self.assertRaises(FileNotFoundError):
+                diag.main([str(Path(directory) / "Duora.IntegrationTests_run.diag")])
+
+    def test_an_existing_diag_is_summarized(self):
+        with TemporaryDirectory() as directory:
+            path = Path(directory) / "Duora.IntegrationTests_run.diag"
+            path.write_text("\n".join([
+                stamp("00:00:00.0000000"),
+                update("a", IDENTITY, "LoginTests", "Works", "InProgress"),
+                stamp("00:01:00.0000000"),
+                update("a", IDENTITY, "LoginTests", "Works", "Passed"),
+            ]), encoding="utf-8")
+            with redirect_stdout(StringIO()) as output:
+                exit_code = diag.main([str(path)])
+
+        self.assertEqual(0, exit_code)
+        self.assertIn("### Duora.IntegrationTests", output.getvalue())
+        self.assertIn("| `Identity.LoginTests` | 1,0 min | 1 | 0 | 0 |", output.getvalue())
 
 
 if __name__ == "__main__":
