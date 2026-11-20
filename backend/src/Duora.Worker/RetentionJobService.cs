@@ -5,7 +5,7 @@ using Duora.Infrastructure.Operations;
 namespace Duora.Worker;
 
 internal sealed partial class RetentionJobService(
-    RetentionService retention, IConfiguration configuration, ILogger<RetentionJobService> logger) : BackgroundService
+    RetentionService retention, IConfiguration configuration, TimeProvider time, ILogger<RetentionJobService> logger) : BackgroundService
 {
     [LoggerMessage(Level = LogLevel.Warning, Message = "Retention requires review: {UnreviewedFailures} old unreviewed deliveries and {FailedJobs} failed retention jobs.")]
     private static partial void LogReview(ILogger logger, long unreviewedFailures, long failedJobs);
@@ -23,16 +23,17 @@ internal sealed partial class RetentionJobService(
         {
             return;
         }
-        var observeAt = DateTimeOffset.MinValue;
+        long? lastObservation = null;
         while (!stoppingToken.IsCancellationRequested)
         {
             RetentionJob? job = null;
             try
             {
-                if (DateTimeOffset.UtcNow >= observeAt)
+                var now = time.GetTimestamp();
+                if (IsObservationDue(time, lastObservation, now))
                 {
                     // Back off even when observation fails. Monitoring must never gate backlog recovery.
-                    observeAt = DateTimeOffset.UtcNow.AddMinutes(1);
+                    lastObservation = now;
                     try
                     {
                         var health = await retention.ObserveAsync(stoppingToken);
@@ -82,6 +83,9 @@ internal sealed partial class RetentionJobService(
             await Task.Delay(TimeSpan.FromSeconds(1), stoppingToken);
         }
     }
+
+    internal static bool IsObservationDue(TimeProvider time, long? lastObservation, long now) =>
+        lastObservation is null || time.GetElapsedTime(lastObservation.Value, now) >= TimeSpan.FromMinutes(1);
 
     /// <summary>Never logs provider exceptions, SQL, identifiers or connection strings: only the type and the frames.</summary>
     private void LogFailure(Exception exception)
