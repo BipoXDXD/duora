@@ -150,7 +150,15 @@ def main(argv: list[str]) -> int:
     parser.add_argument("files", nargs="+", type=Path)
     args = parser.parse_args(argv)
     for path in args.files:
-        with path.open(encoding="utf-8", errors="replace") as lines:
+        try:
+            lines = path.open(encoding="utf-8", errors="replace")
+        except FileNotFoundError:
+            # Sem correspondência, o shell do CI deixa o *.diag literal.
+            if len(args.files) == 1 and path.name == "*.diag":
+                print("Nenhum arquivo `.diag` foi gerado.")
+                return 0
+            raise
+        with lines:
             runs = parse_lines(lines)
         sys.stdout.write(render_markdown(path.name.split("_", 1)[0], runs, top=args.top) + "\n")
     return 0
