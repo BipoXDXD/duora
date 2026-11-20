@@ -3,13 +3,15 @@
 import hashlib
 import io
 import json
+import subprocess
+import sys
 import tempfile
 import unittest
 from contextlib import redirect_stderr, redirect_stdout
 from pathlib import Path
 from urllib.parse import quote
 
-from check_licenses import main
+from check_licenses import main as check_licenses
 
 
 OXIDE = "@tailwindcss/oxide-wasm32-wasi"
@@ -26,6 +28,7 @@ def component(package, version, license=None):
         "version": version,
         "purl": f"pkg:npm/{quote(package, safe='/')}@{version}",
     }
+    value["bom-ref"] = value["purl"]
     if group:
         value["group"] = group
     if license is not None:
@@ -46,7 +49,6 @@ class BundledNpmGateTests(unittest.TestCase):
                 {"pattern": "@tailwindcss/oxide-*", "reason": "fixture"},
                 {"pattern": "@emnapi/*", "reason": "fixture"},
             ],
-            "npmBundledInventory": "npm-bundled-inventory.json",
         }))
         self.inventory_path = self.policy.with_name("npm-bundled-inventory.json")
         self.frontend = self.root / "frontend"
@@ -93,22 +95,80 @@ class BundledNpmGateTests(unittest.TestCase):
         path.write_bytes(raw)
         return hashlib.sha256(raw).hexdigest()
 
-    def invoke(self):
-        self.sbom.write_text(json.dumps({"components": self.components}))
-        before = self.sbom.read_bytes()
-        log = io.StringIO()
-        with redirect_stdout(log), redirect_stderr(log):
-            result = main(["check_licenses.py", str(self.policy), str(self.sbom)])
-        self.assertEqual(before, self.sbom.read_bytes())
-        return result, log.getvalue()
+    def write_raw_sbom(self):
+        self.sbom.write_text(json.dumps({
+            "bomFormat": "CycloneDX",
+            "specVersion": "1.7",
+            "version": 1,
+            "metadata": {"component": {"type": "application", "name": "frontend", "bom-ref": "frontend"}},
+            "components": self.components,
+            "dependencies": [
+                {"ref": "frontend", "dependsOn": [self.components[-1]["bom-ref"]]},
+                {"ref": f"pkg:npm/%40tailwindcss/oxide-wasm32-wasi@{VERSION}",
+                 "dependsOn": [self.components[-1]["bom-ref"]]},
+            ],
+        }))
+
+    def invoke(self, *, mode="complete", reset=True):
+        if reset:
+            self.write_raw_sbom()
+        script = Path(__file__).with_name("check_bundled_npm.py")
+        result = subprocess.run(
+            [sys.executable, "-B", str(script), mode, str(self.frontend), str(self.inventory_path), str(self.sbom)],
+            capture_output=True, text=True, check=False,
+        )
+        return result.returncode, result.stdout + result.stderr
 
     def test_adds_the_bundled_version_when_sbom_lists_a_different_version(self):
+        self.write_raw_sbom()
+        original = json.loads(self.sbom.read_bytes())
+        status, report = self.invoke(reset=False)
+        self.assertEqual(0, status, report)
+        document = json.loads(self.sbom.read_bytes())
+        self.assertEqual(4, len(document["components"]))
+        self.assertEqual(original["components"], document["components"][:3])
+        self.assertEqual(original["metadata"], document["metadata"])
+        self.assertEqual(original["dependencies"][0], document["dependencies"][0])
+        self.assertEqual("pkg:npm/%40emnapi/core@1.11.3", document["components"][3]["purl"])
+        self.assertEqual([{"license": {"id": "MIT"}}], document["components"][3]["licenses"])
+        self.assertCountEqual(
+            ["pkg:npm/tslib@2.8.1", "pkg:npm/%40emnapi/core@1.11.3"],
+            document["dependencies"][1]["dependsOn"],
+        )
+        self.assertIn(INTEGRITY, report)
+
+    def test_check_rejects_omission_in_the_file_that_will_be_uploaded(self):
         status, report = self.invoke()
         self.assertEqual(0, status, report)
-        self.assertIn("`@emnapi/core@1.11.3`", report)
-        self.assertIn("`@tailwindcss/oxide-wasm32-wasi@4.3.5`", report)
-        self.assertIn(INTEGRITY, report)
-        self.assertIn("| `0BSD` | 1 |", report)
+        document = json.loads(self.sbom.read_bytes())
+        document["components"].pop()
+        self.sbom.write_text(json.dumps(document))
+        before = self.sbom.read_bytes()
+        status, report = self.invoke(mode="check", reset=False)
+        self.assertEqual(1, status, report)
+        self.assertIn("@emnapi/core@1.11.3", report)
+        self.assertEqual(before, self.sbom.read_bytes())
+
+    def test_check_rejects_a_missing_relationship_in_the_same_file(self):
+        status, report = self.invoke()
+        self.assertEqual(0, status, report)
+        document = json.loads(self.sbom.read_bytes())
+        document["dependencies"][1]["dependsOn"].remove("pkg:npm/%40emnapi/core@1.11.3")
+        self.sbom.write_text(json.dumps(document))
+        status, report = self.invoke(mode="check", reset=False)
+        self.assertEqual(1, status, report)
+        self.assertIn("@emnapi/core@1.11.3", report)
+
+    def test_check_accepts_the_completed_file_and_completion_is_idempotent(self):
+        status, report = self.invoke()
+        self.assertEqual(0, status, report)
+        before = self.sbom.read_bytes()
+        status, report = self.invoke(mode="check", reset=False)
+        self.assertEqual(0, status, report)
+        self.assertEqual(before, self.sbom.read_bytes())
+        status, report = self.invoke(reset=False)
+        self.assertEqual(0, status, report)
+        self.assertEqual(before, self.sbom.read_bytes())
 
     def test_package_absent_from_bundle_fails_despite_missing_license_exception(self):
         self.core.unlink()
@@ -153,10 +213,14 @@ class BundledNpmGateTests(unittest.TestCase):
         self.assertIn("pnpm-lock.yaml", report)
 
     def test_bundle_declaration_is_still_checked_against_the_allowlist(self):
+        status, report = self.invoke()
+        self.assertEqual(0, status, report)
         data = json.loads(self.policy.read_text())
         data["allowed"].remove("MIT")
         self.policy.write_text(json.dumps(data))
-        status, report = self.invoke()
-        self.assertEqual(1, status, report)
-        self.assertIn("licença fora da allowlist", report)
-        self.assertIn("@emnapi/core@1.11.3", report)
+        report = io.StringIO()
+        with redirect_stdout(report), redirect_stderr(report):
+            status = check_licenses(["check_licenses.py", str(self.policy), str(self.sbom)])
+        self.assertEqual(1, status, report.getvalue())
+        self.assertIn("licença fora da allowlist", report.getvalue())
+        self.assertIn("@emnapi/core@1.11.3", report.getvalue())

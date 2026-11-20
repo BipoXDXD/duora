@@ -1,9 +1,16 @@
 """Completa o inventário de licenças para dependências empacotadas em tarballs npm."""
 
+import argparse
 import hashlib
 import json
+import os
 import re
-from urllib.parse import unquote
+import stat
+import sys
+import tempfile
+from collections import Counter, defaultdict
+from pathlib import Path
+from urllib.parse import quote, unquote
 
 
 _NPM_NAME = re.compile(r"(?:@[a-z0-9._-]+/)?[a-z0-9][a-z0-9._-]*")
@@ -81,10 +88,132 @@ def read_bundled_components(frontend, inventory, sbom_components):
             "type": "library",
             "name": bare_name,
             "version": version,
-            "purl": f"pkg:npm/{dependency}@{version}",
+            "purl": f"pkg:npm/{quote(dependency, safe='/')}@{version}",
             "licenses": [{"license": {"id": license}}],
         }
         if group:
             item["group"] = group
         components.append(item)
-    return label, integrity, components
+    return label, integrity, component.get("bom-ref"), components
+
+
+def _bom_refs(value):
+    if isinstance(value, dict):
+        if isinstance(value.get("bom-ref"), str):
+            yield value["bom-ref"]
+        for item in value.values():
+            yield from _bom_refs(item)
+    elif isinstance(value, list):
+        for item in value:
+            yield from _bom_refs(item)
+
+
+def _spdx_ids(component):
+    return [entry.get("license", {}).get("id") for entry in component.get("licenses") or []]
+
+
+def complete_inventory(document, frontend, inventory, *, check):
+    if document.get("bomFormat") != "CycloneDX":
+        raise ValueError("SBOM de entrada não é CycloneDX")
+    components = document["components"]
+    origin, integrity, parent, expected = read_bundled_components(frontend, inventory, components)
+    refs = Counter(_bom_refs(document))
+    if not parent or refs[parent] != 1:
+        raise ValueError(f"{origin}: bom-ref de origem ausente ou ambíguo")
+
+    by_identity = defaultdict(list)
+    for row in components:
+        identity = npm_identity(row)
+        if identity:
+            by_identity[identity].append(row)
+
+    links = {}
+    for entry in expected:
+        identity = npm_identity(entry)
+        name = identity.removeprefix("pkg:npm/")
+        rows = by_identity[identity]
+        if len(rows) > 1:
+            raise ValueError(f"{name}: componente npm ambíguo no SBOM")
+        if not rows:
+            if check:
+                raise ValueError(f"{name}: componente empacotado ausente no SBOM")
+            ref = entry["purl"]
+            if refs[ref]:
+                raise ValueError(f"{name}: bom-ref já usado no SBOM")
+            row = {
+                **entry,
+                "bom-ref": ref,
+                "properties": [
+                    {"name": "duora:npm:bundled-in", "value": parent},
+                    {"name": "duora:npm:bundle-integrity", "value": integrity},
+                ],
+            }
+            components.append(row)
+            refs[ref] = 1
+        else:
+            row = rows[0]
+        ref = row.get("bom-ref")
+        if not ref or refs[ref] != 1:
+            raise ValueError(f"{name}: bom-ref ausente ou ambíguo no SBOM")
+        if any(row.get(key) != entry.get(key) for key in ("group", "name", "version")):
+            raise ValueError(f"{name}: identidade npm divergente no SBOM")
+        if _spdx_ids(row) != _spdx_ids(entry):
+            raise ValueError(f"{name}: licença SPDX divergente no SBOM")
+        links[name] = ref
+
+    dependencies = document.setdefault("dependencies", [])
+    origins = [entry for entry in dependencies if entry["ref"] == parent]
+    if len(origins) > 1:
+        raise ValueError(f"{origin}: origem repetida no grafo de dependências")
+    if not origins:
+        if check:
+            raise ValueError(f"{origin}: origem ausente no grafo de dependências")
+        origins = [{"ref": parent, "dependsOn": []}]
+        dependencies.extend(origins)
+    depends_on = origins[0].setdefault("dependsOn", [])
+    for name, ref in links.items():
+        if ref not in depends_on:
+            if check:
+                raise ValueError(f"{name}: vínculo com {origin} ausente no grafo do SBOM")
+            depends_on.append(ref)
+    return origin, integrity, expected
+
+
+def _replace_json(path, document):
+    with tempfile.TemporaryDirectory(dir=path.parent) as directory:
+        temporary = Path(directory) / path.name
+        with temporary.open("w", encoding="utf-8") as output:
+            json.dump(document, output, indent=2, ensure_ascii=False)
+            output.write("\n")
+        temporary.chmod(stat.S_IMODE(path.stat().st_mode))
+        os.replace(temporary, path)
+
+
+def main(argv=None):
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("mode", choices=("complete", "check"))
+    parser.add_argument("frontend", type=Path)
+    parser.add_argument("inventory", type=Path)
+    parser.add_argument("sbom", type=Path)
+    args = parser.parse_args(argv)
+    try:
+        inventory = json.loads(args.inventory.read_bytes())
+        document = json.loads(args.sbom.read_bytes())
+        origin, integrity, bundled = complete_inventory(document, args.frontend, inventory,
+                                                          check=args.mode == "check")
+        if args.mode == "complete":
+            _replace_json(args.sbom, document)
+    except (OSError, ValueError, TypeError, KeyError) as error:
+        print(f"Inventário npm reprovado: {error}", file=sys.stderr)
+        return 1
+    print(f"### Dependências npm empacotadas em \x60{origin}\x60\n")
+    print(f"Integridade do tarball: \x60{integrity}\x60\n")
+    print("| Componente | Licença |\n|---|---|")
+    for row in bundled:
+        name = npm_identity(row).removeprefix("pkg:npm/")
+        print(f"| \x60{name}\x60 | \x60{_spdx_ids(row)[0]}\x60 |")
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())
