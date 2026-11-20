@@ -9,7 +9,7 @@
   "upstreamIntegrity": "sha512-qcJu88Q2IWqJsDD529JKMdwGm/dvInW4HvQnRwiH9JtihJvzGOscDtHE3x1pBKeUOTysQ8kVmLnJ2kJu7yhcGA==",
   "patchSha256": "a5e0dd867d4594e411a3b9c8a61478476901be3c7e641064aa0ce2af88d55789",
   "workspaceSha256": "40114592a37df3ac2127acc66fa13d20ec1facb5593e78dc35b2a242e72c3726",
-  "lockSha256": "fdfc6966a1cb05b5a39810e07f8130e37792901ebce8eb74664d0881cd2741bf",
+  "lockSha256": "ce5bf36ab7cda01f6be74d3a011693ecddddec278a16a6b5d7fde9bea2b24ff3",
   "regressionSha256": "2efdf2c5f15d86edee13a8bb0f29091d9149e61f8f23d3fa70620f0c1e644e1f",
   "files": {
     "LICENSE": "d0cd141b0c322fded5dfad1d4645bb2fedfc05b7321fe1009469638190d59ef9",
