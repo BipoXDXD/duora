@@ -1,4 +1,5 @@
 @import 'tailwindcss';
+@source not '../patches';
 
 /*
  * Tokens semânticos do Duora (spec 13.3). Valores provisórios de M0: um único tema claro,
