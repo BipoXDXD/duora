@@ -1,2 +1,3 @@
 patchedDependencies:
   '@mswjs/interceptors@0.45.8': patches/@mswjs__interceptors@0.45.8.patch
+  picomatch@4.0.7: patches/picomatch@4.0.7.patch
