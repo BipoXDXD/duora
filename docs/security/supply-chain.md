@@ -115,6 +115,14 @@ por revisão humana no PR que a cria.
   PR do Dependabot) relê o `LICENSE` da versão nova e troca o campo, no mesmo PR.
 - Exceção que não casa com nenhum componente gera aviso no resumo; remova-a quando a dependência sair.
 
+A licença do fallback `@tailwindcss/oxide-wasm32-wasi` precisa estar explícita no SBOM. O gate consulta
+`scripts/supply-chain/npm-bundled-inventory.json` para versões revisadas desse tarball. Ele confere a integridade
+fixada no `pnpm-lock.yaml`, o manifesto do pacote instalado e todos os manifestos declarados como empacotados.
+Uma dependência ausente ou divergente reprova mesmo que seu nome caiba numa exceção de licença ausente.
+O resumo de licenças identifica cada versão empacotada e a origem do tarball. A allowlist também avalia os
+componentes complementares, e o arquivo CycloneDX publicado continua com os bytes gerados pelo Trivy.
+Ao atualizar o Oxide WASI, extraia os manifestos do tarball com integridade conferida e revise o inventário.
+
 Exceções aceitas em 2026-10-15:
 
 | Pacote | Licença | Motivo |

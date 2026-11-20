@@ -1,5 +1,6 @@
 {
   "$comment": "Política de licenças (spec 2.3; docs/security/supply-chain.md). Mudar este arquivo é decisão de política: toda exceção tem justificativa e passa por revisão humana.",
+  "npmBundledInventory": "npm-bundled-inventory.json",
   "allowed": [
     "0BSD",
     "Apache-2.0",

@@ -56,13 +56,13 @@ EXPECTED_SELFIE_CSP = EXPECTED_CSP | {
     "connect-src": [*EXPECTED_CSP["connect-src"], LIVENESS_CDN, LIVENESS_STREAMING],
 }
 
-# Allowlist: só o que a voz ao vivo e o áudio usam, e só para a própria origem.
-ALLOWED_FEATURES = ("autoplay", "microphone", "speaker-selection")
+# Allowlist da voz, do áudio e do foco em navegação, limitada à própria origem.
+ALLOWED_FEATURES = ("autoplay", "focus-without-user-activation", "microphone", "speaker-selection")
 
 # Toda outra feature que o Chromium reconhece numa página comum (permissions_policy_features.json5, consultado em
 # 2026-10-19), negada. Fora da lista, de propósito: as ch-* (dicas de cliente, não capacidades da página), as que só
 # existem em Isolated Web Apps e as experimentais que, negadas, quebrariam o que a SPA usa (autofill, manual-text,
-# focus-without-user-activation, vertical-scroll). Feature que o navegador não conhece gera só um aviso no console.
+# vertical-scroll). Feature que o navegador não conhece gera só um aviso no console.
 DENIED_FEATURES = (
     "accelerometer", "ambient-light-sensor", "aria-notify", "bluetooth", "browsing-topics", "camera",
     "captured-surface-control", "clipboard-read", "clipboard-write", "compute-pressure", "cross-origin-isolated",

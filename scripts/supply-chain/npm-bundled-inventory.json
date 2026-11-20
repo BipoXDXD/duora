@@ -1,0 +1,46 @@
+{
+  "package": "@tailwindcss/oxide-wasm32-wasi",
+  "license": "MIT",
+  "versions": {
+    "4.3.4": {
+      "integrity": "sha512-bjO9WmoM687p8AoCIyw1DUqzpAs4JICLvNmIPxIWDmhw8IOsdubtWQLShyJmISnDKtRy1BBApHVOUl6sNFQQJA==",
+      "manifestSha256": "486e592f50a8f18e5a8c380db6531e3f4b1eef14d3bac9b4cca487cbceca9775"
+    },
+    "4.3.5": {
+      "integrity": "sha512-OJhFmlEfdzMr+avACdi40RPtnkW0B6hXyxL/8r+tnEHBWZji36CYRjEXrrvgBmaYsD3oEOBqwYFRKsYvzFe7Bw==",
+      "manifestSha256": "f7fbfd8769992c4b48e75661a19851b5302ca87f679f949c9f69ba395a6275d2"
+    }
+  },
+  "dependencies": {
+    "@emnapi/core": {
+      "version": "1.11.3",
+      "license": "MIT",
+      "manifestSha256": "5f6c9983ad8df7cb10b75d06c9483ee7f53109d093dc27a2781799388337323b"
+    },
+    "@emnapi/runtime": {
+      "version": "1.11.3",
+      "license": "MIT",
+      "manifestSha256": "751db16171cb4d111905122be8a4c0dc2b5c82e6ba2a590ca24fbc6cca048f93"
+    },
+    "@emnapi/wasi-threads": {
+      "version": "1.2.3",
+      "license": "MIT",
+      "manifestSha256": "0b51d849aac71d228be21cd71ad380182193965e03a477e980869228c178df12"
+    },
+    "@napi-rs/wasm-runtime": {
+      "version": "1.2.2",
+      "license": "MIT",
+      "manifestSha256": "6f4a99993d18e4e00859967ddb6c1dec7e71787e13fb3cc585aeedd94a2594ac"
+    },
+    "@tybys/wasm-util": {
+      "version": "0.10.3",
+      "license": "MIT",
+      "manifestSha256": "25f12211a053d9b47c9c4604191a8367317898a25445c8455f329a90741c5b61"
+    },
+    "tslib": {
+      "version": "2.8.1",
+      "license": "0BSD",
+      "manifestSha256": "f02b4851df316f29bdfcd404aa1eb41e4e216b5859015f81fcd3e91caf8be931"
+    }
+  }
+}
