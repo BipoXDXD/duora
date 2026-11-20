@@ -14,9 +14,6 @@ import re
 import sys
 from collections import Counter
 from dataclasses import dataclass, field
-from pathlib import Path
-
-from check_bundled_npm import npm_identity, read_bundled_components
 
 MISSING_LICENSE_WAIVED = "(sem licença, exceção)"
 
@@ -213,41 +210,12 @@ def main(argv):
     if len(argv) < 3:
         print(__doc__, file=sys.stderr)
         return 2
-    policy_path = Path(argv[1]).resolve()
-    with policy_path.open(encoding="utf-8") as f:
-        data = json.load(f)
-    policy = Policy.from_dict(data)
+    with open(argv[1], encoding="utf-8") as f:
+        policy = Policy.from_dict(json.load(f))
     components = []
     for path in argv[2:]:
         with open(path, encoding="utf-8") as f:
             components.extend(json.load(f).get("components", []))
-
-    if "npmBundledInventory" in data:
-        try:
-            inventory_path = policy_path.with_name(data["npmBundledInventory"])
-            with inventory_path.open(encoding="utf-8") as f:
-                inventory = json.load(f)
-            origin, integrity, bundled = read_bundled_components(
-                policy_path.parents[2] / "frontend", inventory, components
-            )
-        except (OSError, ValueError, TypeError, KeyError) as error:
-            print(f"Inventário npm reprovado: {error}", file=sys.stderr)
-            return 1
-        print(f"### Dependências npm empacotadas em `{origin}`\n")
-        print(f"Integridade do tarball: `{integrity}`\n")
-        print("| Componente | Licença |\n|---|---|")
-        observed = {
-            (identity, tuple(_license_text(entry) for entry in row.get("licenses") or []))
-            for row in components if (identity := npm_identity(row))
-        }
-        for row in bundled:
-            name = _package_name(row)
-            license = _license_text(row["licenses"][0])
-            print(f"| `{name}@{row['version']}` | `{license}` |")
-            if (npm_identity(row), (license,)) not in observed:
-                components.append(row)
-        print()
-
     result = check_components(components, policy)
     _print_report(result, argv[2:])
     return 1 if result.violations else 0

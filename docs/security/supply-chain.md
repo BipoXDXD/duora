@@ -115,12 +115,14 @@ por revisão humana no PR que a cria.
   PR do Dependabot) relê o `LICENSE` da versão nova e troca o campo, no mesmo PR.
 - Exceção que não casa com nenhum componente gera aviso no resumo; remova-a quando a dependência sair.
 
-A licença do fallback `@tailwindcss/oxide-wasm32-wasi` precisa estar explícita no SBOM. O gate consulta
-`scripts/supply-chain/npm-bundled-inventory.json` para versões revisadas desse tarball. Ele confere a integridade
-fixada no `pnpm-lock.yaml`, o manifesto do pacote instalado e todos os manifestos declarados como empacotados.
-Uma dependência ausente ou divergente reprova mesmo que seu nome caiba numa exceção de licença ausente.
-O resumo de licenças identifica cada versão empacotada e a origem do tarball. A allowlist também avalia os
-componentes complementares, e o arquivo CycloneDX publicado continua com os bytes gerados pelo Trivy.
+O gate completa o CycloneDX do frontend com as dependências que o tarball de
+`@tailwindcss/oxide-wasm32-wasi` empacota. O inventário versionado
+`scripts/supply-chain/npm-bundled-inventory.json` liga as versões e licenças aos hashes dos manifestos instalados e
+à integridade do tarball em `pnpm-lock.yaml`. Componentes já presentes conservam seus registros e o grafo passa
+a vincular as seis dependências ao `bom-ref` do Oxide WASI.
+
+Antes do upload, o CI relê o mesmo CycloneDX e reprova a ausência de componente, vínculo ou licença esperada.
+A allowlist avalia esse arquivo. A política de licenças selada pelo runtime de suporte mantém os bytes aprovados.
 Ao atualizar o Oxide WASI, extraia os manifestos do tarball com integridade conferida e revise o inventário.
 
 Exceções aceitas em 2026-10-15:
@@ -250,6 +252,10 @@ for part in backend frontend; do
     -v "$PWD/sbom:/sbom" -w /repo "$trivy_image" fs "$part" --format cyclonedx --include-dev-deps --quiet \
     --skip-dirs '**/bin' --skip-dirs '**/obj' --output "/sbom/sbom-$part.cdx.json"
 done
+python3 scripts/supply-chain/check_bundled_npm.py complete frontend \
+  scripts/supply-chain/npm-bundled-inventory.json sbom/sbom-frontend.cdx.json
+python3 scripts/supply-chain/check_bundled_npm.py check frontend \
+  scripts/supply-chain/npm-bundled-inventory.json sbom/sbom-frontend.cdx.json
 python3 scripts/supply-chain/check_licenses.py scripts/supply-chain/license-policy.json sbom/*.cdx.json
 python3 -m unittest discover -s scripts/supply-chain
 ```
