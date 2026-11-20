@@ -64,7 +64,7 @@
     "msw": "^3.0.3",
     "openapi-typescript": "7.13.0",
     "postcss": "8.5.32",
-    "prettier": "^3.9.10",
+    "prettier": "^3.10.1",
     "prettier-plugin-tailwindcss": "^0.8.1",
     "terser": "5.51.2",
     "typescript": "~6.0.2",
