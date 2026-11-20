@@ -81,7 +81,8 @@ export function RegisterPage({
               className="min-h-11 rounded-md border border-border bg-surface px-3"
               value={termsLocale}
               onChange={(event) => {
-                setTermsLocale(event.target.value as Locale)
+                const chosen = SUPPORTED_LOCALES.find((candidate) => candidate === event.target.value)
+                if (chosen !== undefined) setTermsLocale(chosen)
               }}
             >
               {SUPPORTED_LOCALES.map((documentLocale) => (
@@ -97,7 +98,8 @@ export function RegisterPage({
               className="min-h-11 rounded-md border border-border bg-surface px-3"
               value={privacyLocale}
               onChange={(event) => {
-                setPrivacyLocale(event.target.value as Locale)
+                const chosen = SUPPORTED_LOCALES.find((candidate) => candidate === event.target.value)
+                if (chosen !== undefined) setPrivacyLocale(chosen)
               }}
             >
               {SUPPORTED_LOCALES.map((documentLocale) => (
