@@ -127,17 +127,20 @@ describe('tela de cadastro', () => {
   it('keeps the accepted documents when a select emits an unsupported language', async () => {
     useAntiforgeryEndpoint()
     const received = useRegisterEndpoint(accepted)
-    const app = await renderApp('/register')
+    const app = await renderApp('/register', undefined, 'pt-BR')
     const terms = await screen.findByLabelText('Idioma dos Termos de uso')
     const privacy = screen.getByLabelText('Idioma da Política de privacidade')
+    await app.user.selectOptions(terms, 'en-US')
+    await app.user.selectOptions(privacy, 'en-US')
     for (const checkbox of screen.getAllByRole('checkbox')) await app.user.click(checkbox)
 
     for (const select of [terms, privacy]) {
+      expect(select).toHaveValue('en-US')
       const unsupported = new Option('Unsupported language', 'en-GB')
       select.append(unsupported)
       await app.user.selectOptions(select, unsupported)
       unsupported.remove()
-      expect(select).toHaveValue('pt-BR')
+      expect(select).toHaveValue('en-US')
     }
 
     expect(screen.getByRole('checkbox', { name: /Termos de uso/ })).toBeChecked()
@@ -148,12 +151,12 @@ describe('tela de cadastro', () => {
     expect(await screen.findByRole('heading', { name: 'Verifique seu e-mail' })).toBeInTheDocument()
     expect(received).toHaveLength(1)
     expect(received[0]?.body).toMatchObject({
-      acceptedTermsLocale: 'pt-BR',
-      acceptedPrivacyLocale: 'pt-BR',
+      acceptedTermsLocale: 'en-US',
+      acceptedPrivacyLocale: 'en-US',
       acceptedTermsVersion: syntheticLegalCatalog.termsVersion,
       acceptedPrivacyVersion: syntheticLegalCatalog.privacyVersion,
-      acceptedTermsSha256: '1'.repeat(64),
-      acceptedPrivacySha256: '3'.repeat(64),
+      acceptedTermsSha256: '2'.repeat(64),
+      acceptedPrivacySha256: '4'.repeat(64),
       confirmedAdult: true,
     })
   })
