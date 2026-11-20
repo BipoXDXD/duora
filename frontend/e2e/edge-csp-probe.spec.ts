@@ -7,14 +7,10 @@ const execute = promisify(execFile)
 
 test('Caddy real: áudio privado e rejeição de fontes Blob/data no Chromium', async () => {
   test.setTimeout(330_000)
+  const receipt = process.env.DUORA_DEPLOY_TEST_RECEIPT
   const { stdout, stderr } = await execute(
     'python3',
-    [
-      '-m',
-      'unittest',
-      'test_caddy_security_headers.CaddySecurityHeadersTests.test_browser_enforces_the_policies',
-      '-v',
-    ],
+    ['-I', '../ci/deploy_test_partition.py', 'run', 'browser', ...(receipt ? ['--receipt', receipt] : [])],
     {
       cwd: fileURLToPath(new URL('../../scripts/deploy/', import.meta.url)),
       timeout: 300_000,
@@ -25,6 +21,8 @@ test('Caddy real: áudio privado e rejeição de fontes Blob/data no Chromium', 
         NODE_OPTIONS: '--max-old-space-size=512',
         DUORA_TEST_BROWSER: '1',
         DUORA_TEST_APP_FOCUS: '1',
+        GITHUB_SHA: process.env.GITHUB_SHA ?? '',
+        GITHUB_RUN_ID: process.env.GITHUB_RUN_ID ?? '',
         ...(process.env.PLAYWRIGHT_BROWSERS_PATH === undefined
           ? {}
           : { PLAYWRIGHT_BROWSERS_PATH: process.env.PLAYWRIGHT_BROWSERS_PATH }),

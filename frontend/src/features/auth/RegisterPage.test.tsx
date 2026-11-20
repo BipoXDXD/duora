@@ -124,6 +124,84 @@ describe('tela de cadastro', () => {
     })
   })
 
+  it.each([
+    {
+      interfaceLocale: 'pt-BR',
+      documentLocale: 'en-US',
+      termsLanguage: 'Idioma dos Termos de uso',
+      privacyLanguage: 'Idioma da Política de privacidade',
+      email: 'E-mail',
+      password: 'Senha',
+      submit: 'Criar conta',
+      success: 'Verifique seu e-mail',
+      termsHash: '2',
+      privacyHash: '4',
+    },
+    {
+      interfaceLocale: 'en-US',
+      documentLocale: 'pt-BR',
+      termsLanguage: 'Terms of use language',
+      privacyLanguage: 'Privacy policy language',
+      email: 'Email',
+      password: 'Password',
+      submit: 'Create account',
+      success: 'Check your email',
+      termsHash: '1',
+      privacyHash: '3',
+    },
+  ] as const)(
+    'keeps the accepted $documentLocale documents in the $interfaceLocale interface after an unsupported selection',
+    async ({
+      interfaceLocale,
+      documentLocale,
+      termsLanguage,
+      privacyLanguage,
+      email,
+      password,
+      submit,
+      success,
+      termsHash,
+      privacyHash,
+    }) => {
+      useAntiforgeryEndpoint()
+      const received = useRegisterEndpoint(accepted)
+      const { user } = await renderApp('/register', undefined, interfaceLocale)
+      const terms = await screen.findByRole('combobox', { name: termsLanguage })
+      const privacy = screen.getByRole('combobox', { name: privacyLanguage })
+      await user.selectOptions(terms, documentLocale)
+      await user.selectOptions(privacy, documentLocale)
+      for (const checkbox of screen.getAllByRole('checkbox')) await user.click(checkbox)
+
+      for (const select of [terms, privacy]) {
+        expect(select).toHaveValue(documentLocale)
+        const unsupported = new Option('Unsupported language', 'en-GB')
+        select.append(unsupported)
+        await user.selectOptions(select, unsupported)
+        unsupported.remove()
+        expect(select).toHaveValue(documentLocale)
+      }
+
+      const checkboxes = screen.getAllByRole('checkbox')
+      expect(checkboxes).toHaveLength(3)
+      for (const checkbox of checkboxes) expect(checkbox).toBeChecked()
+      await user.type(screen.getByLabelText(email), 'ana@example.com')
+      await user.type(screen.getByLabelText(password), 'long enough password')
+      await user.click(screen.getByRole('button', { name: submit }))
+
+      expect(await screen.findByRole('heading', { name: success })).toBeInTheDocument()
+      expect(received).toHaveLength(1)
+      expect(received[0]?.body).toMatchObject({
+        acceptedTermsLocale: documentLocale,
+        acceptedPrivacyLocale: documentLocale,
+        acceptedTermsVersion: syntheticLegalCatalog.termsVersion,
+        acceptedPrivacyVersion: syntheticLegalCatalog.privacyVersion,
+        acceptedTermsSha256: termsHash.repeat(64),
+        acceptedPrivacySha256: privacyHash.repeat(64),
+        confirmedAdult: true,
+      })
+    },
+  )
+
   it('cancels the previous acceptance if documents change while CSRF is pending', async () => {
     let release!: () => void
     let started!: () => void
