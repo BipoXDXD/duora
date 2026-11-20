@@ -205,7 +205,7 @@ jobs:
   # A proteção da main exige o check "backend": ele só passa se todos os shards passaram.
   backend:
     name: backend
-    needs: backend-tests
+    needs: [backend-tests, ops, e2e, images]
     if: ${{ always() }}
     runs-on: ubuntu-24.04
     timeout-minutes: 5
@@ -216,6 +216,16 @@ jobs:
         run: |
           echo "Shards do backend: $RESULT"
           test "$RESULT" = success
+
+      - name: Todos os executores de deploy e BrowserHost passaram
+        env:
+          OPS: ${{ needs.ops.result }}
+          E2E: ${{ needs.e2e.result }}
+          IMAGES: ${{ needs.images.result }}
+        run: |
+          test "$OPS" = success
+          test "$E2E" = success
+          test "$IMAGES" = success
 
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -234,6 +244,18 @@ jobs:
           set -o pipefail
           lists="$RUNNER_TEMP/backend-shard-list"
           python3 -I scripts/ci/shard_partition.py --all "$lists/all.txt" "$lists"/shard-*.txt | tee -a "$GITHUB_STEP_SUMMARY"
+
+      - name: Baixar recibos dos testes de deploy e BrowserHost
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          pattern: deploy-test-results-*
+          path: ${{ runner.temp }}/deploy-test-results
+          merge-multiple: true
+
+      - name: Cada caso de deploy e BrowserHost nos executores previstos
+        run: |
+          set -o pipefail
+          python3 -I scripts/ci/deploy_test_partition.py verify "$RUNNER_TEMP/deploy-test-results" | tee -a "$GITHUB_STEP_SUMMARY"
 
   frontend:
     name: frontend
@@ -281,9 +303,9 @@ jobs:
   e2e:
     name: e2e
     runs-on: ubuntu-24.04
-    # Era 25. Os dois passos do Playwright, no pior caso de retry (3 tentativas com teto e esperas de 15 s e 45 s),
-    # somam ~23 min e consumiriam o job antes dos testes; +15 min deixam a folga que o E2E tinha.
-    timeout-minutes: 40
+    # As instalações do Playwright podem consumir ~23 min com retries. O restante cobre o bundle estático
+    # e a execução adicional com BrowserHost e PostgreSQL descartável.
+    timeout-minutes: 50
     defaults:
       run:
         working-directory: frontend
@@ -349,7 +371,36 @@ jobs:
 
       # CI=true (definido pelo Actions): o Playwright sobe o próprio servidor e não reaproveita um existente.
       - name: E2E
+        env:
+          DUORA_DEPLOY_TEST_RECEIPT: ${{ runner.temp }}/deploy-test-results/browser.json
         run: pnpm e2e
+
+      - uses: actions/setup-dotnet@0f4a354dd5547a28c70b7853dbd95d5b67886e73 # v6.1.0
+        with:
+          global-json-file: global.json
+          cache: true
+          cache-dependency-path: backend/**/packages.lock.json
+
+      - name: Restaurar BrowserHost de teste com lockfile
+        working-directory: .
+        run: dotnet restore backend/tests/Duora.BrowserHost/Duora.BrowserHost.csproj --locked-mode
+
+      - name: E2E com BrowserHost e PostgreSQL descartável
+        timeout-minutes: 10
+        env:
+          PLAYWRIGHT_JSON_OUTPUT_FILE: ${{ runner.temp }}/browserhost-report.json
+        run: |
+          pnpm e2e:real --forbid-only --reporter=list,json
+          python3 -I ../scripts/ci/deploy_test_partition.py record-browserhost \
+            "$PLAYWRIGHT_JSON_OUTPUT_FILE" "$RUNNER_TEMP/deploy-test-results/browserhost.json"
+
+      - name: Preservar recibos de Chromium e BrowserHost
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: deploy-test-results-browser
+          path: ${{ runner.temp }}/deploy-test-results/
+          if-no-files-found: error
+          overwrite: true
 
       - name: Publicar relatório do Playwright (só em falha)
         if: ${{ failure() }}
@@ -440,13 +491,21 @@ jobs:
         run: |
           docker run --rm --entrypoint /app/efbundle duora-migrator:ci --help > /dev/null
           docker run --rm duora-postgres:ci pgbackrest version
-          DUORA_POSTGRES_IMAGE=duora-postgres:ci python3 -m unittest discover -s scripts/deploy \
-            -p 'test_db_privileges.py' -v
+          DUORA_POSTGRES_IMAGE=duora-postgres:ci python3 -I scripts/ci/deploy_test_partition.py \
+            run "postgres-${{ matrix.arch }}" --receipt "$RUNNER_TEMP/deploy-test-results/postgres-${{ matrix.arch }}.json"
           docker run --rm -e DUORA_DOMAIN=app.example.com -e DUORA_TLS=ops@example.com \
             --entrypoint caddy duora-edge:ci validate --config /etc/caddy/Caddyfile --adapter caddyfile
           for image in web worker migrator edge; do
             echo "duora-$image: $(docker image inspect --format '{{.Architecture}} user={{.Config.User}}' "duora-$image:ci")"
           done
+
+      - name: Preservar recibo dos testes de PostgreSQL
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: deploy-test-results-postgres-${{ matrix.arch }}
+          path: ${{ runner.temp }}/deploy-test-results/postgres-${{ matrix.arch }}.json
+          if-no-files-found: error
+          overwrite: true
 
       # Spec 18.5: backup físico, WAL e restore PITR de ponta a ponta com o compose.prod.yml real e um MinIO só como
       # dublê S3 (docs/operations/backup-restore.md). Prova também que o postgres não alcança a internet.
@@ -596,7 +655,17 @@ jobs:
 
       - name: Testes dos scripts de deploy (Python 3.12 do host)
         if: ${{ !cancelled() && steps.host-py.outcome == 'success' }}
-        run: '"$RUNNER_TEMP/venv-host/bin/python" -m unittest discover -s scripts/deploy -v'
+        run: |
+          "$RUNNER_TEMP/venv-host/bin/python" -I scripts/ci/deploy_test_partition.py \
+            run ops --receipt "$RUNNER_TEMP/deploy-test-results/ops.json"
+
+      - name: Preservar recibo dos testes de deploy
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: deploy-test-results-ops
+          path: ${{ runner.temp }}/deploy-test-results/ops.json
+          if-no-files-found: error
+          overwrite: true
 
       - name: Testes do validador da chave do apt (role docker, Python 3.12 do host)
         if: ${{ !cancelled() && steps.host-py.outcome == 'success' }}
@@ -751,9 +820,6 @@ jobs:
         with:
           python-version: '3.14.10'
 
-      - name: Testes dos verificadores
-        run: python3 -m unittest discover -s scripts/supply-chain -v
-
       - name: Exceções do .trivyignore têm justificativa e validade
         run: python3 scripts/supply-chain/check_trivyignore.py .trivyignore
 
@@ -771,6 +837,9 @@ jobs:
         with:
           node-version: ${{ env.NODE_VERSION }}
           package-manager-cache: false
+
+      - name: Testes dos verificadores
+        run: python3 -m unittest discover -s scripts/supply-chain -v
 
       - name: Ativar pnpm via Corepack (packageManager do package.json)
         working-directory: frontend
@@ -805,6 +874,19 @@ jobs:
           done
           ls -l "$RUNNER_TEMP/sbom"
 
+      - name: Completar e verificar o SBOM do frontend
+        run: |
+          sbom="$RUNNER_TEMP/sbom/sbom-frontend.cdx.json"
+          inventory=scripts/supply-chain/npm-bundled-inventory.json
+          python3 scripts/supply-chain/check_bundled_npm.py complete frontend "$inventory" "$sbom"
+          python3 scripts/supply-chain/check_bundled_npm.py check frontend "$inventory" "$sbom"
+
+      - name: Licenças contra a allowlist
+        shell: bash
+        run: |
+          python3 scripts/supply-chain/check_licenses.py scripts/supply-chain/license-policy.json \
+            "$RUNNER_TEMP"/sbom/*.cdx.json | tee -a "$GITHUB_STEP_SUMMARY"
+
       - name: Publicar SBOMs
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
@@ -813,23 +895,36 @@ jobs:
           retention-days: 30
           if-no-files-found: error
 
-      - name: Licenças contra a allowlist
-        shell: bash
-        run: |
-          python3 scripts/supply-chain/check_licenses.py scripts/supply-chain/license-policy.json \
-            "$RUNNER_TEMP"/sbom/*.cdx.json | tee -a "$GITHUB_STEP_SUMMARY"
-
       # Roda mesmo se a checagem de licenças falhar, para o PR mostrar todos os achados de uma vez.
       - name: Vulnerabilidades e misconfig (HIGH e CRITICAL bloqueiam)
         if: ${{ !cancelled() }}
-        run: >-
-          docker run --rm
-          -v "$GITHUB_WORKSPACE:/repo:ro"
-          -w /repo
-          -e TRIVY_DB_REPOSITORY "$TRIVY_IMAGE" fs .
-          --scanners vuln,misconfig
-          --severity HIGH,CRITICAL
-          --include-dev-deps
-          --ignorefile .trivyignore
-          --exit-code 1
+        shell: bash
+        run: bash scripts/supply-chain/run_trivy_gate.sh
 
+      - name: Verificar bloqueio de achado crítico com OpenVEX
+        if: ${{ success() && github.event_name == 'pull_request' }}
+        run: python3 scripts/supply-chain/verify_trivy_openvex_block.py
+
+      - name: Publicar evidências da varredura e do backport
+        if: ${{ !cancelled() && env.SUPPLY_CHAIN_REPORTS != '' }}
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: supply-chain-scan-evidence
+          path: |
+            ${{ env.SUPPLY_CHAIN_REPORTS }}/trivy-raw.json
+            ${{ env.SUPPLY_CHAIN_REPORTS }}/trivy-policy.json
+            ${{ env.SUPPLY_CHAIN_REPORTS }}/picomatch-proof.json
+            ${{ env.SUPPLY_CHAIN_REPORTS }}/picomatch.openvex.json
+            ${{ env.SUPPLY_CHAIN_REPORTS }}/dataset-digests.sha256
+            ${{ env.SUPPLY_CHAIN_REPORTS }}/policy-exit-code.txt
+          retention-days: 30
+          if-no-files-found: error
+
+      - name: Publicar evidências do bloqueio com OpenVEX
+        if: ${{ !cancelled() && env.OPENVEX_TEST_REPORTS != '' }}
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: supply-chain-openvex-regression
+          path: ${{ env.OPENVEX_TEST_REPORTS }}/
+          retention-days: 30
+          if-no-files-found: error

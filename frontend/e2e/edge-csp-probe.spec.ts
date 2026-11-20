@@ -7,14 +7,10 @@ const execute = promisify(execFile)
 
 test('Caddy real: áudio privado e rejeição de fontes Blob/data no Chromium', async () => {
   test.setTimeout(330_000)
+  const receipt = process.env.DUORA_DEPLOY_TEST_RECEIPT
   const { stdout, stderr } = await execute(
     'python3',
-    [
-      '-m',
-      'unittest',
-      'test_caddy_security_headers.CaddySecurityHeadersTests.test_browser_enforces_the_policies',
-      '-v',
-    ],
+    ['-I', '../ci/deploy_test_partition.py', 'run', 'browser', ...(receipt ? ['--receipt', receipt] : [])],
     {
       cwd: fileURLToPath(new URL('../../scripts/deploy/', import.meta.url)),
       timeout: 300_000,
@@ -24,6 +20,9 @@ test('Caddy real: áudio privado e rejeição de fontes Blob/data no Chromium', 
         HOME: process.env.HOME ?? '',
         NODE_OPTIONS: '--max-old-space-size=512',
         DUORA_TEST_BROWSER: '1',
+        DUORA_TEST_APP_FOCUS: '1',
+        GITHUB_SHA: process.env.GITHUB_SHA ?? '',
+        GITHUB_RUN_ID: process.env.GITHUB_RUN_ID ?? '',
         ...(process.env.PLAYWRIGHT_BROWSERS_PATH === undefined
           ? {}
           : { PLAYWRIGHT_BROWSERS_PATH: process.env.PLAYWRIGHT_BROWSERS_PATH }),
@@ -40,4 +39,9 @@ test('Caddy real: áudio privado e rejeição de fontes Blob/data no Chromium', 
   expect(stdout).toContain('PASS selfie document allows the camera for its own origin')
   expect(stdout).toContain('PASS selfie document reaches only the Face Liveness hosts')
   expect(stdout).toContain('PASS leaving the selfie document drops WebAssembly and camera')
+  expect(stdout).toContain('PASS cross-origin child cannot override parent focus policy')
+  expect(stdout).toContain('PASS app keyboard skip link focuses main through Caddy')
+  expect(stdout).toContain('PASS app lazy SPA navigation focuses and announces through Caddy without activation')
+  expect(stdout).toContain('PASS app MFA cancel restores focus through Caddy')
+  expect(stdout).toContain('PASS app selfie entry and return load documents with their Caddy policies')
 })

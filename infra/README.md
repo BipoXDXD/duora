@@ -29,7 +29,7 @@ digest do índice multiarquitetura; atualizar as duas juntas.
 | web | `aspnet:10.0.15-noble-chiseled-extra` | 1654 | Sem shell nem gerenciador de pacotes; `-extra` traz ICU e tzdata |
 | worker | `runtime:10.0.15-noble-chiseled-extra` | 1654 | Sem ASP.NET Core; nenhuma porta |
 | migrator | `runtime-deps:10.0.15-noble` | 1654 | Bundle do EF Core self-contained + `migrate.sh` (lê o segredo) |
-| edge | `caddy:2.11.7-alpine` | 10001 | Binário recompilado (xcaddy, Go 1.26.10, x/net 0.62.0); portas baixas por sysctl |
+| edge | `caddy:2.11.7-alpine` | 10001 | Binário recompilado (xcaddy, Go 1.26.11, x/net 0.62.0); portas baixas por sysctl |
 | postgres | `postgres:18.6-trixie` | 999 | pgBackRest do PGDG em versão exata; `pgbackrest version` roda no build; sem `gosu` |
 
 - **Build sem emulação**: o SDK roda no `BUILDPLATFORM`. Web e worker saem como IL portátil (`UseAppHost=false`),
@@ -96,7 +96,8 @@ CSP e `Permissions-Policy` em allowlist contra a matriz de capacidades (SPA, API
 `scripts/deploy/test_caddy_security_headers.py` em documento, assets, mídia, API, hub e erros:
 `default-src 'none'`, só fontes próprias, o hash do `<style>` do `<model-viewer>` 4.4.0, `blob:` só em `connect-src`
 (textura embutida no GLB), `worker-src 'none'` e Trusted Types (só a política `lit-html`); na `Permissions-Policy`,
-`microphone`, `autoplay` e `speaker-selection` em `(self)` e toda outra feature reconhecida pelo Chromium em `()`.
+`microphone`, `autoplay`, `speaker-selection` e `focus-without-user-activation` em `(self)`. O documento da selfie
+também permite `camera=(self)`. A tabela do runbook descreve as demais diretivas.
 Mais HSTS (1 ano, sem preload), `nosniff`, `X-Frame-Options: DENY`, `Referrer-Policy: no-referrer`, COOP/CORP
 `same-origin` e sem `Server` nem `Via`, também nos erros gerados pela borda (`handle_errors`, `no-store`). O porquê de cada
 valor, com fonte, e a medição do 3D estão em [deploy.md](../docs/operations/deploy.md#cabeçalhos-de-segurança-da-borda).
