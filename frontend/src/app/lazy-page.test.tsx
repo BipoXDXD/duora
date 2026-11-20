@@ -1,5 +1,5 @@
 import { Suspense, useState } from 'react'
-import { screen } from '@testing-library/react'
+import { act, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { MemoryRouter } from 'react-router'
 import { describe, expect, it, vi } from 'vitest'
@@ -74,23 +74,32 @@ describe('lazyPage', () => {
     expect(load).toHaveBeenCalledTimes(1)
   })
 
-  it('download que falha depois de um tempo: mostra o error boundary e não baixa de novo sozinho', async () => {
+  it('download que falha depois do fallback mostra o error boundary e não baixa de novo sozinho', async () => {
     vi.spyOn(console, 'error').mockImplementation(() => undefined)
-    const load = vi.fn(
-      () =>
-        new Promise<React.ComponentType>((_resolve, reject) => {
-          setTimeout(() => {
-            reject(new Error('404 no chunk'))
-          }, 5)
-        }),
-    )
-    const Page = lazyPage(load)
+    vi.useFakeTimers()
+    try {
+      let rejectLoad: (error: Error) => void = () => undefined
+      const pending = new Promise<React.ComponentType>((_resolve, reject) => {
+        rejectLoad = reject
+      })
+      const load = vi.fn<() => Promise<React.ComponentType>>().mockReturnValueOnce(pending).mockResolvedValue(FakePage)
+      const Page = lazyPage(load)
 
-    renderLazy(Page)
+      renderLazy(Page)
+      expect(screen.getByText('Esperando o módulo')).toBeInTheDocument()
 
-    expect(await screen.findByRole('heading', { level: 1, name: NEW_VERSION_TITLE })).toBeInTheDocument()
-    await new Promise((resolve) => setTimeout(resolve, 50))
-    expect(load).toHaveBeenCalledTimes(1)
+      await act(async () => {
+        rejectLoad(new Error('404 no chunk'))
+        await pending.catch(() => undefined)
+      })
+      expect(screen.getByRole('heading', { level: 1, name: NEW_VERSION_TITLE })).toBeInTheDocument()
+
+      await act(() => vi.advanceTimersByTimeAsync(50))
+      expect(screen.getByRole('heading', { level: 1, name: NEW_VERSION_TITLE })).toBeInTheDocument()
+      expect(load).toHaveBeenCalledTimes(1)
+    } finally {
+      vi.useRealTimers()
+    }
   })
 
   it('a falha gruda: pré-carregar depois dela rejeita com ChunkLoadError sem baixar de novo', async () => {

@@ -95,8 +95,18 @@ public sealed class RoleSeparationTests(PostgresFixture postgres)
         await using var secondTransaction = await second.BeginTransactionAsync(TestContext.Current.CancellationToken);
         await GrantAsync(first, userId, AccountRoles.Participant, firstTransaction);
 
+        await using var waiting = new NpgsqlCommand("select $1 = any(pg_blocking_pids($2))", setup);
+        waiting.Parameters.AddWithValue(first.ProcessID);
+        waiting.Parameters.AddWithValue(second.ProcessID);
+        using var deadline = CancellationTokenSource.CreateLinkedTokenSource(TestContext.Current.CancellationToken);
+        deadline.CancelAfter(TimeSpan.FromSeconds(20));
+
         var blocked = GrantAsync(second, userId, AccountRoles.Moderator, secondTransaction);
-        await Task.Delay(TimeSpan.FromMilliseconds(300), TestContext.Current.CancellationToken);
+        while (!blocked.IsCompleted && await waiting.ExecuteScalarAsync(deadline.Token) is not true)
+        {
+            await Task.Delay(TimeSpan.FromMilliseconds(20), deadline.Token);
+        }
+
         Assert.False(blocked.IsCompleted, "A segunda concessão deveria esperar a primeira transação.");
         await firstTransaction.CommitAsync(TestContext.Current.CancellationToken);
         var error = await Assert.ThrowsAsync<PostgresException>(() => blocked);
