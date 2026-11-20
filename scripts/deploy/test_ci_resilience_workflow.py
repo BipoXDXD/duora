@@ -167,8 +167,25 @@ class ChromiumProbeWiringTests(unittest.TestCase):
             source, r"\btest\s*\.\s*skip\s*\(", "A sonda Chromium não pode chamar test.skip"
         )
         self.assertRegex(source, r"(?m)^\s*test\(")
-        self.assertIn("CaddySecurityHeadersTests.test_browser_enforces_the_policies", source)
+        self.assertIn("'../ci/deploy_test_partition.py', 'run', 'browser'", source)
+        self.assertIn("DUORA_DEPLOY_TEST_RECEIPT", runs[0]["env"])
         self.assertRegex(source, r"""(?m)^\s*DUORA_TEST_BROWSER:\s*['"]1['"]""")
+
+    def test_coverage_gate_requires_the_browserhost_run_and_the_other_executors(self):
+        jobs = yaml.safe_load(CI.read_text(encoding="utf-8"))["jobs"]
+        [real] = [step for step in jobs["e2e"]["steps"] if "pnpm e2e:real" in step.get("run", "")]
+        self.assertNotIn("if", real)
+        self.assertFalse(real.get("continue-on-error", False))
+        self.assertIn("--forbid-only --reporter=list,json", real["run"])
+        self.assertIn("deploy_test_partition.py record-browserhost", real["run"])
+        self.assertTrue(real["env"]["PLAYWRIGHT_JSON_OUTPUT_FILE"].endswith("/browserhost-report.json"))
+
+        self.assertEqual({"backend-tests", "ops", "e2e", "images"}, set(jobs["backend"]["needs"]))
+        [gate] = [step for step in jobs["backend"]["steps"]
+                  if "deploy_test_partition.py verify" in step.get("run", "")]
+        self.assertNotIn("if", gate)
+        self.assertFalse(gate.get("continue-on-error", False))
+        self.assertIn("set -o pipefail", gate["run"])
 
 
 if __name__ == "__main__":
