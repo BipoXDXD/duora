@@ -10,15 +10,15 @@
     <PackageVersion Include="AWSSDK.Rekognition" Version="4.0.101.5" />
     <PackageVersion Include="AWSSDK.SecurityToken" Version="4.0.101.4" />
     <PackageVersion Include="AWSSDK.S3" Version="4.0.104" />
-    <PackageVersion Include="Microsoft.AspNetCore.Identity.EntityFrameworkCore" Version="10.0.13" />
+    <PackageVersion Include="Microsoft.AspNetCore.Identity.EntityFrameworkCore" Version="10.0.15" />
     <!-- Official confidential OIDC code/PKCE handler, MIT; ADR0046. -->
     <PackageVersion Include="Microsoft.AspNetCore.Authentication.OpenIdConnect" Version="10.0.13" />
     <PackageVersion Include="Microsoft.AspNetCore.OpenApi" Version="10.0.13" />
-    <PackageVersion Include="Microsoft.EntityFrameworkCore.Design" Version="10.0.13" />
+    <PackageVersion Include="Microsoft.EntityFrameworkCore.Design" Version="10.0.15" />
     <PackageVersion Include="Microsoft.Extensions.Configuration.KeyPerFile" Version="10.0.13" />
     <PackageVersion Include="Microsoft.Extensions.Diagnostics.HealthChecks" Version="10.0.13" />
     <PackageVersion Include="Microsoft.Extensions.Hosting" Version="10.0.13" />
-    <PackageVersion Include="Microsoft.Extensions.Options.ConfigurationExtensions" Version="10.0.13" />
+    <PackageVersion Include="Microsoft.Extensions.Options.ConfigurationExtensions" Version="10.0.15" />
     <PackageVersion Include="MaxMind.Db" Version="5.2.0" />
     <!-- SMTP/MIME with mandatory TLS; MailKit and MimeKit are MIT licensed. -->
     <PackageVersion Include="MailKit" Version="4.18.1" />
@@ -38,8 +38,8 @@
     <PackageVersion Include="System.Security.Cryptography.Pkcs" Version="10.0.13" />
     <!-- O provider Npgsql pede EF Core >= 10.0.4; fixar o mesmo patch do EF Core Design evita duas versões
          do EF Core no grafo (MSB3277) e traz as correções do último patch da linha 10. -->
-    <PackageVersion Include="Microsoft.EntityFrameworkCore" Version="10.0.13" />
-    <PackageVersion Include="Microsoft.EntityFrameworkCore.Relational" Version="10.0.13" />
+    <PackageVersion Include="Microsoft.EntityFrameworkCore" Version="10.0.15" />
+    <PackageVersion Include="Microsoft.EntityFrameworkCore.Relational" Version="10.0.15" />
   </ItemGroup>
 
   <ItemGroup Label="Testes">
