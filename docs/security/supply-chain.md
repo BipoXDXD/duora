@@ -108,11 +108,22 @@ por revisão humana no PR que a cria.
   pacote mudar de licença, o job volta a reprovar.
 - `missingLicenseAllowed`: padrões de pacote que podem aparecer sem licença, com justificativa. Hoje são só os
   binários nativos opcionais por plataforma (rolldown, Tailwind oxide, lightningcss, fsevents): o lockfile lista
-  todos, mas só o da plataforma do runner é instalado, e é dele que a licença é lida e conferida.
+  todos. O pnpm instala os da plataforma do runner e admite também a CPU `wasm32` para materializar o fallback
+  WASI do Rolldown e suas dependências. O Trivy lê as licenças dos manifestos instalados junto ao lockfile.
 - `missingLicenseAllowed` aceita `version` (exata) quando a licença foi lida à mão daquela versão, porque o
   pacote a declara só como arquivo, que o Trivy não lê. Outra versão volta a reprovar: quem atualiza (inclusive o
   PR do Dependabot) relê o `LICENSE` da versão nova e troca o campo, no mesmo PR.
 - Exceção que não casa com nenhum componente gera aviso no resumo; remova-a quando a dependência sair.
+
+O gate completa o CycloneDX do frontend com as dependências que o tarball de
+`@tailwindcss/oxide-wasm32-wasi` empacota. O inventário versionado
+`scripts/supply-chain/npm-bundled-inventory.json` liga as versões e licenças aos hashes dos manifestos instalados e
+à integridade do tarball em `pnpm-lock.yaml`. Componentes já presentes conservam seus registros e o grafo passa
+a vincular as seis dependências ao `bom-ref` do Oxide WASI.
+
+Antes do upload, o CI relê o mesmo CycloneDX e reprova a ausência de componente, vínculo ou licença esperada.
+A allowlist avalia esse arquivo. A política de licenças selada pelo runtime de suporte mantém os bytes aprovados.
+Ao atualizar o Oxide WASI, extraia os manifestos do tarball com integridade conferida e revise o inventário.
 
 Exceções aceitas em 2026-10-15:
 
@@ -241,6 +252,10 @@ for part in backend frontend; do
     -v "$PWD/sbom:/sbom" -w /repo "$trivy_image" fs "$part" --format cyclonedx --include-dev-deps --quiet \
     --skip-dirs '**/bin' --skip-dirs '**/obj' --output "/sbom/sbom-$part.cdx.json"
 done
+python3 scripts/supply-chain/check_bundled_npm.py complete frontend \
+  scripts/supply-chain/npm-bundled-inventory.json sbom/sbom-frontend.cdx.json
+python3 scripts/supply-chain/check_bundled_npm.py check frontend \
+  scripts/supply-chain/npm-bundled-inventory.json sbom/sbom-frontend.cdx.json
 python3 scripts/supply-chain/check_licenses.py scripts/supply-chain/license-policy.json sbom/*.cdx.json
 python3 -m unittest discover -s scripts/supply-chain
 ```

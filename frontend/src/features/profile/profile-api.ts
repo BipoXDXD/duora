@@ -2,12 +2,16 @@ import type { OperationHandle } from '@/shared/session-context'
 import { z } from 'zod'
 import { apiClient, sendMutationForJson } from '@/shared/api'
 import type { components } from '@/shared/api/schema'
-import { isCountryCode, isRegionCode } from './profile-region'
+import { isCountryCode, isRegionCode, type RegionCode } from './profile-region'
 
 type OwnProfileResponse = components['schemas']['OwnProfileResponse']
 type UpdateProfileRequest = components['schemas']['UpdateProfileRequest']
 
 const PROFILE_PATH = '/api/v1/me/profile'
+
+function isLegacyRegionCode(code: string | null): code is Extract<RegionCode, `BR-${string}`> {
+  return code !== null && code.startsWith('BR-') && isRegionCode(code)
+}
 
 const ownProfileSchema = z
   .object({
@@ -20,11 +24,7 @@ const ownProfileSchema = z
     regionCode: z
       .string()
       .nullable()
-      .transform((code) =>
-        code !== null && code.startsWith('BR-') && isRegionCode(code)
-          ? (code as OwnProfileResponse['regionCode'])
-          : null,
-      ),
+      .transform((code) => (isLegacyRegionCode(code) ? code : null)),
     countryCode: z.string().nullable().optional(),
     subdivisionCode: z.string().nullable().optional(),
     version: z.string().regex(/^\d+$/),
