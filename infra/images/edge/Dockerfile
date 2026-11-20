@@ -35,11 +35,12 @@ RUN pnpm build
 # --- Caddy recompilado: mesma versão da imagem oficial, com Go e x/net corrigidos --------------------------------
 # O binário da imagem oficial 2.11.7 foi compilado com Go 1.26.8 e golang.org/x/net 0.59.0, com CVEs HIGH de DoS em
 # HTTP/2 e TLS (CVE-2026-78667, CVE-2026-78669, CVE-2026-97031), justamente na borda pública.
-# Go 1.26.10 também corrige CVE-2026-111943 em crypto/x509, e go-jose 4.1.6 corrige o DoS ao ler JWK com chave RSA
-# (CVE-2026-116587), que vem pelo módulo ACME da 2.11.7. x/net 0.62.0 corrige o DoS em x/net/html (CVE-2026-78661).
+# Go 1.26.11 corrige CVE-2026-97054 em net/http e inclui a correção de CVE-2026-111943 em crypto/x509.
+# go-jose 4.1.6 corrige o DoS ao ler JWK com chave RSA (CVE-2026-116587) no módulo ACME da 2.11.7.
+# x/net 0.62.0 corrige o DoS em x/net/html (CVE-2026-78661).
 # Aplicar os patches resolve sem exceção no .trivyignore. Quando a imagem oficial trouxer o Go corrigido, volte a usar
 # o binário dela e remova este estágio. Compilação cruzada (CGO desligado), sem emulação.
-FROM --platform=$BUILDPLATFORM golang:1.26.10-alpine@sha256:9ce231b28998b32e116927c61aa5c406183061d4f3f2d61b292c88e7f6bdf7ca AS caddy-build
+FROM --platform=$BUILDPLATFORM golang:1.26.11-alpine@sha256:ecb67f987aa1a57794c91d19ade7ae0209f2f0f5496aaef9e6ae85ddf92d02ab AS caddy-build
 ARG TARGETOS
 ARG TARGETARCH
 ENV CGO_ENABLED=0
