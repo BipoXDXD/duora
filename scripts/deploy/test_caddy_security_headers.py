@@ -9,6 +9,7 @@ Sem Docker o teste é pulado:
 
 Com DUORA_TEST_BROWSER=1, roda também a sonda Chromium (test_caddy_browser.cjs), que exige as dependências do
 frontend instaladas e o Chromium do Playwright (`pnpm exec playwright install chromium`).
+DUORA_TEST_APP_FOCUS=1 usa também o bundle em frontend/dist em outro Caddy descartável para a jornada de foco.
 
 A política esperada mora em caddy_test_support.py, compartilhada com o smoke_local.py: mudar a CSP ou a
 Permissions-Policy exige mudá-la no mesmo PR (docs/operations/deploy.md, "Cabeçalhos de segurança da borda").
@@ -175,10 +176,11 @@ class ExpectedPolicyTests(unittest.TestCase):
                    if EXPECTED_PERMISSIONS_POLICY.get(feature) != allowlist}
         self.assertEqual({"camera": "(self)"}, changed)
 
-    def test_only_voice_and_audio_features_are_allowed_and_only_for_the_own_origin(self) -> None:
+    def test_only_documented_features_are_allowed_and_only_for_the_own_origin(self) -> None:
         allowed = {feature: allowlist for feature, allowlist in EXPECTED_PERMISSIONS_POLICY.items()
                    if allowlist != "()"}
-        self.assertEqual({"autoplay": "(self)", "microphone": "(self)", "speaker-selection": "(self)"}, allowed)
+        self.assertEqual({"autoplay": "(self)", "focus-without-user-activation": "(self)",
+                          "microphone": "(self)", "speaker-selection": "(self)"}, allowed)
 
     def test_no_feature_is_both_allowed_and_denied_or_listed_twice(self) -> None:
         self.assertEqual(len(ALLOWED_FEATURES) + len(DENIED_FEATURES), len(EXPECTED_PERMISSIONS_POLICY))
@@ -210,15 +212,9 @@ class CaddySecurityHeadersTests(unittest.TestCase):
         cls.container = f"duora-caddy-headers-{uuid.uuid4().hex[:8]}"
         # Antes do run: um container criado que não sobe também precisa sair.
         cls.addClassCleanup(remove_container, cls.container)
-        # Porta efêmera só no loopback do host: o teste fala HTTPS com o Caddy como o navegador falaria.
-        _run(["docker", "run", "--detach", "--name", cls.container,
-              "--env", "DUORA_DOMAIN=localhost", "--env", "DUORA_TLS=internal",
-              "--add-host", "web:127.0.0.2", "--add-host", "duora-web:127.0.0.1",
-              "--publish", "127.0.0.1::443",
-              "--volume", f"{CADDYFILE}:/etc/caddy/Caddyfile:ro", "--volume", f"{cls.site}:/srv:ro", IMAGE])
+        cls.port = _start_edge(cls.container, Path(cls.site))
         _run(["docker", "exec", "--detach", cls.container, "caddy", "run", "--config",
               "/srv/upstream.Caddyfile", "--adapter", "caddyfile"])
-        cls.port = int(_output(["docker", "port", cls.container, "443/tcp"]).splitlines()[0].rsplit(":", 1)[1])
         cls._wait_ready()
         cls.headers = cls._document_headers()
 
@@ -352,6 +348,8 @@ class CaddySecurityHeadersTests(unittest.TestCase):
                 if path == "/account/selfie?x=1":
                     self.assertTrue(is_exact_policy(other.get("content-security-policy", []), parse_csp,
                                                     EXPECTED_SELFIE_CSP))
+                    self.assertTrue(is_exact_policy(other.get("permissions-policy", []), parse_permissions_policy,
+                                                    EXPECTED_SELFIE_PERMISSIONS_POLICY))
                     continue
                 self.assert_edge_policies(path, other)
 
@@ -397,9 +395,15 @@ class CaddySecurityHeadersTests(unittest.TestCase):
 
     @unittest.skipUnless(os.environ.get("DUORA_TEST_BROWSER") == "1", "sonda de navegador só com DUORA_TEST_BROWSER=1")
     def test_browser_enforces_the_policies(self) -> None:
+        browser_env = dict(os.environ, DUORA_TEST_PORT=str(self.port), DUORA_TEST_FRONTEND=str(REPO / "frontend"))
+        if os.environ.get("DUORA_TEST_APP_FOCUS") == "1":
+            dist = REPO / "frontend" / "dist"
+            self.assertTrue((dist / "index.html").is_file(), "a jornada de foco exige o bundle do frontend")
+            app = f"duora-caddy-focus-{uuid.uuid4().hex[:8]}"
+            self.addCleanup(remove_container, app)
+            browser_env["DUORA_TEST_APP_PORT"] = str(_start_edge(app, dist))
         result = subprocess.run(["node", str(Path(__file__).with_name("test_caddy_browser.cjs"))],
-                                env=dict(os.environ, DUORA_TEST_PORT=str(self.port),
-                                         DUORA_TEST_FRONTEND=str(REPO / "frontend")),
+                                env=browser_env,
                                 capture_output=True, text=True, check=False, timeout=180)
         print(result.stdout, flush=True)
         self.assertEqual(0, result.returncode, result.stderr[-4000:])
@@ -448,6 +452,15 @@ def _write_site(site: Path) -> None:
         audio.setparams((1, 2, 8000, 8000, "NONE", "not compressed"))
         audio.writeframes(b"\x00\x00" * 8000)
     Path(site, "upstream.Caddyfile").write_text(UPSTREAM_CADDYFILE, encoding="utf-8")
+
+
+def _start_edge(container: str, site: Path) -> int:
+    _run(["docker", "run", "--detach", "--name", container,
+          "--env", "DUORA_DOMAIN=localhost", "--env", "DUORA_TLS=internal",
+          "--add-host", "web:127.0.0.2", "--add-host", "duora-web:127.0.0.1",
+          "--publish", "127.0.0.1::443",
+          "--volume", f"{CADDYFILE}:/etc/caddy/Caddyfile:ro", "--volume", f"{site}:/srv:ro", IMAGE])
+    return int(_output(["docker", "port", container, "443/tcp"]).splitlines()[0].rsplit(":", 1)[1])
 
 
 def _run(command: list[str]) -> None:

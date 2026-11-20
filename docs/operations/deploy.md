@@ -1195,7 +1195,7 @@ mudar o Caddyfile sem mudar o teste no mesmo PR falha o job `ops`, e a mudança 
 
 | Capacidade | O que o navegador faz | CSP | Permissions-Policy |
 |---|---|---|---|
-| SPA (React 19, Vite) | módulos e CSS do bundle, sem inline nem eval | `script-src 'self'`, `style-src 'self'`, `font-src 'self'`, `img-src 'self'`, `manifest-src 'self'`; Trusted Types | nenhuma |
+| SPA (React 19, Vite) | módulos e CSS do bundle, sem inline nem eval, com foco na nova rota | `script-src 'self'`, `style-src 'self'`, `font-src 'self'`, `img-src 'self'`, `manifest-src 'self'`; Trusted Types | `focus-without-user-activation=(self)` |
 | API | `fetch()` na mesma origem | `connect-src 'self'` | nenhuma |
 | Hub SignalR | WebSocket na mesma origem | `connect-src wss://<host>` | nenhuma |
 | Fotos | envio por `fetch()` com o corpo cru ([ADR-0025](../architecture/adr/0025-pipeline-de-fotos-imagesharp-s3-outbox.md)); exibição por `<img>` lida pela API ([ADR-0010](../architecture/adr/0010-object-storage-externo-leitura-via-api.md)) | `connect-src 'self'`, `img-src 'self'` | nenhuma |
@@ -1269,6 +1269,7 @@ que também o liga), a resposta da API saía com duas CSPs. A borda também tira
 | `microphone` | `(self)` | `getUserMedia` da voz ao vivo, só no documento da própria origem ([ADR-0028](../architecture/adr/0028-voz-ao-vivo-webrtc-relay-cloudflare-turn.md)). Não concede permissão nem impõe gesto: microfone desligado por padrão e pedido só depois do gesto são regras da SPA, inclusive com permissão já persistida. Frame de outra origem não o recebe, nem com `allow="microphone *"` |
 | `autoplay` | `(self)` | No HTML Living Standard, um elemento de mídia só é *eligible for autoplay* se o documento tiver a feature: o `<audio autoplay>` que recebe a voz da outra pessoa começa a tocar quando ela fala, sem gesto novo. A feature não dispensa a ativação do usuário que o navegador exige para som; mudo por padrão continua regra da SPA ([ADR-0027](../architecture/adr/0027-midia-das-experiencias-cenario-audio-e-3d.md)) |
 | `speaker-selection` | `(self)` | Escolha da saída de áudio da voz ao vivo (fone ou alto-falante). A Audio Output Devices API (W3C) faz `selectAudioOutput()` e `setSinkId()` rejeitarem e esconde as saídas de `enumerateDevices()` quando a feature não é permitida. Liberado por decisão do responsável; nenhum código a usa ainda |
+| `focus-without-user-activation` | `(self)` | O `RouteAnnouncer` move o foco para o título ou o `main` quando a rota termina de carregar (A11Y-02). A troca de rota pode concluir depois do gesto ou após um redirecionamento da sessão. O documento padrão e o da selfie limitam a feature à própria origem |
 | as outras 65 | `()` | Toda feature que o Chromium reconhece numa página comum, conforme `permissions_policy_features.json5` (consultado em 2026-10-19); lista em `DENIED_FEATURES` |
 
 Ficam fora da lista, de propósito:
@@ -1279,17 +1280,16 @@ Ficam fora da lista, de propósito:
   `direct-sockets-multicast`, `smart-card`, `sub-apps`, `usb-unrestricted` e `web-printing` não existem numa página
   comum.
 - **Experimentais que, negadas, quebrariam a SPA**: `autofill` e `manual-text` (autofill e digitação nos
-  formulários de conta), `focus-without-user-activation` (o `RouteAnnouncer` move o foco em toda navegação) e
-  `vertical-scroll` (rolagem e `scrollIntoView`).
+  formulários de conta) e `vertical-scroll` (rolagem e `scrollIntoView`).
 
 Feature que o navegador não conhece gera só um aviso no console (`Unrecognized feature` ou `Origin trial
 controlled feature not enabled`) e passa a valer quando ele a reconhecer. No Chromium 156 são 13: `ambient-light-sensor`,
 `device-attributes`, `execution-while-not-rendered`, `execution-while-out-of-viewport`, `haptics`,
 `publickey-credentials-remote-client-data-json`, `rewriter`, `tools`, `unbounded-element`, `web-app-installation`,
 `web-share`, `webnn` e `writer`. Só o Chromium lê o cabeçalho `Permissions-Policy` (MDN BCD: Firefox e Safari
-não); neles valem o pedido de permissão do navegador e a CSP. A lista envelhece: a sonda de navegador afirma
-que `document.featurePolicy.allowedFeatures()` é exatamente `autoplay`, `microphone` e `speaker-selection`, então
-uma feature nova do Chromium com padrão `self` a faz falhar, quando ela roda, e pede a revisão da lista.
+não); neles valem o pedido de permissão do navegador e a CSP. A sonda verifica a lista exata de features
+efetivas. Ela inclui `focus-without-user-activation` quando o Chromium a reconhece e `camera` apenas no documento
+da selfie. Uma nova feature liberada pelo padrão do navegador faz a sonda falhar e pede revisão da lista.
 
 ### 3D em tempo real: o que foi medido
 
@@ -1320,7 +1320,7 @@ lugar do web, e fala HTTPS com ele pela porta publicada só no loopback, confian
   `/health` e `/openapi`, API (200, 401, 403, 500), hub (200, 401, 404), webhook e 502 com o upstream parado;
 - nenhuma fonte curinga, `'unsafe-*'`, `'wasm-unsafe-eval'`, esquema genérico, `http:` ou esquema local, exceto
   `blob:` em `connect-src`; nenhuma diretiva `webrtc`;
-- só `autoplay`, `microphone` e `speaker-selection` liberados, e só para `self`;
+- só as features da tabela liberadas para `self`, com a câmera também restrita a `self` no documento da selfie;
 - upstream que manda CSP e `Permissions-Policy` próprias não troca nem duplica as da borda;
 - erros da borda com `no-store`; mídia com o tipo certo, cache imutável, sem `Content-Encoding` e `206` a `Range`.
 
@@ -1336,9 +1336,11 @@ A sonda confere, com captura sintética e sem TURN: mídia e Web Audio da própr
 bloqueados; `fetch(blob:)` permitido; Trusted Types recusando string em `innerHTML` e qualquer política além de
 uma `lit-html`; as features permitidas exatas; tela cheia e câmera negadas pela política; microfone negado e
 concedido sem gesto exigido pela política; `MediaStream` no `<audio>` sem fonte na CSP; ICE coletado apesar de
-`default-src 'none'`; frame de outra origem sem microfone mesmo com `allow`. A sonda não roda no CI: o job `ops`
-não tem navegador, e acrescentá-lo é mudança de workflow, em PR próprio. O e2e do frontend roda no `vite
-preview`, sem a CSP da borda.
+`default-src 'none'`; frame de outra origem sem microfone ou permissão de foco mesmo com `allow`. O projeto
+`edge-csp-probe` do Playwright executa a sonda com Caddy real no job `e2e`. O mesmo projeto serve o bundle da SPA
+em outro Caddy descartável e verifica o skip link, o foco e o anúncio após navegação lazy sem ativação, o retorno
+de foco ao cancelar a confirmação do MFA e a troca de documento na entrada e na saída da selfie. A API dessas
+jornadas é sintética. O job `ops` verifica os cabeçalhos via HTTPS e a cópia selada do host.
 
 Fontes: W3C CSP Level 3 (Editor's Draft: 2.3.1, 4.3, 6.1.2, 6.1.3, 6.1.8, 6.1.14, 6.2.1, 6.2.2, 6.7.2.8, 6.7.3.3 e 6.8.3); W3C Trusted
 Types; W3C Permissions Policy e a lista de features do repositório `w3c/webappsec-permissions-policy`;
