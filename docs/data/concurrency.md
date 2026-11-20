@@ -443,21 +443,31 @@ improvisado (spec 10.5; D-EF-04). A lista de erros transitórios da estratégia 
 
 Spec 10.6: até 8 tentativas, backoff exponencial com jitter e teto de 15 min.
 
-| Tentativa | Atraso-base | Atraso aplicado |
+Com os valores padrão do consumidor de e-mail (`Outbox`), a espera após uma tentativa que falhou segue a tabela.
+
+| Tentativa que falhou | Atraso-base | Atraso até a próxima tentativa |
 |---|---|---|
-| 1 | 15 s | entre 7,5 s e 15 s |
-| 2 | 30 s | entre 15 s e 30 s |
-| 3 | 1 min | entre 30 s e 1 min |
-| 4 | 2 min | entre 1 e 2 min |
-| 5 | 4 min | entre 2 e 4 min |
-| 6 | 8 min | entre 4 e 8 min |
+| 1 | 30 s | entre 15 s e 30 s |
+| 2 | 1 min | entre 30 s e 1 min |
+| 3 | 2 min | entre 1 e 2 min |
+| 4 | 4 min | entre 2 e 4 min |
+| 5 | 8 min | entre 4 e 8 min |
+| 6 | 15 min (teto) | entre 7,5 e 15 min |
 | 7 | 15 min (teto) | entre 7,5 e 15 min |
 | 8 | — | Última; falhou → `Failed` |
 
-Atraso aplicado = metade do atraso-base mais um valor aleatório até a outra metade (jitter que nunca zera a
-espera) **(proposta)**. `429` ou `503` do fornecedor com `Retry-After` substitui o atraso calculado, limitado
-ao deadline. Erro definitivo (`4xx` de validação, destinatário inválido, assinatura rejeitada) vai direto a
-`Failed`. Deadline vencido → `Expired`, nunca envio atrasado (notificação de convite não sai dias depois).
+O atraso aplicado é metade do atraso-base mais um valor aleatório de até a outra metade. Esse jitter mantém
+a espera acima de zero.
+
+Se o payload falhar na validação durante a composição do e-mail, a entrega passa imediatamente a `Failed`.
+Exceções HTTP durante o envio seguem o backoff da tabela e encerram a entrega como `Failed` se o limite de
+tentativas for atingido.
+
+Ainda são propostas duas mudanças para respostas do fornecedor. Em `429` ou `503`, usar `Retry-After`
+no lugar do atraso calculado, respeitando o prazo da entrega. Para respostas `4xx` classificadas como
+falhas definitivas, encerrar a entrega imediatamente como `Failed`.
+
+Se o prazo já venceu quando o dispatcher processa a entrega, ela passa a `Expired` antes do envio.
 `Failed` entra na fila de revisão com causa sanitizada; reprocessar exige permissão, chave de operação e nova
 verificação de elegibilidade (API-ADM20).
 
